@@ -27,7 +27,7 @@ async fn main() -> RsWebhookResult<()> {
     let config = EnvVarConfig::from_env();
     TracingSetup::setup(&config)?;
     let recorder = metrics_cloudwatch_embedded::Builder::new()
-        .cloudwatch_namespace("RefSync/Webhook")
+        .cloudwatch_namespace("buildplane/webhook")
         .with_dimension(
             "function",
             config.lambda_function_name(DEFAULT_FUNCTION_NAME)?,
