@@ -51,7 +51,6 @@ FROM base AS builder
 WORKDIR /app
 COPY ./crates ./crates
 COPY ./proto ./proto
-COPY ./runner ./runner
 COPY ./Cargo.lock ./Cargo.lock
 COPY ./Cargo.toml ./Cargo.toml
 
@@ -62,11 +61,11 @@ RUN cargo lambda build --manifest-path ./crates/agent/Cargo.toml --release
 FROM base AS build-agent
 
 WORKDIR ${LAMBDA_RUNTIME_DIR}
-COPY --from=builder target/lambda/build-agent/bootstrap .
-COPY ./runner ./runner
+COPY --from=builder /app/target/lambda/buildplane-agent/bootstrap .
+COPY ./crates ./crates
 COPY ./Cargo.lock ./Cargo.lock
 COPY ./Cargo.toml ./Cargo.toml
 
-RUN cargo lambda build --manifest-path ./runner/Cargo.toml --target=wasm32-wasip1 --release
+RUN cargo lambda build --manifest-path ./crates/runner/Cargo.toml --target=wasm32-wasip1 --release
 
 CMD ["bootstrap"]
