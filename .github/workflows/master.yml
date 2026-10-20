@@ -1,11 +1,11 @@
-name: Build master and update lambda
+name: Build and Deploy
 
 on:
   push:
     branches: master
 
 jobs:
-  build-lambda:
+  build-and-deploy:
     runs-on: ubuntu-latest
     permissions:
       contents: read
