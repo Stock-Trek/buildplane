@@ -42,8 +42,8 @@ impl TradingPrecision {
             value_as_decimal
         } else {
             let step_count = value_as_decimal / step;
-            step_count.round_dp_with_strategy(0, strategy)
+            step_count.round_dp_with_strategy(0, strategy) * step
         };
-        (rounded_value * step).clamp(min, max)
+        rounded_value.clamp(min, max)
     }
 }
