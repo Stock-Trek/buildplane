@@ -6,10 +6,8 @@ edition.workspace = true
 [dependencies]
 bimap.workspace = true
 buildplane-exchange-types = { path = "../exchange-types" }
-buildplane-shared = { path = "../shared" }
 rust_decimal.workspace = true
 serde.workspace = true
-serde_with.workspace = true
 stock-trek-types.workspace = true
 thiserror.workspace = true
 uuid.workspace = true

@@ -13,14 +13,12 @@ async-trait = "0.1"
 aws-config = "1"
 aws-credential-types = "1"
 aws_lambda_events = { version = "1", default-features = false, features = ["sqs"] }
-aws-sdk-dynamodb = "1"
 aws-sdk-ecs = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"] }
 aws-sdk-s3 = "1"
 aws-sdk-s3-transfer-manager = "0.2"
 aws-sdk-sqs = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"] }
 aws-sigv4 = "1"
 aws-smithy-runtime-api = "1"
-aws-smithy-types = "1"
 axum = "0.8"
 base64 = "0.23"
 bimap = "0.6"
@@ -29,7 +27,6 @@ bytes = "1"
 chrono = { version = "0.4", features = ["serde"] }
 data-encoding = "2"
 ed25519-compact = "2"
-flate2 = "1"
 futures = "0.3"
 futures-timer = "3"
 hex = "0.4"
@@ -40,7 +37,6 @@ iris = { version = "1", registry = "shipyard" }
 jsonwebtoken = { version = "10", default-features = false, features = ["use_pem"] }
 lambda_http = { version = "1", features = ["pass_through"] }
 lambda_runtime = "1"
-libc = "0.2"
 lru = "0.18"
 metrics = "0.24"
 metrics_cloudwatch_embedded = { version = "0.10", features = ["lambda"] }
@@ -51,7 +47,6 @@ parking_lot = "0.12"
 parquet = { version = "60", features = ["async"] }
 prost = "0.14"
 prost-build = "0.14"
-prost-types = "0.14"
 protoc-bin-vendored = "3"
 query-params = { version = "2", registry = "shipyard" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
@@ -66,7 +61,6 @@ stock-trek = "0.14"
 stock-trek-types = "0.4"
 strum = { version = "0.28", features = ["derive"] }
 subtle = "2"
-tar = "0.4"
 tempfile = "3"
 thiserror = "2"
 time = "0.3"

@@ -1064,7 +1064,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "urlencoding",
 ]
 
 [[package]]
@@ -1073,12 +1072,10 @@ version = "0.1.1"
 dependencies = [
  "async-trait",
  "buildplane-exchange-types",
- "buildplane-shared",
  "futures-timer",
  "httpdate",
  "iris",
  "reqwest 0.12.28",
- "serde",
  "serde_json",
  "strum",
  "thiserror",
@@ -1091,27 +1088,13 @@ dependencies = [
 name = "buildplane-exchange-types"
 version = "0.1.1"
 dependencies = [
- "aws-config",
- "aws-credential-types",
- "aws-sigv4",
- "aws-smithy-runtime-api",
- "base64 0.23.1",
  "bs58",
- "buildplane-shared",
  "data-encoding",
  "ed25519-compact",
- "hex",
  "hmac 0.13.0",
- "http 1.5.0",
- "lambda_http",
- "lru",
- "metrics",
- "metrics_cloudwatch_embedded",
  "p256",
  "p384",
- "parking_lot",
  "query-params",
- "reqwest 0.12.28",
  "rsa",
  "rust_decimal",
  "secrecy",
@@ -1120,11 +1103,7 @@ dependencies = [
  "serde_with",
  "sha2 0.11.1",
  "strum",
- "subtle",
  "thiserror",
- "tokio",
- "tracing",
- "urlencoding",
 ]
 
 [[package]]
@@ -1148,10 +1127,8 @@ dependencies = [
  "metrics",
  "metrics_cloudwatch_embedded",
  "reqwest 0.12.28",
- "serde",
  "serde_json",
  "sha2 0.11.1",
- "strum",
  "thiserror",
  "time",
  "tokio",
@@ -1164,10 +1141,8 @@ dependencies = [
 name = "buildplane-proto-gen"
 version = "0.1.1"
 dependencies = [
- "prost",
  "prost-build",
  "protoc-bin-vendored",
- "serde",
 ]
 
 [[package]]
@@ -1175,13 +1150,11 @@ name = "buildplane-runner"
 version = "0.1.1"
 dependencies = [
  "buildplane-exit-codes",
- "chrono",
  "prost",
  "rust_decimal",
  "serde",
  "serde_json",
  "stock-trek",
- "uuid",
 ]
 
 [[package]]
@@ -1212,10 +1185,8 @@ version = "0.1.1"
 dependencies = [
  "bimap",
  "buildplane-exchange-types",
- "buildplane-shared",
  "rust_decimal",
  "serde",
- "serde_with",
  "stock-trek-types",
  "thiserror",
  "uuid",
