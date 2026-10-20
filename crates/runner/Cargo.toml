@@ -7,7 +7,7 @@ edition.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-buildplane-exit-codes = { path = "../crates/exit_codes" }
+buildplane-exit-codes = { path = "../exit_codes" }
 prost.workspace = true
 rust_decimal.workspace = true
 serde.workspace = true
