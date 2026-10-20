@@ -62,7 +62,8 @@ FROM base AS build-agent
 
 WORKDIR ${LAMBDA_RUNTIME_DIR}
 COPY --from=builder /app/target/lambda/buildplane-agent/bootstrap .
-COPY ./crates ./crates
+COPY ./crates/exit_codes ./crates/exit_codes
+COPY ./crates/runner ./crates/runner
 COPY ./Cargo.lock ./Cargo.lock
 COPY ./Cargo.toml ./Cargo.toml
 
