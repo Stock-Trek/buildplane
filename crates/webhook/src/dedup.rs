@@ -1,7 +1,7 @@
 use crate::error::RsWebhookResult;
+use buildplane_shared::env_vars::EnvVarConfig;
 use lru::LruCache;
 use parking_lot::Mutex;
-use buildplane_shared::env_vars::EnvVarConfig;
 use std::{
     num::NonZeroUsize,
     sync::Arc,

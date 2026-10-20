@@ -19,7 +19,6 @@ use crate::{
     event_response::EventResponse,
     infisical::secrets::Secrets,
 };
-use hmac::{Hmac, KeyInit, Mac};
 use buildplane_shared::{
     env_vars::EnvVarConfig,
     errors::{config::RsConfigError, error::RsSharedError},
@@ -27,6 +26,7 @@ use buildplane_shared::{
     metrics::event::EventMetrics,
     sqs_message::{GitSource, SqsDetail, SqsMessage, SqsRefType},
 };
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
 

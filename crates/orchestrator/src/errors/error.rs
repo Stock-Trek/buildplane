@@ -2,8 +2,8 @@ use crate::errors::{
     archive::RsArchiveError, run_task::RsRunTaskError, s3_presign::RsS3PresignError,
 };
 use aws_sdk_ecs::operation::run_task::RunTaskError;
-use lambda_runtime::Diagnostic;
 use buildplane_shared::errors::{error::RsSharedError, retryability::Retryability};
+use lambda_runtime::Diagnostic;
 
 pub type RsOrchestratorResult<T> = Result<T, RsOrchestratorError>;
 

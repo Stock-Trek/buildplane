@@ -5,13 +5,13 @@ use aws_credential_types::{
     provider::{ProvideCredentials, SharedCredentialsProvider},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use hmac::{Hmac, KeyInit, Mac};
 use buildplane_shared::{
     deadline::Deadline,
     env_vars::{EnvVarConfig, S3_SIGNED_URL_EXPIRY},
     errors::{config::RsConfigError, error::RsSharedError, timeout::RsTimeoutError},
     timeouts::Timeouts,
 };
+use hmac::{Hmac, KeyInit, Mac};
 use reqwest::Client;
 use serde_json::json;
 use sha2::{Digest, Sha256};

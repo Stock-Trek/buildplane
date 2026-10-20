@@ -4,11 +4,11 @@ use crate::{
     sqs_handler::SqsHandler,
 };
 use aws_lambda_events::event::sqs::SqsEvent;
-use lambda_runtime::{LambdaEvent, service_fn};
-use metrics_cloudwatch_embedded::lambda::service::run;
 use buildplane_shared::{
     env_vars::EnvVarConfig, metrics::descriptions::DescriptionsMetrics, tracing_setup::TracingSetup,
 };
+use lambda_runtime::{LambdaEvent, service_fn};
+use metrics_cloudwatch_embedded::lambda::service::run;
 use std::sync::Arc;
 
 mod aws_ops;

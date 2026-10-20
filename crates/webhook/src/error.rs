@@ -1,8 +1,8 @@
 use aws_credential_types::provider::error::CredentialsError;
 use aws_sigv4::{http_request::SigningError, sign::v4::signing_params::BuildError};
+use buildplane_shared::errors::{error::RsSharedError, retryability::Retryability};
 use http::header::{InvalidHeaderName, InvalidHeaderValue, ToStrError};
 use lambda_http::lambda_runtime::Diagnostic;
-use buildplane_shared::errors::{error::RsSharedError, retryability::Retryability};
 use std::time::Duration;
 
 const HTTP_REQUEST_TIMEOUT: u16 = 408;

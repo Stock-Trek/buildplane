@@ -2,8 +2,6 @@ use crate::{
     context::RsOrchestratorContext, errors::error::RsOrchestratorResult, tasks::task::Task,
 };
 use aws_lambda_events::event::sqs::{SqsBatchResponse, SqsEvent, SqsMessage as SqsRecord};
-use futures::{StreamExt, stream};
-use lambda_runtime::LambdaEvent;
 use buildplane_shared::{
     deadline::Deadline,
     errors::{
@@ -13,6 +11,8 @@ use buildplane_shared::{
     request_context::RequestContext,
     sqs_message::SqsMessage,
 };
+use futures::{StreamExt, stream};
+use lambda_runtime::LambdaEvent;
 
 pub struct SqsHandler;
 

@@ -2,8 +2,8 @@ use crate::{
     dto::github::github_event_converter::GitHubEventConverter, error::RsWebhookResult,
     event_response::EventResponse, infisical::secrets::Secrets,
 };
-use lambda_http::Request;
 use buildplane_shared::env_vars::EnvVarConfig;
+use lambda_http::Request;
 
 pub trait EventConverter: Send + Sync {
     fn new(secrets: &Secrets, config: &EnvVarConfig) -> RsWebhookResult<Self>

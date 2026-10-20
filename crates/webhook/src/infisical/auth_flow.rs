@@ -13,12 +13,12 @@ use aws_sigv4::http_request::{
 };
 use aws_smithy_runtime_api::client::identity::Identity;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use http::{HeaderMap, HeaderName, HeaderValue, Method};
 use buildplane_shared::{
     deadline::Deadline,
     errors::{error::RsSharedError, timeout::RsTimeoutError},
     timeouts::Timeouts,
 };
+use http::{HeaderMap, HeaderName, HeaderValue, Method};
 use std::{
     collections::{BTreeMap, HashMap},
     str::FromStr,
