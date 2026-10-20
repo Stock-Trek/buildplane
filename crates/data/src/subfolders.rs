@@ -100,11 +100,13 @@ impl SubFolders {
                 })
                 .map(|day| day as i32)
                 .collect()),
-            Quantization::Month(top_of_month) => Ok(if (month - 1) % top_of_month as u32 == 0 {
-                vec![1]
-            } else {
-                Vec::new()
-            }),
+            Quantization::Month(top_of_month) => {
+                Ok(if (month - 1).is_multiple_of(top_of_month as u32) {
+                    vec![1]
+                } else {
+                    Vec::new()
+                })
+            }
             Quantization::Year => Ok(if month == 1 { vec![1] } else { Vec::new() }),
         }
     }
