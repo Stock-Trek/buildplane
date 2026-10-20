@@ -57,13 +57,14 @@ mod tests {
         ProtoGen::generate(&root.join("proto"), &out_dir).expect("failed to generate DTOs");
 
         for name in ["dto.rs", "mod.rs"] {
-            let expected = std::fs::read_to_string(root.join("runner/src/generated").join(name))
-                .unwrap_or_else(|error| panic!("failed to read checked-in {name}: {error}"));
+            let expected =
+                std::fs::read_to_string(root.join("crates/runner/src/generated").join(name))
+                    .unwrap_or_else(|error| panic!("failed to read checked-in {name}: {error}"));
             let actual = std::fs::read_to_string(out_dir.join(name))
                 .unwrap_or_else(|error| panic!("failed to read generated {name}: {error}"));
             assert_eq!(
                 expected, actual,
-                "runner/src/generated/{name} is out of date; run `cargo run -p proto-gen`"
+                "crates/runner/src/generated/{name} is out of date; run `cargo run -p proto-gen`"
             );
         }
 
