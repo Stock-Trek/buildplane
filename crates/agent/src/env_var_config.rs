@@ -28,11 +28,12 @@ pub struct EnvVarConfig {
 
 impl EnvVarConfig {
     pub fn from_env() -> BaResult<Self> {
+        let build_timeout = Self::build_timeout_from_env()?;
         Ok(Self {
             address: Self::address_from_env()?,
-            build_timeout: Self::build_timeout_from_env()?,
+            build_timeout,
             log_filter: Self::log_filter_from_env()?,
-            signed_post: Self::signed_post_from_env()?,
+            signed_post: Self::signed_post_from_env(build_timeout)?,
         })
     }
 
@@ -77,10 +78,10 @@ impl EnvVarConfig {
         }
     }
 
-    fn signed_post_from_env() -> BaResult<SignedPost> {
+    fn signed_post_from_env(timeout: Duration) -> BaResult<SignedPost> {
         let url = Self::required(SIGNED_POST_URL_ENV)?;
         let fields = Self::required(SIGNED_POST_FIELDS_ENV)?;
-        SignedPost::new(url, Self::parse_signed_post_fields(&fields)?)
+        SignedPost::new(url, Self::parse_signed_post_fields(&fields)?, timeout)
     }
 
     fn parse_signed_post_fields(json: &str) -> BaResult<BTreeMap<String, String>> {
