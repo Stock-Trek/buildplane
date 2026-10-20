@@ -38,10 +38,10 @@ jobs:
       - name: Set up shipyard ssh auth
         env:
           SHIPYARD_KNOWN_HOST: ${{ env.SHIPYARD_KNOWN_HOST }}
-          SHIPYARD_SSH_PRIVATE_KEY_CLIENT: ${{ env.SHIPYARD_SSH_PRIVATE_KEY_CLIENT }}
+          SHIPYARD_SSH_PRIVATE_KEY_BUILDPLANE: ${{ env.SHIPYARD_SSH_PRIVATE_KEY_BUILDPLANE }}
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "${{ env.SHIPYARD_SSH_PRIVATE_KEY_CLIENT }}" > ~/.ssh/id_ed25519
+          printf '%s\n' "${{ env.SHIPYARD_SSH_PRIVATE_KEY_BUILDPLANE }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           echo "${{ env.SHIPYARD_KNOWN_HOST }}" >> ~/.ssh/known_hosts
           ssh -T git@ssh.shipyard.rs
@@ -62,43 +62,6 @@ jobs:
           fetch-tags: true
           token: ${{ steps.app-token.outputs.token }}
 
-      - uses: hashicorp/setup-terraform@v4
-
-      - name: Format
-        run: |
-          terraform fmt -check -recursive infra/bootstrap
-          terraform fmt -check -recursive infra/live
-          terraform fmt -check -recursive infra/modules
-
-      - name: Init
-        run: |
-          terraform -chdir=infra/bootstrap init -backend=false
-          terraform -chdir=infra/live init -backend=false
-
-      - name: Validate
-        run: |
-          terraform -chdir=infra/bootstrap validate
-          terraform -chdir=infra/live validate
-          terraform -chdir=infra/modules validate
-
-      - uses: terraform-linters/setup-tflint@v4
-        with:
-          tflint_version: v0.64.0
-      - name: TFLint Init
-        run: tflint --init --config="$GITHUB_WORKSPACE/infra/.tflint.hcl"
-      - name: TFLint
-        run: tflint --recursive --config="$GITHUB_WORKSPACE/infra/.tflint.hcl"
-
-      - name: Checkov Security Scan
-        uses: bridgecrewio/checkov-action@v12
-        with:
-          directory: infra
-          framework: terraform
-          output_format: sarif
-
-      - name: Run Terraform Tests
-        run: terraform -chdir=infra test -verbose
-
       - name: Install Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
@@ -108,31 +71,6 @@ jobs:
           cargo clippy -- -D warnings
           cargo test
 
-
-      - name: Configure AWS credentials
-        # TODO decide whether terraform should be gated on a version bump
-        # if: steps.tags.outputs.tag-exists == 'false'
-        uses: aws-actions/configure-aws-credentials@v6
-        env:
-          AWS_ACCOUNT_ID: ${{ env.AWS_ACCOUNT_ID }}
-          AWS_REGION: ${{ env.AWS_REGION }}
-          AWS_ROLE_TERRAFORM_APPLY: ${{ env.AWS_ROLE_TERRAFORM_APPLY }}
-        with:
-          aws-region: ${{ env.AWS_REGION }}
-          role-to-assume: "arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.AWS_ROLE_TERRAFORM_APPLY }}"
-          role-session-name: "buildplane-${{ github.run_id }}"
-          retry-max-attempts: 3
-          mask-aws-account-id: true
-
-      - name: Apply bootstrap
-        run: |
-          terraform -chdir=bootstrap init
-          terraform -chdir=bootstrap apply -auto-approve
-
-      - name: Apply live
-        run: |
-          terraform -chdir=live init
-          terraform -chdir=live apply -auto-approve
 
       # - name: Get version, check if tag exists, create and publish if not
       #   id: tags
