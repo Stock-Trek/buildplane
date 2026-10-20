@@ -1,0 +1,26 @@
+[package]
+name = "buildplane-data"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+arrow-array.workspace = true
+arrow-schema.workspace = true
+aws-config.workspace = true
+aws-sdk-s3.workspace = true
+aws-sdk-s3-transfer-manager.workspace = true
+bytes.workspace = true
+buildplane-exchange-gateway = { path = "../exchange-gateway" }
+buildplane-exchange-types = { path = "../exchange-types" }
+buildplane-type-bridge = { path = "../type-bridge" }
+chrono.workspace = true
+futures.workspace = true
+lambda_runtime.workspace = true
+parquet.workspace = true
+serde_json.workspace = true
+stock-trek-types.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+urlencoding.workspace = true

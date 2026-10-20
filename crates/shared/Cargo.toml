@@ -1,0 +1,22 @@
+[package]
+name = "buildplane-shared"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+aws-config.workspace = true
+aws-sdk-sqs.workspace = true
+base64.workspace = true
+jsonwebtoken.workspace = true
+lru.workspace = true
+metrics.workspace = true
+octocrab.workspace = true
+parking_lot.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+strum.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+url.workspace = true

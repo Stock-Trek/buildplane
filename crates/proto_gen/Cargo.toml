@@ -1,0 +1,13 @@
+[package]
+name = "buildplane-proto-gen"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+prost.workspace = true
+prost-build.workspace = true
+protoc-bin-vendored.workspace = true
+serde.workspace = true

@@ -1,0 +1,113 @@
+use crate::{
+    aws_ops::build_request::BuildRequest,
+    errors::error::{RsOrchestratorError, RsOrchestratorResult},
+    errors::run_task::{RsRunTaskError, TaskFailure},
+};
+use aws_config::SdkConfig;
+use aws_sdk_ecs::{
+    Client as EcsClient,
+    types::{LaunchType, TaskOverride},
+};
+use buildplane_shared::{
+    deadline::Deadline,
+    env_vars::EnvVarConfig,
+    errors::{error::RsSharedError, timeout::RsTimeoutError},
+    timeouts::Timeouts,
+};
+
+pub struct EcsConfig {
+    pub cluster_arn: String,
+    pub container_name: String,
+    pub task_definition_arn: String,
+}
+
+impl EcsConfig {
+    pub fn from_env(config: &EnvVarConfig) -> RsOrchestratorResult<Self> {
+        Ok(Self {
+            cluster_arn: config.build_agent_cluster_arn()?,
+            container_name: config.build_agent_container_name()?,
+            task_definition_arn: config.build_agent_task_definition_arn()?,
+        })
+    }
+}
+
+pub struct Ecs {
+    client: EcsClient,
+    config: EcsConfig,
+    timeouts: Timeouts,
+}
+
+impl Ecs {
+    pub fn new(client: EcsClient, timeouts: Timeouts, config: EcsConfig) -> Self {
+        Self {
+            client,
+            config,
+            timeouts,
+        }
+    }
+
+    pub fn from_env(
+        sdk_config: &SdkConfig,
+        timeouts: Timeouts,
+        config: &EnvVarConfig,
+    ) -> RsOrchestratorResult<Self> {
+        Ok(Self::new(
+            EcsClient::new(sdk_config),
+            timeouts,
+            EcsConfig::from_env(config)?,
+        ))
+    }
+    pub async fn run_build(
+        &self,
+        request: BuildRequest,
+        deadline: Deadline,
+    ) -> RsOrchestratorResult<()> {
+        let client_token = request.client_token()?;
+        let container_override = request.container(&self.config.container_name)?;
+        let overrides = TaskOverride::builder()
+            .container_overrides(container_override)
+            .build();
+        tracing::info!(
+            cluster = %self.config.cluster_arn,
+            task_definition = %self.config.task_definition_arn,
+            "Starting build agent task"
+        );
+        let timeout = self.timeouts.operation_timeout(deadline)?;
+        let output = tokio::time::timeout(
+            timeout,
+            self.client
+                .run_task()
+                .cluster(self.config.cluster_arn.as_str())
+                .task_definition(self.config.task_definition_arn.as_str())
+                .launch_type(LaunchType::Fargate)
+                .overrides(overrides)
+                .client_token(client_token)
+                .send(),
+        )
+        .await
+        .map_err(|_| {
+            RsSharedError::Timeout(RsTimeoutError::Operation {
+                operation: "ECS run_task",
+            })
+        })?
+        .map_err(|error| Box::new(error.into_service_error()))?;
+        let failures = output
+            .failures()
+            .iter()
+            .map(|failure| TaskFailure {
+                arn: failure.arn().map(str::to_owned),
+                reason: failure.reason().map(str::to_owned),
+                detail: failure.detail().map(str::to_owned),
+            })
+            .collect::<Vec<_>>();
+        if !failures.is_empty() {
+            return Err(RsOrchestratorError::RunTaskFailure(
+                RsRunTaskError::Failures(failures),
+            ));
+        }
+        if output.tasks().is_empty() {
+            return Err(RsOrchestratorError::RunTaskFailure(RsRunTaskError::NoTasks));
+        }
+        Ok(())
+    }
+}

@@ -1,0 +1,182 @@
+use crate::error::{EGError, EGResult};
+use buildplane_exchange_types::new_types::{Nanoseconds, UsageCount};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
+
+const MAX_THROTTLE_AFTER: Duration = Duration::from_secs(u32::MAX as u64);
+
+#[derive(Clone)]
+pub struct RateLimiterState {
+    interval_nanos: Nanoseconds,
+    capacity_per_interval: UsageCount,
+    current_capacity: UsageCount,
+    last_calculation: Instant,
+    excess_interval_nanos: Nanoseconds,
+    throttled_until: Option<Instant>,
+    now: Arc<dyn Fn() -> Instant + Send + Sync>,
+}
+
+impl RateLimiterState {
+    pub fn try_new(
+        interval_nanos: Nanoseconds,
+        capacity_per_interval: UsageCount,
+    ) -> EGResult<Self> {
+        Self::with_clock(
+            interval_nanos,
+            capacity_per_interval,
+            Arc::new(Instant::now),
+        )
+    }
+    pub(crate) fn with_clock(
+        interval_nanos: Nanoseconds,
+        capacity_per_interval: UsageCount,
+        now: Arc<dyn Fn() -> Instant + Send + Sync>,
+    ) -> EGResult<Self> {
+        if interval_nanos <= Nanoseconds::ZERO {
+            return Err(EGError::InvalidRateLimitInterval);
+        }
+        if capacity_per_interval <= UsageCount::ZERO {
+            return Err(EGError::InvalidRateLimitCapacity);
+        }
+        Ok(Self {
+            interval_nanos,
+            capacity_per_interval,
+            current_capacity: capacity_per_interval,
+            last_calculation: now(),
+            excess_interval_nanos: Nanoseconds::ZERO,
+            throttled_until: None,
+            now,
+        })
+    }
+    pub fn interval_nanos(&self) -> Nanoseconds {
+        self.interval_nanos
+    }
+    pub fn capacity_per_interval(&self) -> UsageCount {
+        self.capacity_per_interval
+    }
+    pub fn cost_exceeds_capacity(&self, cost: UsageCount) -> bool {
+        cost > self.capacity_per_interval
+    }
+    pub fn remaining_capacity(&mut self) -> UsageCount {
+        self.update_capacity();
+        self.current_capacity
+    }
+    pub fn did_consume(&mut self, cost: UsageCount) -> EGResult<()> {
+        if self.cost_exceeds_capacity(cost) {
+            return Err(EGError::RequestExceedsRateLimit {
+                cost,
+                capacity: self.capacity_per_interval,
+                interval_nanos: self.interval_nanos,
+            });
+        }
+        if self.is_throttled() {
+            return Err(EGError::RateLimited);
+        }
+        if self.did_quick_consume(cost) {
+            Ok(())
+        } else {
+            self.update_capacity();
+            if self.did_quick_consume(cost) {
+                Ok(())
+            } else {
+                Err(EGError::RateLimited)
+            }
+        }
+    }
+    pub fn refund(&mut self, cost: UsageCount) {
+        self.current_capacity = (self.current_capacity + cost).min(self.capacity_per_interval);
+    }
+    pub fn throttle(&mut self, until: Instant) {
+        self.current_capacity = UsageCount::ZERO;
+        self.throttled_until = Some(until);
+    }
+    pub(crate) fn throttle_after(&mut self, duration: Duration) {
+        self.throttle(self.now() + duration.min(MAX_THROTTLE_AFTER));
+    }
+    pub fn sync_usage(&mut self, used: Option<UsageCount>, limit: Option<UsageCount>) {
+        if let Some(limit) = limit {
+            self.capacity_per_interval = limit;
+        }
+        match (used, limit) {
+            (Some(used), Some(limit)) => {
+                if self.is_throttled() {
+                    // Still inside the Retry-After window: keep the bucket
+                    // empty so it refills from the deadline instead of
+                    // instantly granting limit - used.
+                    self.current_capacity = UsageCount::ZERO;
+                } else {
+                    // The deadline has passed (or there was none): realign to
+                    // the server-reported usage. Clear the stale deadline so
+                    // the next refill doesn't bank capacity from before the
+                    // feedback arrived.
+                    self.throttled_until = None;
+                    self.current_capacity = self.capacity_per_interval - used.min(limit);
+                }
+            }
+            (Some(used), None) => {
+                let remaining = self.capacity_per_interval - used.min(self.capacity_per_interval);
+                self.current_capacity = self.current_capacity.min(remaining);
+            }
+            (None, Some(limit)) => {
+                self.current_capacity = self.current_capacity.min(limit);
+            }
+            (None, None) => {}
+        }
+        self.last_calculation = self.now();
+        self.excess_interval_nanos = Nanoseconds::ZERO;
+    }
+
+    fn now(&self) -> Instant {
+        (self.now)()
+    }
+    pub(crate) fn is_throttled(&self) -> bool {
+        self.throttled_until
+            .is_some_and(|throttled_until| self.now() < throttled_until)
+    }
+    fn did_quick_consume(&mut self, cost: UsageCount) -> bool {
+        if cost > self.capacity_per_interval {
+            return false;
+        }
+        let consumed = self.current_capacity >= cost;
+        if consumed {
+            self.current_capacity -= cost;
+        }
+        consumed
+    }
+    fn update_capacity(&mut self) {
+        let now = self.now();
+        if let Some(throttled_until) = self.throttled_until {
+            if now < throttled_until {
+                return;
+            }
+            self.throttled_until = None;
+            self.last_calculation = throttled_until;
+        }
+        let elapsed_nanos =
+            Nanoseconds(now.duration_since(self.last_calculation).as_nanos() as i64);
+        let total_nanos = self.excess_interval_nanos + elapsed_nanos;
+        let complete_intervals = (total_nanos / self.interval_nanos) as u64;
+        if complete_intervals > 0 {
+            let capacity_to_add = self.capacity_per_interval * complete_intervals;
+            let capacity_potentially_over_max = self.current_capacity + capacity_to_add;
+            self.current_capacity = capacity_potentially_over_max.min(self.capacity_per_interval);
+            self.excess_interval_nanos = total_nanos % self.interval_nanos.0;
+            self.last_calculation = now;
+        }
+    }
+}
+
+impl std::fmt::Debug for RateLimiterState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RateLimiterState")
+            .field("interval_nanos", &self.interval_nanos)
+            .field("capacity_per_interval", &self.capacity_per_interval)
+            .field("current_capacity", &self.current_capacity)
+            .field("last_calculation", &self.last_calculation)
+            .field("excess_interval_nanos", &self.excess_interval_nanos)
+            .field("throttled_until", &self.throttled_until)
+            .finish_non_exhaustive()
+    }
+}

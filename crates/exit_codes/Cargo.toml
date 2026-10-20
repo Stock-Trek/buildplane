@@ -1,0 +1,4 @@
+[package]
+name = "buildplane-exit-codes"
+version.workspace = true
+edition.workspace = true
