@@ -54,7 +54,7 @@ jobs:
           output_format: sarif
 
       - name: Run Terraform Tests
-        run: terraform test -verbose
+        run: terraform -chdir=infra test -verbose
 
       - name: Infisical
         uses: Infisical/secrets-action@v1.0.16
