@@ -10,12 +10,12 @@ use tempfile::TempDir;
 use tokio::{fs, process::Command};
 use tracing::info;
 
-const WASM_MANIFEST: &str = "runner/Cargo.toml";
+const WASM_MANIFEST: &str = "crates/runner/Cargo.toml";
 const WASM_TARGET: &str = "wasm32-wasip1";
 const WASM_ARTIFACT_FILE: &str = "runner.wasm";
 const CWASM_ARTIFACT_FILE: &str = "runner.cwasm";
 const TARGET_DIR: &str = "target";
-const USER_GENERATED_DIR: &str = "runner/src/user_generated";
+const USER_GENERATED_DIR: &str = "crates/runner/src/user_generated";
 const CARGO: &str = "cargo";
 const WASMTIME: &str = "wasmtime";
 
