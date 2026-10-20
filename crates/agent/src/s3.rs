@@ -15,6 +15,7 @@ use crate::error::{BaError, BaResult};
 use std::{
     collections::BTreeMap,
     path::{Component, Path},
+    time::Duration,
 };
 use tracing::info;
 
@@ -36,7 +37,7 @@ pub struct SignedPost {
 }
 
 impl SignedPost {
-    pub fn new(url: String, fields: BTreeMap<String, String>) -> BaResult<Self> {
+    pub fn new(url: String, fields: BTreeMap<String, String>, timeout: Duration) -> BaResult<Self> {
         let key = fields.get(KEY_FIELD).ok_or_else(|| {
             BaError::Config(format!(
                 "SIGNED_POST_FIELDS must include a {KEY_FIELD} field containing {FILENAME_VARIABLE}"
@@ -48,10 +49,15 @@ impl SignedPost {
             )));
         }
 
+        let client = reqwest::Client::builder()
+            .timeout(timeout)
+            .build()
+            .map_err(|source| BaError::Config(format!("failed to build HTTP client: {source}")))?;
+
         Ok(Self {
             url,
             fields,
-            client: reqwest::Client::new(),
+            client,
         })
     }
 

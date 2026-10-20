@@ -33,17 +33,14 @@ impl Handler {
 
     pub async fn handle(&self, body: Bytes) -> (StatusCode, String) {
         let mut stderr_output = String::new();
-        let result = timeout(self.build_timeout, self.run_build(body, &mut stderr_output))
-            .await
-            .unwrap_or(Err(BaError::Timeout(self.build_timeout)));
+        let result = timeout(self.build_timeout, async {
+            self.run_build(body, &mut stderr_output).await?;
+            self.publish_artifacts().await
+        })
+        .await
+        .unwrap_or(Err(BaError::Timeout(self.build_timeout)));
         match result {
-            Ok(()) => match self.publish_artifacts().await {
-                Ok(()) => (StatusCode::OK, "success".to_string()),
-                Err(error) => {
-                    eprintln!("artifact upload failed: {error}");
-                    (error.status(), error.detail())
-                }
-            },
+            Ok(()) => (StatusCode::OK, "success".to_string()),
             Err(error) => {
                 eprintln!("build failed: {error}");
                 (error.status(), Self::failure_body(&error, &stderr_output))
