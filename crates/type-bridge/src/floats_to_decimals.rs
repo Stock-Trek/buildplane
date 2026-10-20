@@ -1,5 +1,5 @@
 use crate::trading_precision::TradingPrecision;
-use rust_decimal::{Decimal, RoundingStrategy};
+use rust_decimal::{Decimal, RoundingStrategy, prelude::ToPrimitive};
 use stock_trek_types::cex::{
     activation::Activation, asset_id::AssetId, order_request::OrderRequest,
     preferences::CexRoundingPreferences, quantity::Quantity, trigger_direction::TriggerDirection,
@@ -37,7 +37,7 @@ impl FloatsToDecimals {
                 quote,
                 side,
                 activation: self.activation(activation),
-                limit_price: self.quote_quantity(limit_price),
+                limit_price: self.price(limit_price),
                 time_in_force,
                 quantity: self.quantity(quantity, true),
                 tag,
@@ -99,7 +99,7 @@ impl FloatsToDecimals {
                     self.activation_price_rounding_strategy(direction),
                 ),
                 basis,
-                callback_rate_bps,
+                callback_rate_bps: self.callback_rate_bps(callback_rate_bps),
                 direction,
             },
         }
@@ -107,15 +107,25 @@ impl FloatsToDecimals {
     fn base_quantity(&self, quantity: f64, is_limit: bool) -> Decimal {
         if is_limit {
             self.trading_precision
-                .to_valid_base_limit(quantity, self.rounding.price)
+                .to_valid_base_limit(quantity, self.rounding.quantity)
         } else {
             self.trading_precision
-                .to_valid_base_market(quantity, self.rounding.price)
+                .to_valid_base_market(quantity, self.rounding.quantity)
         }
     }
     fn quote_quantity(&self, quantity: f64) -> Decimal {
         self.trading_precision
-            .to_valid_quote(quantity, self.rounding.price)
+            .to_valid_quote(quantity, self.rounding.quantity)
+    }
+    fn price(&self, price: f64) -> Decimal {
+        self.trading_precision
+            .to_valid_quote(price, self.rounding.price)
+    }
+    fn callback_rate_bps(&self, callback_rate_bps: u32) -> u32 {
+        Decimal::from(callback_rate_bps)
+            .round_dp_with_strategy(0, self.rounding.callback_rate_bps)
+            .to_u32()
+            .unwrap_or(callback_rate_bps)
     }
     fn quantity(&self, quantity: Quantity<f64>, is_limit: bool) -> Quantity<Decimal> {
         match quantity {
