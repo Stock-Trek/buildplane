@@ -22,7 +22,7 @@ jobs:
         with:
           method: "oidc"
           identity-id: "2aecd8e8-fa70-41c3-bf79-a124b5675a46"
-          project-slug: "aws"
+          project-slug: "agents"
           env-slug: "dev"
 
       - name: Set up shipyard ssh auth
