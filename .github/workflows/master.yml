@@ -108,31 +108,31 @@ jobs:
           cargo clippy -- -D warnings
           cargo test
 
-      # TODO decide whether terraform should be gated on a version bump
 
-      # - name: Configure AWS credentials
-      #   if: steps.tags.outputs.tag-exists == 'false'
-      #   uses: aws-actions/configure-aws-credentials@v6
-      #   env:
-      #     AWS_ACCOUNT_ID: ${{ env.AWS_ACCOUNT_ID }}
-      #     AWS_REGION: ${{ env.AWS_REGION }}
-      #     AWS_ROLE_TERRAFORM_APPLY: ${{ env.AWS_ROLE_TERRAFORM_APPLY }}
-      #   with:
-      #     aws-region: ${{ env.AWS_REGION }}
-      #     role-to-assume: "arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.AWS_ROLE_TERRAFORM_APPLY }}"
-      #     role-session-name: "buildplane-${{ github.run_id }}"
-      #     retry-max-attempts: 3
-      #     mask-aws-account-id: true
+      - name: Configure AWS credentials
+        # TODO decide whether terraform should be gated on a version bump
+        # if: steps.tags.outputs.tag-exists == 'false'
+        uses: aws-actions/configure-aws-credentials@v6
+        env:
+          AWS_ACCOUNT_ID: ${{ env.AWS_ACCOUNT_ID }}
+          AWS_REGION: ${{ env.AWS_REGION }}
+          AWS_ROLE_TERRAFORM_APPLY: ${{ env.AWS_ROLE_TERRAFORM_APPLY }}
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          role-to-assume: "arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.AWS_ROLE_TERRAFORM_APPLY }}"
+          role-session-name: "buildplane-${{ github.run_id }}"
+          retry-max-attempts: 3
+          mask-aws-account-id: true
 
-      # - name: Apply bootstrap
-      #   run: |
-      #     terraform -chdir=bootstrap init
-      #     terraform -chdir=bootstrap apply -auto-approve
+      - name: Apply bootstrap
+        run: |
+          terraform -chdir=bootstrap init
+          terraform -chdir=bootstrap apply -auto-approve
 
-      # - name: Apply live
-      #   run: |
-      #     terraform -chdir=live init
-      #     terraform -chdir=live apply -auto-approve
+      - name: Apply live
+        run: |
+          terraform -chdir=live init
+          terraform -chdir=live apply -auto-approve
 
       # - name: Get version, check if tag exists, create and publish if not
       #   id: tags
