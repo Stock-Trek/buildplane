@@ -27,6 +27,17 @@ jobs:
           project-slug: "publish"
           env-slug: "prod"
 
+      - name: Set up shipyard ssh auth
+        env:
+          SHIPYARD_KNOWN_HOST: ${{ env.SHIPYARD_KNOWN_HOST }}
+          SHIPYARD_SSH_PRIVATE_KEY_CLIENT: ${{ env.SHIPYARD_SSH_PRIVATE_KEY_CLIENT }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ env.SHIPYARD_SSH_PRIVATE_KEY_CLIENT }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          echo "${{ env.SHIPYARD_KNOWN_HOST }}" >> ~/.ssh/known_hosts
+          ssh -T git@ssh.shipyard.rs
+
       - name: Generate GitHub App token
         id: app-token
         uses: actions/create-github-app-token@v3

@@ -46,7 +46,7 @@ jobs:
         with:
           method: "oidc"
           identity-id: "fafecebc-b41d-496d-915f-5ce536a6644b"
-          project-slug: "agent-editor"                        # "agents"
+          project-slug: "agents"
           env-slug: "dev"
 
       - name: Generate GitHub App token
@@ -253,7 +253,7 @@ jobs:
         with:
           method: "oidc"
           identity-id: "fafecebc-b41d-496d-915f-5ce536a6644b"
-          project-slug: "agent-editor"                        # "agents"
+          project-slug: "agents"
           env-slug: "dev"
 
       - name: Generate GitHub App token
@@ -294,7 +294,7 @@ jobs:
         with:
           method: "oidc"
           identity-id: "fafecebc-b41d-496d-915f-5ce536a6644b"
-          project-slug: "agent-editor"                        # "agents"
+          project-slug: "agents"
           env-slug: "dev"
 
       - name: Generate GitHub App token
@@ -347,7 +347,7 @@ jobs:
         with:
           method: "oidc"
           identity-id: "fafecebc-b41d-496d-915f-5ce536a6644b"
-          project-slug: "agent-editor"                        # "agents"
+          project-slug: "agents"
           env-slug: "dev"
 
       - name: Generate GitHub App token
@@ -518,18 +518,17 @@ jobs:
           branch: ${{ needs.triage.outputs.issue-branch }}
           base: ${{ needs.triage.outputs.issue-branch-base }}
           create-if-not-exists: true
-      # - name: Set up shipyard ssh auth
-      #   if: steps.save-response-type.outputs.response-type == 'CAN_ADDRESS_FULLY'
-      #   env:
-      #     SHIPYARD_KNOWN_HOST: ${{ env.SHIPYARD_KNOWN_HOST }}
-      #     SHIPYARD_SSH_PRIVATE_KEY_CLIENT: ${{ env.SHIPYARD_SSH_PRIVATE_KEY_CLIENT }}
-      #   run: |
-      #     mkdir -p ~/.ssh
-      #     chmod 700 ~/.ssh
-      #     printf '%s\n' "${{ env.SHIPYARD_SSH_PRIVATE_KEY_CLIENT }}" > ~/.ssh/id_ed25519
-      #     chmod 600 ~/.ssh/id_ed25519
-      #     echo "${{ env.SHIPYARD_KNOWN_HOST }}" >> ~/.ssh/known_hosts
-      #     ssh -T git@ssh.shipyard.rs
+      - name: Set up shipyard ssh auth
+        if: steps.save-response-type.outputs.response-type == 'CAN_ADDRESS_FULLY'
+        env:
+          SHIPYARD_KNOWN_HOST: ${{ env.SHIPYARD_KNOWN_HOST }}
+          SHIPYARD_SSH_PRIVATE_KEY_CLIENT: ${{ env.SHIPYARD_SSH_PRIVATE_KEY_CLIENT }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ env.SHIPYARD_SSH_PRIVATE_KEY_CLIENT }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          echo "${{ env.SHIPYARD_KNOWN_HOST }}" >> ~/.ssh/known_hosts
+          ssh -T git@ssh.shipyard.rs
       - name: Configure git identity
         run: |
           git config --global user.email "agent@stock-trek.com"
