@@ -90,8 +90,8 @@ RUN cargo build \
  && rm -rf /tmp/build-runner-target
 
 # Prebuild the wasm runner and all of its dependencies. The agent copies this
-# target directory into /tmp on first use, so requests only rebuild the runner
-# crate after the user's sources have been extracted.
+# target directory into a fresh /tmp directory for every request, so builds only
+# rebuild the runner crate and never reuse artifacts from previous user code.
 RUN cargo build \
       --manifest-path ./crates/runner/Cargo.toml \
       --target wasm32-wasip1 \
