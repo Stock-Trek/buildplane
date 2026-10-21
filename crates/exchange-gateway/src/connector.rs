@@ -64,7 +64,8 @@ impl Connector<(), ()> {
     {
         let url = exchange
             .urls()
-            .env_var_or_default(exchange.name(), Protocol::Http, trading_mode);
+            .env_var_or_default(exchange.name(), Protocol::Http, trading_mode)
+            .map_err(EGError::external)?;
         let client = client_creator(url)?;
         let rate_limiters = Self::rate_limiters(exchange.default_capacity())?;
         Ok(Connector {
@@ -112,10 +113,10 @@ impl Connector<(), ()> {
         Client: WebsocketClient,
     {
         let websocket_listener = Arc::new(WebsocketListener::new());
-        let url =
-            exchange
-                .urls()
-                .env_var_or_default(exchange.name(), Protocol::Websocket, trading_mode);
+        let url = exchange
+            .urls()
+            .env_var_or_default(exchange.name(), Protocol::Websocket, trading_mode)
+            .map_err(EGError::external)?;
         let client = client_creator(url, websocket_listener.clone())?;
         let rate_limiters = Self::rate_limiters(exchange.default_capacity())?;
         Ok(Connector {
