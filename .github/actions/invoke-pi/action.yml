@@ -15,12 +15,6 @@ inputs:
     description: "Model to use for pi"
     required: false
     default: deepseek-flash
-  shipyard-ssh-private-key:
-    description: "Optional read-only Shipyard deploy key, loaded into a short-lived ssh-agent"
-    required: false
-  shipyard-known-host:
-    description: "Known_hosts entry for ssh.shipyard.rs, required with shipyard-ssh-private-key"
-    required: false
 outputs:
   response-base64:
     description: "Response json formatted in schema in base64"
@@ -33,8 +27,6 @@ runs:
       env:
         PROVIDER: ${{ inputs.provider }}
         MODEL: ${{ inputs.model }}
-        SHIPYARD_SSH_PRIVATE_KEY: ${{ inputs.shipyard-ssh-private-key }}
-        SHIPYARD_KNOWN_HOST: ${{ inputs.shipyard-known-host }}
       run: |
         CONTEXT=$(echo "${{ inputs.context-base64 }}" | base64 -d)
         PROMPT=$(echo "${{ inputs.prompt-base64 }}" | base64 -d)
@@ -72,43 +64,19 @@ runs:
         # steps. This is the last pi invocation, so they are not needed again.
         bash .github/scripts/remove-credentials.sh
 
-        # Optional private crate registry access (for example Shipyard). The
-        # read-only deploy key is supplied as an input by the opt-in block in
-        # agent.yml. Load it into a short-lived ssh-agent only after the
-        # credential cleanup above; it is piped to ssh-add and never written to
-        # disk. The agent receives only the agent socket, so a prompt injection
-        # can use the key to fetch dependencies but cannot read or copy it.
-        SSH_AUTH_SOCK_FOR_PI=""
-        if [ -n "${SHIPYARD_SSH_PRIVATE_KEY:-}" ]; then
-          if [ -z "${SHIPYARD_KNOWN_HOST:-}" ]; then
-            echo "Error: shipyard-known-host is required when shipyard-ssh-private-key is set" >&2
-            exit 1
-          fi
-          SSH_DIR="${HOME}/.ssh"
-          mkdir -p "${SSH_DIR}"
-          chmod 700 "${SSH_DIR}"
-          umask 077
-          printf '%s\n' "${SHIPYARD_KNOWN_HOST}" >> "${SSH_DIR}/known_hosts"
-          chmod 600 "${SSH_DIR}/known_hosts"
-          {
-            printf '%s\n' 'Host ssh.shipyard.rs'
-            printf '%s\n' '  StrictHostKeyChecking yes'
-          } > "${SSH_DIR}/config"
-          chmod 600 "${SSH_DIR}/config"
-          eval "$(ssh-agent -t 3600 -s)" >/dev/null
-          if ! printf '%s\n' "${SHIPYARD_SSH_PRIVATE_KEY}" | ssh-add - >/dev/null 2>&1; then
-            echo "Error: failed to load the Shipyard deploy key into ssh-agent" >&2
-            kill "${SSH_AGENT_PID}" 2>/dev/null || true
-            exit 1
-          fi
-          SSH_AUTH_SOCK_FOR_PI="${SSH_AUTH_SOCK}"
-        fi
+        # Private crate registry access (for example Shipyard) is handled by
+        # the trusted prefetch step before this action: the deploy key and
+        # registry token are used to populate Cargo's local cache and are then
+        # removed. Nothing here needs registry credentials, so none are loaded.
 
         # Clear model and registry credentials from the environment used by
         # later steps. This is the last pi invocation, so they are not needed.
+        # The prefetch step clears the registry secrets too; clear them again in
+        # case it did not run.
         for name in \
           DEEPSEEK_API_KEY \
           EDENAI_API_KEY \
+          SHIPYARD_CARGO_TOKEN_READONLY \
           SHIPYARD_SSH_PRIVATE_KEY_READONLY \
           SHIPYARD_KNOWN_HOST; do
           if [ -n "${!name:-}" ]; then
@@ -121,8 +89,13 @@ runs:
           TERM=dumb
           GIT_TERMINAL_PROMPT=0
         )
-        if [ -n "${SSH_AUTH_SOCK_FOR_PI}" ]; then
-          PI_ENV+=(SSH_AUTH_SOCK="${SSH_AUTH_SOCK_FOR_PI}")
+        # Dependencies were prefetched in a trusted step, so do not let the
+        # agent reach the network for crates: a prompt injection then has no
+        # registry credential to use and Cargo resolves everything from its
+        # local cache. Adding a new dependency during the run needs another
+        # prefetch in a trusted step.
+        if [ "${CARGO_NET_OFFLINE:-false}" = "true" ]; then
+          PI_ENV+=(CARGO_NET_OFFLINE=true)
         fi
 
         # Replace this shell so the credentials in its environment cannot be
