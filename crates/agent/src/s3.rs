@@ -1,9 +1,9 @@
 //! Upload build artifacts to S3 using a pre-signed POST policy.
 //!
-//! `buildplane-agent` starts a build agent with a short-lived pre-signed POST so the
-//! agent can write its artifacts without any long-lived AWS credentials. The
-//! url and form fields are provided through the `SIGNED_POST_URL` and
-//! `SIGNED_POST_FIELDS` environment variables. `SIGNED_POST_FIELDS` is a JSON
+//! The orchestrator sends a short-lived pre-signed POST in the build request
+//! so the agent can write its artifacts without any long-lived AWS credentials.
+//! The url and form fields are the `SIGNED_POST_URL` and `SIGNED_POST_FIELDS`
+//! properties of the Lambda invocation payload. `SIGNED_POST_FIELDS` is a JSON
 //! object holding the policy fields that must be sent alongside the file (for
 //! example `key`, `policy`, `x-amz-signature`, ...).
 //!
