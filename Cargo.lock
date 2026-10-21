@@ -304,15 +304,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "aws-sdk-ecs"
+name = "aws-sdk-lambda"
 version = "1.151.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ef7404455f21861add58134ade0d617e1f3aaf40c646d1360ca96d82fb56bb8"
+checksum = "277de27208a6730b0fd2f42959f0cf69850952f5a0681905f7e1cbfa9b8c6810"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
  "aws-runtime",
  "aws-smithy-async",
+ "aws-smithy-eventstream",
  "aws-smithy-http 0.64.2",
  "aws-smithy-json",
  "aws-smithy-observability",
@@ -1117,7 +1118,7 @@ version = "0.1.1"
 dependencies = [
  "aws-config",
  "aws-credential-types",
- "aws-sdk-ecs",
+ "aws-sdk-lambda",
  "aws_lambda_events",
  "base64 0.23.1",
  "buildplane-shared",

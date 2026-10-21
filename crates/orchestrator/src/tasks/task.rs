@@ -230,7 +230,7 @@ impl Task {
         request_context
             .context
             .aws
-            .ecs
+            .lambda
             .run_build(
                 BuildRequest {
                     source: source.clone(),

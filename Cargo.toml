@@ -13,7 +13,7 @@ async-trait = "0.1"
 aws-config = "1"
 aws-credential-types = "1"
 aws_lambda_events = { version = "1", default-features = false, features = ["sqs"] }
-aws-sdk-ecs = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"] }
+aws-sdk-lambda = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"] }
 aws-sdk-s3 = "1"
 aws-sdk-s3-transfer-manager = "0.2"
 aws-sdk-sqs = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"] }

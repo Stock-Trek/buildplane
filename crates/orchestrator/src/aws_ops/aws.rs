@@ -1,5 +1,5 @@
 use crate::{
-    aws_ops::{ecs::Ecs, s3::S3},
+    aws_ops::{lambda::Lambda, s3::S3},
     errors::error::RsOrchestratorResult,
 };
 use aws_config::{BehaviorVersion, SdkConfig, timeout::TimeoutConfig};
@@ -10,7 +10,7 @@ const DEFAULT_AWS_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const DEFAULT_AWS_OPERATION_TIMEOUT: Duration = Duration::from_secs(120);
 
 pub struct Aws {
-    pub ecs: Ecs,
+    pub lambda: Lambda,
     pub s3: S3,
     pub sqs: Sqs,
 }
@@ -36,8 +36,8 @@ impl Aws {
             .await
     }
 
-    pub fn new(ecs: Ecs, s3: S3, sqs: Sqs) -> Self {
-        Self { ecs, s3, sqs }
+    pub fn new(lambda: Lambda, s3: S3, sqs: Sqs) -> Self {
+        Self { lambda, s3, sqs }
     }
 
     pub fn from_env(
@@ -46,7 +46,7 @@ impl Aws {
         config: &EnvVarConfig,
     ) -> RsOrchestratorResult<Self> {
         Ok(Self::new(
-            Ecs::from_env(sdk_config, timeouts, config)?,
+            Lambda::from_env(sdk_config, timeouts, config)?,
             S3::from_env(sdk_config, timeouts, config)?,
             Sqs::from_env(sdk_config, timeouts, config)?,
         ))
