@@ -279,9 +279,13 @@ impl Task {
                     .await?
             }
         };
-        let ref_key = S3Keys::ref_key(remote, repo_id.clone(), ref_name, ref_type, &commit_hash)?;
+        let artifact_prefix =
+            S3Keys::artifact_prefix(remote, repo_id.clone(), ref_name, ref_type, &commit_hash)?;
         let source_key =
             S3Keys::source_key(remote, repo_id.clone(), ref_name, ref_type, &commit_hash)?;
+        let artifact_key =
+            S3Keys::artifact_key(remote, repo_id.clone(), ref_name, ref_type, &commit_hash)?;
+        tracing::debug!(artifact = %artifact_key, "dispatching build");
         let files = remote
             .directory_files(
                 repo_id,
@@ -301,7 +305,7 @@ impl Task {
             .context
             .aws
             .s3
-            .signed_post(&ref_key, request_context.deadline)
+            .signed_post(&artifact_prefix, request_context.deadline)
             .await?;
         request_context
             .context

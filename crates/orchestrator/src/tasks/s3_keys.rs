@@ -6,6 +6,10 @@ use buildplane_shared::{
 };
 use std::fmt::Display;
 
+const SOURCE_PREFIX: &str = "source/";
+const ARTIFACT_PREFIX: &str = "artifact/";
+const RESERVED_SEGMENTS: &[&str] = &["source", "artifact"];
+
 pub struct S3Keys;
 
 impl S3Keys {
@@ -70,6 +74,24 @@ impl S3Keys {
         ))
     }
 
+    pub fn source_prefix<InstallationId, RepoId, Remote>(
+        git_remote: &Remote,
+        repo_id: RepoId,
+        ref_name: &str,
+        ref_type: SqsRefType,
+        commit_hash: &str,
+    ) -> RsOrchestratorResult<String>
+    where
+        InstallationId: Display,
+        RepoId: Display,
+        Remote: GitHost<InstallationId, RepoId>,
+    {
+        Ok(format!(
+            "{}{SOURCE_PREFIX}",
+            Self::ref_key(git_remote, repo_id, ref_name, ref_type, commit_hash)?
+        ))
+    }
+
     pub fn source_key<InstallationId, RepoId, Remote>(
         git_remote: &Remote,
         repo_id: RepoId,
@@ -83,8 +105,44 @@ impl S3Keys {
         Remote: GitHost<InstallationId, RepoId>,
     {
         Ok(format!(
-            "{}source/algorithms.zip",
+            "{}algorithms.zip",
+            Self::source_prefix(git_remote, repo_id, ref_name, ref_type, commit_hash)?
+        ))
+    }
+
+    pub fn artifact_prefix<InstallationId, RepoId, Remote>(
+        git_remote: &Remote,
+        repo_id: RepoId,
+        ref_name: &str,
+        ref_type: SqsRefType,
+        commit_hash: &str,
+    ) -> RsOrchestratorResult<String>
+    where
+        InstallationId: Display,
+        RepoId: Display,
+        Remote: GitHost<InstallationId, RepoId>,
+    {
+        Ok(format!(
+            "{}{ARTIFACT_PREFIX}",
             Self::ref_key(git_remote, repo_id, ref_name, ref_type, commit_hash)?
+        ))
+    }
+
+    pub fn artifact_key<InstallationId, RepoId, Remote>(
+        git_remote: &Remote,
+        repo_id: RepoId,
+        ref_name: &str,
+        ref_type: SqsRefType,
+        commit_hash: &str,
+    ) -> RsOrchestratorResult<String>
+    where
+        InstallationId: Display,
+        RepoId: Display,
+        Remote: GitHost<InstallationId, RepoId>,
+    {
+        Ok(format!(
+            "{}runner.cwasm",
+            Self::artifact_prefix(git_remote, repo_id, ref_name, ref_type, commit_hash)?
         ))
     }
 }
@@ -112,7 +170,10 @@ impl S3Keys {
             && !value.contains("..")
             && !value.contains("@{")
             && value.split('/').all(|segment| {
-                !segment.is_empty() && !segment.starts_with('.') && !segment.ends_with(".lock")
+                !segment.is_empty()
+                    && !segment.starts_with('.')
+                    && !segment.ends_with(".lock")
+                    && !RESERVED_SEGMENTS.contains(&segment)
             })
             && value.chars().all(|character| {
                 !character.is_ascii_control()
@@ -166,5 +227,14 @@ mod tests {
             S3Keys::transfer_key("github/github.com/42", "github", "github.com", "42", "99"),
             None
         );
+    }
+
+    #[test]
+    fn reserved_prefixes_are_not_valid_ref_names() {
+        assert!(!S3Keys::is_valid_ref_name("source"));
+        assert!(!S3Keys::is_valid_ref_name("artifact"));
+        assert!(!S3Keys::is_valid_ref_name("feature/source"));
+        assert!(!S3Keys::is_valid_ref_name("feature/artifact"));
+        assert!(S3Keys::is_valid_ref_name("feature/source-change"));
     }
 }
