@@ -1,10 +1,10 @@
 use crate::{
-    constants::{PARQUET_SUFFIX, UPDATE_QUANTIZATION, common_trading_pairs},
+    constants::{UPDATE_QUANTIZATION, common_trading_pairs},
     error::{MduError, MduResult},
     parquet_writer::writer_properties,
-    quantized_time::{Quantization, QuantizedTime, TopOfHour, TopOfMonth},
+    plan,
+    quantized_time::QuantizedTime,
     s3::{Bucket, ObjectKey, S3},
-    subfolders::SubFolders,
     updaters::{binance_updater::BinanceUpdater, exchange_updater::ExchangeUpdater},
 };
 use arrow_array::{ArrayRef, Float64Array, Int64Array, RecordBatch};
@@ -13,7 +13,7 @@ use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
 use buildplane_exchange_types::{klines::Kline, urls::TradingMode};
 use bytes::Bytes;
-use chrono::{DateTime, Datelike, TimeZone, Timelike, Utc};
+use chrono::{DateTime, Utc};
 use parquet::arrow::ArrowWriter;
 use std::{
     collections::{HashMap, HashSet},
@@ -251,25 +251,23 @@ impl KlinesUpdater {
                     .map(str::to_string)
             })
             .collect::<HashSet<_>>();
-        for (start_time, window_end_time) in
-            Self::missing_windows(&existing, *end_time, *backfill_start)?
-        {
+        for window in plan::Planner::plan_windows(&existing, *end_time, *backfill_start)? {
             let candles = updater
-                .klines(trading_pair, start_time, window_end_time)
+                .klines(trading_pair, window.start, window.end)
                 .await?;
-            if !Self::candles_are_complete(&candles, start_time, window_end_time) {
+            if !Self::candles_are_complete(&candles, window.start, window.end) {
                 warn!(
                     "incomplete klines for {:?} between {} and {}: expected {} candles, received {}; skipping upload",
                     trading_pair,
-                    start_time,
-                    window_end_time,
-                    Self::expected_candles(start_time, window_end_time),
+                    window.start,
+                    window.end,
+                    Self::expected_candles(window.start, window.end),
                     candles.len()
                 );
                 continue;
             }
             let candles_bytes = Self::candles_to_bytes(&candles, schema)?;
-            let candles_relative_file_path = Self::window_file_paths(start_time).0;
+            let candles_relative_file_path = window.file_path();
             let candles_file_path = ObjectKey::new(format!(
                 "{}/{}",
                 candles_base_path, candles_relative_file_path
@@ -277,136 +275,6 @@ impl KlinesUpdater {
             S3::upload_bytes(transfer_client, bucket, &candles_file_path, candles_bytes).await?;
         }
         Ok(())
-    }
-
-    fn missing_windows(
-        existing: &HashSet<String>,
-        end_time: DateTime<Utc>,
-        backfill_start: Option<DateTime<Utc>>,
-    ) -> MduResult<Vec<(DateTime<Utc>, DateTime<Utc>)>> {
-        let backfill_start = backfill_start
-            .map(|start| QuantizedTime::timestamp(start, UPDATE_QUANTIZATION))
-            .transpose()?;
-        let existing_start = existing
-            .iter()
-            .filter_map(|path| Self::file_start_time(path.as_str()))
-            .min()
-            .map(|start| QuantizedTime::timestamp(start, UPDATE_QUANTIZATION))
-            .transpose()?;
-        let start = match (backfill_start, existing_start) {
-            (Some(backfill_start), Some(existing_start)) => {
-                Some(backfill_start.min(existing_start))
-            }
-            (Some(backfill_start), None) => Some(backfill_start),
-            (None, Some(existing_start)) => Some(existing_start),
-            (None, None) => None,
-        };
-        let Some(mut start) = start.filter(|start| *start < end_time) else {
-            return Ok(vec![(
-                QuantizedTime::previous_top(end_time, UPDATE_QUANTIZATION)?,
-                end_time,
-            )]);
-        };
-        let mut windows = Vec::new();
-        while start < end_time {
-            if let Some(boundary) = Self::compacted_boundary(existing, start)? {
-                start = boundary;
-                continue;
-            }
-            let window_end = QuantizedTime::next_top(start, UPDATE_QUANTIZATION)?;
-            if window_end > end_time {
-                break;
-            }
-            if !existing.contains(&Self::window_file_paths(start).0) {
-                windows.push((start, window_end));
-            }
-            start = window_end;
-        }
-        Ok(windows)
-    }
-
-    fn compacted_boundary(
-        existing: &HashSet<String>,
-        start_time: DateTime<Utc>,
-    ) -> MduResult<Option<DateTime<Utc>>> {
-        let (_, compacted) = Self::window_file_paths(start_time);
-        let next_period_start = if existing.contains(&compacted[3]) {
-            Self::next_year(start_time)?
-        } else if existing.contains(&compacted[2]) {
-            Self::next_month(start_time)?
-        } else if existing.contains(&compacted[1]) {
-            Self::next_day(start_time)?
-        } else if existing.contains(&compacted[0]) {
-            Self::next_hour(start_time)?
-        } else {
-            return Ok(None);
-        };
-        // The compacted period may end between update windows for coarse
-        // quantizations, so resume at the first window at or after its end.
-        Ok(Some(QuantizedTime::top_at_or_after(
-            next_period_start,
-            UPDATE_QUANTIZATION,
-        )?))
-    }
-
-    fn next_hour(timestamp: DateTime<Utc>) -> MduResult<DateTime<Utc>> {
-        let hour_start = QuantizedTime::timestamp(timestamp, Quantization::Hour(TopOfHour::One))?;
-        QuantizedTime::next_top(hour_start, Quantization::Hour(TopOfHour::One))
-    }
-
-    fn next_day(timestamp: DateTime<Utc>) -> MduResult<DateTime<Utc>> {
-        let day_start = QuantizedTime::timestamp(timestamp, Quantization::Day)?;
-        QuantizedTime::next_top(day_start, Quantization::Day)
-    }
-
-    fn next_month(timestamp: DateTime<Utc>) -> MduResult<DateTime<Utc>> {
-        let month_start =
-            QuantizedTime::timestamp(timestamp, Quantization::Month(TopOfMonth::One))?;
-        QuantizedTime::next_top(month_start, Quantization::Month(TopOfMonth::One))
-    }
-
-    fn next_year(timestamp: DateTime<Utc>) -> MduResult<DateTime<Utc>> {
-        let year_start = QuantizedTime::timestamp(timestamp, Quantization::Year)?;
-        QuantizedTime::next_top(year_start, Quantization::Year)
-    }
-
-    fn window_file_paths(start_time: DateTime<Utc>) -> (String, [String; 4]) {
-        let year = start_time.year();
-        let month = start_time.month() as i32;
-        let day = start_time.day() as i32;
-        let hour = start_time.hour() as i32;
-        let minute = start_time.minute() as i32;
-        (
-            SubFolders::file_path(&[year, month, day, hour, minute], PARQUET_SUFFIX),
-            [
-                SubFolders::file_path(&[year, month, day, hour], PARQUET_SUFFIX),
-                SubFolders::file_path(&[year, month, day], PARQUET_SUFFIX),
-                SubFolders::file_path(&[year, month], PARQUET_SUFFIX),
-                SubFolders::file_path(&[year], PARQUET_SUFFIX),
-            ],
-        )
-    }
-
-    fn file_start_time(path: &str) -> Option<DateTime<Utc>> {
-        let path = path.strip_suffix(PARQUET_SUFFIX)?;
-        let mut segments = path.split('/');
-        let year = segments.next()?.parse::<i32>().ok()?;
-        let month = Self::file_path_segment(segments.next(), 1)?;
-        let day = Self::file_path_segment(segments.next(), 1)?;
-        let hour = Self::file_path_segment(segments.next(), 0)?;
-        let minute = Self::file_path_segment(segments.next(), 0)?;
-        if segments.next().is_some() {
-            return None;
-        }
-        Utc.with_ymd_and_hms(year, month, day, hour, minute, 0)
-            .single()
-    }
-
-    fn file_path_segment(segment: Option<&str>, default: u32) -> Option<u32> {
-        match segment {
-            Some(segment) => segment.parse().ok(),
-            None => Some(default),
-        }
     }
 
     fn create_schema() -> SchemaRef {
