@@ -4,13 +4,15 @@ use crate::{
     source::Source,
 };
 use std::{
-    fs as std_fs, io,
+    fs as std_fs,
+    io::{self, Cursor, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
 use tempfile::TempDir;
 use tokio::{fs, process::Command};
 use tracing::info;
+use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
 const WASM_MANIFEST: &str = "crates/runner/Cargo.toml";
 const WASM_TARGET: &str = "wasm32-wasip1";
@@ -18,6 +20,7 @@ const WASM_ARTIFACT_FILE: &str = "runner.wasm";
 const CWASM_ARTIFACT_FILE: &str = "runner.cwasm";
 const SOURCE_TARGET_DIR: &str = "target";
 const USER_GENERATED_DIR: &str = "crates/runner/src/user_generated";
+const USER_GENERATED_ARCHIVE: &str = "sources.zip";
 const WORKSPACE_ENTRIES: &[&str] = &["Cargo.toml", "Cargo.lock", "crates", ".cargo"];
 const CARGO: &str = "cargo";
 const WASMTIME: &str = "wasmtime";
@@ -196,17 +199,59 @@ impl Artifacts {
     pub async fn publish(&self, cwasm: &Path) -> BaResult<()> {
         self.signed_post.upload(cwasm).await?;
         let root = self.build_dir.path().join(USER_GENERATED_DIR);
-        for source in Self::user_generated_files(&root).await? {
-            let name = source.strip_prefix(&root).map_err(|_| {
+        let files = Self::user_generated_files(&root).await?;
+        let archive = Self::source_archive(&root, &files)?;
+        let archive_path = self.build_dir.path().join(USER_GENERATED_ARCHIVE);
+        fs::write(&archive_path, archive)
+            .await
+            .map_err(|source| BaError::WriteSourceArchive {
+                path: archive_path.clone(),
+                source,
+            })?;
+        self.signed_post
+            .upload_named(&archive_path, Path::new(USER_GENERATED_ARCHIVE))
+            .await?;
+        info!(files = files.len(), "published build artifacts");
+        Ok(())
+    }
+
+    fn source_archive(root: &Path, files: &[PathBuf]) -> BaResult<Vec<u8>> {
+        let mut archive = ZipWriter::new(Cursor::new(Vec::new()));
+        let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
+        for file in files {
+            let relative = file.strip_prefix(root).map_err(|_| {
                 BaError::Config(format!(
                     "artifact path {} is outside {USER_GENERATED_DIR}",
-                    source.display()
+                    file.display()
                 ))
             })?;
-            self.signed_post.upload_named(&source, name).await?;
+            let name = relative
+                .to_str()
+                .ok_or_else(|| {
+                    BaError::Config(format!(
+                        "artifact path {} is not valid UTF-8",
+                        file.display()
+                    ))
+                })?
+                .replace('\\', "/");
+            archive
+                .start_file(name, options)
+                .map_err(BaError::CreateSourceArchive)?;
+            let contents = std_fs::read(file).map_err(|source| BaError::ReadArtifact {
+                path: file.clone(),
+                source,
+            })?;
+            archive
+                .write_all(&contents)
+                .map_err(|source| BaError::WriteSourceArchive {
+                    path: file.clone(),
+                    source,
+                })?;
         }
-        info!("published build artifacts");
-        Ok(())
+        Ok(archive
+            .finish()
+            .map_err(BaError::CreateSourceArchive)?
+            .into_inner())
     }
 
     async fn user_generated_files(root: &Path) -> BaResult<Vec<PathBuf>> {
@@ -379,5 +424,26 @@ mod tests {
             .join(WASM_ARTIFACT_FILE);
         assert_eq!(std_fs::read(artifact).unwrap(), b"prebuilt");
         assert!(!second.path().join("user-output").exists());
+    }
+
+    #[test]
+    fn source_archive_contains_user_generated_files() {
+        let root = tempfile::tempdir().unwrap();
+        let algorithm = root.path().join("algorithms/algorithm.rs");
+        std_fs::create_dir_all(algorithm.parent().unwrap()).unwrap();
+        std_fs::write(&algorithm, b"algorithm").unwrap();
+        let manifest = root.path().join("mod.rs");
+        std_fs::write(&manifest, b"modules").unwrap();
+
+        let bytes =
+            Artifacts::source_archive(root.path(), &[algorithm.clone(), manifest.clone()]).unwrap();
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+
+        assert_eq!(archive.len(), 2);
+        assert_eq!(
+            archive.by_index(0).unwrap().name().unwrap(),
+            "algorithms/algorithm.rs"
+        );
+        assert_eq!(archive.by_index(1).unwrap().name().unwrap(), "mod.rs");
     }
 }

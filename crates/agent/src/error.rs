@@ -57,6 +57,16 @@ pub enum BaError {
         source: std::io::Error,
     },
 
+    #[error("failed to create user source archive")]
+    CreateSourceArchive(#[source] zip::result::ZipError),
+
+    #[error("failed to write user source archive {path}")]
+    WriteSourceArchive {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
     #[error("failed to build the upload request for {path}")]
     BuildUploadRequest {
         path: PathBuf,
