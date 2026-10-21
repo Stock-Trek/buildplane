@@ -9,7 +9,7 @@ use std::{
     sync::Arc,
 };
 use tempfile::TempDir;
-use tokio::{fs, process::Command, sync::Mutex};
+use tokio::{fs, process::Command};
 use tracing::info;
 
 const WASM_MANIFEST: &str = "crates/runner/Cargo.toml";
@@ -19,11 +19,8 @@ const CWASM_ARTIFACT_FILE: &str = "runner.cwasm";
 const SOURCE_TARGET_DIR: &str = "target";
 const USER_GENERATED_DIR: &str = "crates/runner/src/user_generated";
 const WORKSPACE_ENTRIES: &[&str] = &["Cargo.toml", "Cargo.lock", "crates", ".cargo"];
-const CACHE_READY_FILE: &str = ".buildplane-cache-ready";
 const CARGO: &str = "cargo";
 const WASMTIME: &str = "wasmtime";
-
-static BUILD_CACHE_LOCK: Mutex<()> = Mutex::const_new(());
 
 #[derive(Clone)]
 pub struct Artifacts {
@@ -54,7 +51,8 @@ impl Artifacts {
     pub async fn compile(&self) -> BaResult<PathBuf> {
         self.prepare_workspace()?;
         self.unpack_source().await?;
-        let wasm = self.build_wasm().await?;
+        let target_dir = self.prepare_target_dir().await?;
+        let wasm = self.build_wasm(target_dir.path()).await?;
         self.compile_wasm(&wasm).await
     }
 
@@ -88,8 +86,7 @@ impl Artifacts {
         source.extract(self.build_dir.path())
     }
 
-    async fn build_wasm(&self) -> BaResult<PathBuf> {
-        let target_dir = self.build_target_dir().await?;
+    async fn build_wasm(&self, target_dir: &Path) -> BaResult<PathBuf> {
         let workspace = self.build_dir.path();
         let manifest = workspace.join(WASM_MANIFEST);
         let module = target_dir
@@ -103,7 +100,7 @@ impl Artifacts {
             .arg("--target")
             .arg(WASM_TARGET)
             .arg("--target-dir")
-            .arg(&target_dir)
+            .arg(target_dir)
             .arg("--release")
             .arg("--lib")
             .arg("--locked")
@@ -132,44 +129,41 @@ impl Artifacts {
         Ok(module)
     }
 
-    async fn build_target_dir(&self) -> BaResult<PathBuf> {
-        let _guard = BUILD_CACHE_LOCK.lock().await;
-        let source = self.source_dir.join(SOURCE_TARGET_DIR);
-        let destination = self.build_cache_dir.clone();
-
-        if source.is_dir() {
-            // Use a marker so a cache copy interrupted by a timeout or crash is
-            // discarded rather than being reused in a half-written state.
-            if !destination.join(CACHE_READY_FILE).is_file() {
-                let _ = fs::remove_dir_all(&destination).await;
-                let from = source.clone();
-                let to = destination.clone();
-                tokio::task::spawn_blocking(move || copy_path(&from, &to))
-                    .await
-                    .map_err(|source| {
-                        BaError::Config(format!("failed to prepare build cache: {source}"))
-                    })?
-                    .map_err(|source| BaError::CopyBuildCache {
-                        path: destination.clone(),
-                        source,
-                    })?;
-                fs::write(destination.join(CACHE_READY_FILE), b"")
-                    .await
-                    .map_err(|source| BaError::PrepareBuildCache {
-                        path: destination.clone(),
-                        source,
-                    })?;
-            }
-        } else if !destination.is_dir() {
-            fs::create_dir_all(&destination).await.map_err(|source| {
-                BaError::PrepareBuildCache {
-                    path: destination.clone(),
-                    source,
-                }
+    /// Create a pristine target directory for this invocation.
+    ///
+    /// The prebuilt target directory baked into the image is copied into a
+    /// fresh temporary directory every time, so cargo never sees artifacts
+    /// produced by user code from an earlier invocation.
+    async fn prepare_target_dir(&self) -> BaResult<TempDir> {
+        let cache_root = self.build_cache_dir.clone();
+        std_fs::create_dir_all(&cache_root).map_err(|source| BaError::PrepareBuildCache {
+            path: cache_root.clone(),
+            source,
+        })?;
+        let target_dir = tempfile::Builder::new()
+            .prefix("buildplane-target-")
+            .tempdir_in(&cache_root)
+            .map_err(|source| BaError::PrepareBuildCache {
+                path: cache_root,
+                source,
             })?;
+
+        let source = self.source_dir.join(SOURCE_TARGET_DIR);
+        if source.is_dir() {
+            let from = source;
+            let to = target_dir.path().to_path_buf();
+            tokio::task::spawn_blocking(move || copy_path(&from, &to))
+                .await
+                .map_err(|source| {
+                    BaError::Config(format!("failed to prepare build cache: {source}"))
+                })?
+                .map_err(|source| BaError::CopyBuildCache {
+                    path: target_dir.path().to_path_buf(),
+                    source,
+                })?;
         }
 
-        Ok(destination)
+        Ok(target_dir)
     }
 
     async fn compile_wasm(&self, module: &Path) -> BaResult<PathBuf> {
@@ -327,4 +321,63 @@ fn copy_path(from: &Path, to: &Path) -> io::Result<()> {
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{collections::BTreeMap, time::Duration};
+
+    fn artifacts(source_dir: &Path, build_cache_dir: &Path) -> Artifacts {
+        let fields = BTreeMap::from([("key".to_string(), "artifacts/${filename}".to_string())]);
+        let signed_post = SignedPost::new(
+            "https://example.com/upload".to_string(),
+            fields,
+            Duration::from_secs(1),
+        )
+        .unwrap();
+
+        Artifacts::new(
+            signed_post,
+            "https://example.com/source.zip".to_string(),
+            source_dir.to_path_buf(),
+            build_cache_dir.to_path_buf(),
+        )
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn target_dir_starts_from_the_prebuilt_cache_for_each_invocation() {
+        let source = tempfile::tempdir().unwrap();
+        let build_cache = tempfile::tempdir().unwrap();
+        let prebuilt = source
+            .path()
+            .join(SOURCE_TARGET_DIR)
+            .join(WASM_TARGET)
+            .join("release");
+        std_fs::create_dir_all(&prebuilt).unwrap();
+        std_fs::write(prebuilt.join(WASM_ARTIFACT_FILE), b"prebuilt").unwrap();
+
+        let artifacts = artifacts(source.path(), build_cache.path());
+        let first = artifacts.prepare_target_dir().await.unwrap();
+        let artifact = first
+            .path()
+            .join(WASM_TARGET)
+            .join("release")
+            .join(WASM_ARTIFACT_FILE);
+        assert_eq!(std_fs::read(&artifact).unwrap(), b"prebuilt");
+
+        // Simulate cargo writing output derived from a user's sources.
+        std_fs::write(first.path().join("user-output"), b"previous run").unwrap();
+
+        let second = artifacts.prepare_target_dir().await.unwrap();
+        assert_ne!(first.path(), second.path());
+        let artifact = second
+            .path()
+            .join(WASM_TARGET)
+            .join("release")
+            .join(WASM_ARTIFACT_FILE);
+        assert_eq!(std_fs::read(artifact).unwrap(), b"prebuilt");
+        assert!(!second.path().join("user-output").exists());
+    }
 }
