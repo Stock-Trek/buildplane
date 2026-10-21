@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use buildplane_data::{env_config::EnvConfig, orchestrator::Orchestrator};
 use buildplane_shared::{
     env_vars::EnvVarConfig as SharedEnvVarConfig, tracing_setup::TracingSetup,
