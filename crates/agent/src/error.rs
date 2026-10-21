@@ -50,6 +50,35 @@ pub enum BaError {
     #[error("build timed out after {0:?}")]
     Timeout(Duration),
 
+    #[error("failed to download user source archive")]
+    DownloadSource(#[source] reqwest::Error),
+
+    #[error("download of user source archive was rejected with status {status}: {body}")]
+    SourceDownloadRejected { status: u16, body: String },
+
+    #[error("failed to read user source archive response")]
+    ReadSourceResponse(#[source] reqwest::Error),
+
+    #[error("failed to read user source archive")]
+    ReadSourceArchive(#[source] zip::result::ZipError),
+
+    #[error("user source archive contains unsafe path {0}")]
+    UnsafeSourcePath(String),
+
+    #[error("failed to create source directory {path}")]
+    CreateSourceDirectory {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("failed to write source file {path}")]
+    WriteSourceFile {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
     #[error("failed to read artifact {path}")]
     ReadArtifact {
         path: PathBuf,

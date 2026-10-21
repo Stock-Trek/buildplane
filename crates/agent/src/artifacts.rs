@@ -1,6 +1,7 @@
 use crate::{
     error::{BaError, BaResult},
     s3::SignedPost,
+    source::Source,
 };
 use std::{
     path::{Path, PathBuf},
@@ -22,21 +23,29 @@ const WASMTIME: &str = "wasmtime";
 #[derive(Clone)]
 pub struct Artifacts {
     signed_post: SignedPost,
+    source_get_url: String,
     build_dir: Arc<TempDir>,
 }
 
 impl Artifacts {
-    pub fn new(signed_post: SignedPost) -> BaResult<Self> {
+    pub fn new(signed_post: SignedPost, source_get_url: String) -> BaResult<Self> {
         let build_dir = tempfile::tempdir().map_err(BaError::CreateBuildDirectory)?;
         Ok(Self {
             signed_post,
+            source_get_url,
             build_dir: Arc::new(build_dir),
         })
     }
 
     pub async fn compile(&self) -> BaResult<PathBuf> {
+        self.unpack_source().await?;
         let wasm = self.build_wasm().await?;
         self.compile_wasm(&wasm).await
+    }
+
+    async fn unpack_source(&self) -> BaResult<()> {
+        let source = Source::download(&self.source_get_url).await?;
+        source.extract(Path::new("."))
     }
 
     async fn build_wasm(&self) -> BaResult<PathBuf> {
