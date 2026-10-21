@@ -3,17 +3,23 @@ use crate::{
     error::{BaError, BaResult},
     request::BuildRequest,
 };
-use std::time::Duration;
+use std::{path::PathBuf, time::Duration};
 use tokio::time::timeout;
 
 #[derive(Clone)]
 pub struct Handler {
     build_timeout: Duration,
+    source_dir: PathBuf,
+    build_cache_dir: PathBuf,
 }
 
 impl Handler {
-    pub fn new(build_timeout: Duration) -> Self {
-        Self { build_timeout }
+    pub fn new(build_timeout: Duration, source_dir: PathBuf, build_cache_dir: PathBuf) -> Self {
+        Self {
+            build_timeout,
+            source_dir,
+            build_cache_dir,
+        }
     }
 
     pub async fn handle(&self, request: BuildRequest) -> BaResult<()> {
@@ -28,7 +34,12 @@ impl Handler {
             "starting build"
         );
         let signed_post = request.signed_post(self.build_timeout)?;
-        let artifacts = Artifacts::new(signed_post, request.signed_get_url)?;
+        let artifacts = Artifacts::new(
+            signed_post,
+            request.signed_get_url,
+            self.source_dir.clone(),
+            self.build_cache_dir.clone(),
+        )?;
         timeout(self.build_timeout, async {
             let cwasm = artifacts.compile().await?;
             artifacts.publish(&cwasm).await
