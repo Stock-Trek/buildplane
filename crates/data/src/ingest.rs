@@ -7,7 +7,6 @@ use crate::{
 };
 use arrow_array::{ArrayRef, Float64Array, Int64Array, RecordBatch};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
-use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
 use buildplane_exchange_types::klines::Kline;
 use bytes::Bytes;
@@ -28,7 +27,6 @@ pub struct WindowIngest<'a> {
 
 impl Ingest {
     pub async fn ingest_window(
-        s3_client: &S3Client,
         transfer_client: &TransferClient,
         bucket: &Bucket,
         updater: &dyn ExchangeUpdater,

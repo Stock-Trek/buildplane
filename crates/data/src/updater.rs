@@ -250,7 +250,6 @@ impl KlinesUpdater {
             .collect::<HashSet<_>>();
         for window in plan::Planner::plan_windows(&existing, *end_time, *backfill_start)? {
             Ingest::ingest_window(
-                s3_client,
                 transfer_client,
                 bucket,
                 updater,
