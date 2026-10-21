@@ -81,8 +81,7 @@ impl Orchestrator {
         prefixes.dedup();
         let mut errors = Vec::new();
         for prefix in prefixes {
-            if let Err(error) =
-                Compactor::prefix(s3_client, transfer_client, bucket, &prefix).await
+            if let Err(error) = Compactor::prefix(s3_client, transfer_client, bucket, &prefix).await
             {
                 warn!("failed to compact folder {}: {error}", prefix);
                 errors.push(error);
