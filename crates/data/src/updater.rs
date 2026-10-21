@@ -1,7 +1,7 @@
 use crate::{
     constants::{UPDATE_QUANTIZATION, common_trading_pairs},
     error::{MduError, MduResult},
-    ingest::{self, WindowIngest},
+    ingest::{Ingest, WindowIngest},
     plan,
     quantized_time::QuantizedTime,
     s3::{Bucket, ObjectKey, S3},
@@ -64,7 +64,7 @@ impl KlinesUpdater {
     ) -> MduResult<()> {
         info!("update");
         let now = Utc::now();
-        let schema = ingest::schema();
+        let schema = Ingest::schema();
         let end_time = QuantizedTime::timestamp(now, UPDATE_QUANTIZATION)?;
         let mut join_set = JoinSet::new();
         let mut errors = Vec::new();
@@ -249,43 +249,20 @@ impl KlinesUpdater {
             })
             .collect::<HashSet<_>>();
         for window in plan::Planner::plan_windows(&existing, *end_time, *backfill_start)? {
-            Self::ingest_window(
+            Ingest::ingest_window(
                 s3_client,
                 transfer_client,
                 bucket,
                 updater,
-                trading_pair,
-                schema,
-                &candles_base_path,
-                window,
+                WindowIngest {
+                    trading_pair,
+                    window,
+                    candles_base_path: &candles_base_path,
+                    schema,
+                },
             )
             .await?;
         }
         Ok(())
-    }
-
-    async fn ingest_window(
-        s3_client: &S3Client,
-        transfer_client: &TransferClient,
-        bucket: &Bucket,
-        updater: &dyn ExchangeUpdater,
-        trading_pair: &TradingPair,
-        schema: &SchemaRef,
-        candles_base_path: &str,
-        window: plan::Window,
-    ) -> MduResult<()> {
-        ingest::ingest_window(
-            s3_client,
-            transfer_client,
-            bucket,
-            updater,
-            WindowIngest {
-                trading_pair,
-                window,
-                candles_base_path,
-                schema,
-            },
-        )
-        .await
     }
 }
