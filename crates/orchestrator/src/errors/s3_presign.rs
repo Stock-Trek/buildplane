@@ -24,6 +24,14 @@ pub enum RsS3PresignError {
     },
     #[error("failed to upload object to S3: {0}")]
     Upload(#[source] reqwest::Error),
+    #[error("S3 {operation} failed for {target}: {source}")]
+    Operation {
+        operation: &'static str,
+        target: String,
+        retryable: bool,
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
     #[error("S3 rejected upload for key {key:?} with status {status}: {body}")]
     UploadRejected {
         key: String,
@@ -41,6 +49,13 @@ impl RsS3PresignError {
             | Self::MissingCredentials { .. }
             | Self::ObjectTooLarge { .. } => Retryability::Permanent,
             Self::Upload(_) => Retryability::Retryable,
+            Self::Operation { retryable, .. } => {
+                if *retryable {
+                    Retryability::Retryable
+                } else {
+                    Retryability::Permanent
+                }
+            }
             Self::UploadRejected { status, .. } => match status {
                 408 | 429 => Retryability::Retryable,
                 status if *status >= 500 => Retryability::Retryable,

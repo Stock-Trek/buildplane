@@ -9,6 +9,36 @@ use std::fmt::Display;
 pub struct S3Keys;
 
 impl S3Keys {
+    pub fn host_prefix(provider: &str, host: &str) -> String {
+        format!("{provider}/{host}/")
+    }
+
+    /// Rewrites a repository object key so it points at `destination_installation_id`.
+    ///
+    /// Keys are laid out as
+    /// `{provider}/{host}/{installation_id}/{repo_id}/...`, so a repository
+    /// transfer only changes the installation segment. Returns `None` when the
+    /// key belongs to a different provider, host, or repository.
+    pub fn transfer_key(
+        key: &str,
+        provider: &str,
+        host: &str,
+        repo_id: &str,
+        destination_installation_id: &str,
+    ) -> Option<String> {
+        let mut segments = key.splitn(5, '/');
+        let key_provider = segments.next()?;
+        let key_host = segments.next()?;
+        let _key_installation_id = segments.next()?;
+        let key_repo_id = segments.next()?;
+        let remainder = segments.next()?;
+        if key_provider != provider || key_host != host || key_repo_id != repo_id {
+            return None;
+        }
+        Some(format!(
+            "{provider}/{host}/{destination_installation_id}/{repo_id}/{remainder}"
+        ))
+    }
     pub fn ref_key<InstallationId, RepoId, Remote>(
         git_remote: &Remote,
         repo_id: RepoId,
@@ -89,5 +119,52 @@ impl S3Keys {
                     && character != ' '
                     && !matches!(character, '~' | '^' | ':' | '?' | '*' | '[' | '\\')
             })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transfer_key_rewrites_installation_segment() {
+        let key = "github/github.com/42/7/heads/main/abc123/source/algorithms.zip";
+
+        assert_eq!(
+            S3Keys::transfer_key(key, "github", "github.com", "7", "99"),
+            Some("github/github.com/99/7/heads/main/abc123/source/algorithms.zip".to_string())
+        );
+    }
+
+    #[test]
+    fn transfer_key_rejects_other_repositories() {
+        let key = "github/github.com/42/7/heads/main/abc123/source/algorithms.zip";
+
+        assert_eq!(
+            S3Keys::transfer_key(key, "github", "github.com", "8", "99"),
+            None
+        );
+    }
+
+    #[test]
+    fn transfer_key_rejects_other_hosts_and_providers() {
+        let key = "github/github.com/42/7/heads/main/abc123/source/algorithms.zip";
+
+        assert_eq!(
+            S3Keys::transfer_key(key, "github", "ghe.example.com", "7", "99"),
+            None
+        );
+        assert_eq!(
+            S3Keys::transfer_key(key, "gitlab", "github.com", "7", "99"),
+            None
+        );
+    }
+
+    #[test]
+    fn transfer_key_rejects_malformed_keys() {
+        assert_eq!(
+            S3Keys::transfer_key("github/github.com/42", "github", "github.com", "42", "99"),
+            None
+        );
     }
 }
