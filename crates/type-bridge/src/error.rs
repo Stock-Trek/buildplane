@@ -12,4 +12,6 @@ pub enum TBError {
     SystemTimeBeforeEpoch,
     #[error("Unsupported {name}: {value}")]
     Unsupported { name: String, value: String },
+    #[error("Invalid value for {name}: {value}")]
+    InvalidValue { name: String, value: String },
 }
