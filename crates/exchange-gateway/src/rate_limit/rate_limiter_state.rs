@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const MAX_THROTTLE_AFTER: Duration = Duration::from_secs(u32::MAX as u64);
+const MAX_THROTTLE_AFTER: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Clone)]
 pub struct RateLimiterState {
@@ -178,5 +178,53 @@ impl std::fmt::Debug for RateLimiterState {
             .field("excess_interval_nanos", &self.excess_interval_nanos)
             .field("throttled_until", &self.throttled_until)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    fn state_with_clock(now: Instant) -> (RateLimiterState, Arc<Mutex<Instant>>) {
+        let clock = Arc::new(Mutex::new(now));
+        let state_clock = Arc::clone(&clock);
+        let state = RateLimiterState::with_clock(
+            Nanoseconds(60_000_000_000),
+            UsageCount(10),
+            Arc::new(move || *state_clock.lock().expect("clock lock")),
+        )
+        .expect("valid rate limiter state");
+        (state, clock)
+    }
+
+    fn set_now(clock: &Mutex<Instant>, now: Instant) {
+        *clock.lock().expect("clock lock") = now;
+    }
+
+    #[test]
+    fn throttle_after_honours_short_server_delays() {
+        let now = Instant::now();
+        let (mut state, clock) = state_with_clock(now);
+        state.throttle_after(Duration::from_secs(60));
+
+        set_now(&clock, now + Duration::from_secs(59));
+        assert!(state.is_throttled());
+
+        set_now(&clock, now + Duration::from_secs(60));
+        assert!(!state.is_throttled());
+    }
+
+    #[test]
+    fn throttle_after_clamps_hostile_server_delays() {
+        let now = Instant::now();
+        let (mut state, clock) = state_with_clock(now);
+        state.throttle_after(Duration::from_secs(u64::MAX));
+
+        set_now(&clock, now + MAX_THROTTLE_AFTER - Duration::from_secs(1));
+        assert!(state.is_throttled());
+
+        set_now(&clock, now + MAX_THROTTLE_AFTER);
+        assert!(!state.is_throttled());
     }
 }
