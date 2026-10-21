@@ -522,10 +522,10 @@ jobs:
         if: steps.save-response-type.outputs.response-type == 'CAN_ADDRESS_FULLY'
         env:
           SHIPYARD_KNOWN_HOST: ${{ env.SHIPYARD_KNOWN_HOST }}
-          SHIPYARD_SSH_PRIVATE_KEY_CLIENT: ${{ env.SHIPYARD_SSH_PRIVATE_KEY_CLIENT }}
+          SHIPYARD_SSH_PRIVATE_KEY_BUILDPLANE: ${{ env.SHIPYARD_SSH_PRIVATE_KEY_BUILDPLANE }}
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "${{ env.SHIPYARD_SSH_PRIVATE_KEY_CLIENT }}" > ~/.ssh/id_ed25519
+          printf '%s\n' "${{ env.SHIPYARD_SSH_PRIVATE_KEY_BUILDPLANE }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           echo "${{ env.SHIPYARD_KNOWN_HOST }}" >> ~/.ssh/known_hosts
           ssh -T git@ssh.shipyard.rs
