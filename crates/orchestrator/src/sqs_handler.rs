@@ -8,6 +8,7 @@ use buildplane_shared::{
         error::RsSharedError, invalid_message::RsInvalidMessageError, retryability::Retryability,
     },
     metrics::route::RouteMetrics,
+    metrics::sqs::SqsMetrics,
     request_context::RequestContext,
     sqs_message::SqsMessage,
 };
@@ -75,12 +76,24 @@ impl SqsHandler {
             .as_deref()
             .ok_or_else(|| RsSharedError::InvalidMessage(RsInvalidMessageError::MissingBody))?;
         let message: SqsMessage = serde_json::from_str(body)?;
-        let task = Task::from(message);
+        let dedup = request_context.context.dedup.clone();
+        if dedup.is_duplicate(&message) {
+            tracing::info!(
+                message_id = record.message_id.as_deref().unwrap_or("unknown"),
+                "Ignoring duplicate SQS message",
+            );
+            SqsMetrics::record_duplicate_message();
+            return Ok(());
+        }
+        let task = Task::from(message.clone());
         let metrics = RouteMetrics::start(task.route());
         let result = task.handle(request_context).await;
         match &result {
             Ok(()) => metrics.record_success(),
-            Err(error) => metrics.record_error(error.error_type()),
+            Err(error) => {
+                dedup.forget(&message);
+                metrics.record_error(error.error_type());
+            }
         }
         result
     }

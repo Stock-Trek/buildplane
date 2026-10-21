@@ -15,6 +15,7 @@ pub const SECRET_LOAD_IN_FLIGHT_WAITS_TOTAL: &str = "secret_load_in_flight_waits
 pub const SECRET_LOAD_SUCCESSES_TOTAL: &str = "secret_load_successes_total";
 pub const MESSAGES_SENT_TOTAL: &str = "messages_sent_total";
 pub const MESSAGES_FAILED_TOTAL: &str = "messages_failed_total";
+pub const DUPLICATE_MESSAGES_TOTAL: &str = "duplicate_messages_total";
 
 pub const STATUS_SUCCESS: &str = "success";
 pub const STATUS_ERROR: &str = "error";
@@ -79,6 +80,10 @@ impl DescriptionsMetrics {
         describe_counter!(
             MESSAGES_FAILED_TOTAL,
             "Total number of individual SQS messages that failed to send"
+        );
+        describe_counter!(
+            DUPLICATE_MESSAGES_TOTAL,
+            "Total number of SQS messages dropped as duplicates"
         );
     }
 }

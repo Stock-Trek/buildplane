@@ -38,6 +38,8 @@ const S3_BUCKET: &str = "S3_BUCKET";
 const S3_BUCKET_USER_ARTIFACTS: &str = "S3_BUCKET_USER_ARTIFACTS";
 const S3_MAX_OBJECT_SIZE_BYTES: &str = "S3_MAX_OBJECT_SIZE_BYTES";
 pub const S3_SIGNED_URL_EXPIRY: &str = "S3_SIGNED_URL_EXPIRY";
+const SQS_DEDUP_MAX_MESSAGES: &str = "SQS_DEDUP_MAX_MESSAGES";
+const SQS_DEDUP_TTL: &str = "SQS_DEDUP_TTL";
 const SQS_PROCESS_CONCURRENCY: &str = "SQS_PROCESS_CONCURRENCY";
 const SQS_QUEUE_URL: &str = "SQS_QUEUE_URL";
 const WEBHOOK_COLD_START_REFRESH_TIMEOUT: &str = "WEBHOOK_COLD_START_REFRESH_TIMEOUT";
@@ -53,6 +55,8 @@ const DEFAULT_GITHUB_MAX_DIRECTORY_DEPTH: usize = 32;
 const DEFAULT_GITHUB_MAX_DIRECTORY_FILES: usize = 10_000;
 const DEFAULT_S3_MAX_OBJECT_SIZE_BYTES: u64 = 16 * 1024 * 1024;
 const DEFAULT_S3_SIGNED_URL_EXPIRY: Duration = Duration::from_secs(60 * 60);
+const DEFAULT_SQS_DEDUP_MAX_MESSAGES: usize = 4096;
+const DEFAULT_SQS_DEDUP_TTL: Duration = Duration::from_secs(3600);
 const DEFAULT_SQS_PROCESS_CONCURRENCY: usize = 10;
 const DEFAULT_WEBHOOK_COLD_START_REFRESH_TIMEOUT: Duration = Duration::from_secs(30);
 const DEFAULT_WEBHOOK_DEDUP_MAX_DELIVERIES: usize = 4096;
@@ -188,6 +192,20 @@ impl EnvVarConfig {
 
     pub fn sqs_queue_url(&self) -> RsSharedResult<String> {
         self.required(SQS_QUEUE_URL)
+    }
+
+    pub fn sqs_dedup_max_messages(&self) -> RsSharedResult<NonZeroUsize> {
+        let messages = self.parsed(SQS_DEDUP_MAX_MESSAGES, DEFAULT_SQS_DEDUP_MAX_MESSAGES)?;
+        NonZeroUsize::new(messages).ok_or_else(|| {
+            RsSharedError::Config(RsConfigError::invalid(
+                SQS_DEDUP_MAX_MESSAGES,
+                "must be greater than zero",
+            ))
+        })
+    }
+
+    pub fn sqs_dedup_ttl(&self) -> RsSharedResult<Duration> {
+        self.duration(SQS_DEDUP_TTL, DEFAULT_SQS_DEDUP_TTL)
     }
 
     pub fn sqs_process_concurrency(&self) -> RsSharedResult<NonZeroUsize> {
