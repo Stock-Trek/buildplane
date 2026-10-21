@@ -66,9 +66,14 @@ runs:
         umask 077
         printf '%s' "${PI_KEY}" > "${HOME}/.pi/agent/.${PROVIDER}-key"
 
+        # Remove credentials that the agent could otherwise read from disk
+        # (SSH keys, git credential, runner command files, ...). This action
+        # only grants read/grep/find/ls, but those tools can still read files
+        # and /proc.
+        bash .github/scripts/remove-credentials.sh
+
         # Replace this shell so the credentials in its environment cannot be
-        # read back through /proc by the agent while pi runs. This action only
-        # grants read/grep/find/ls, but those tools can still read /proc.
+        # read back through /proc by the agent while pi runs.
         set +e
         exec env -i HOME="$HOME" PATH="$PATH" TERM=dumb \
           pi \
@@ -91,7 +96,9 @@ runs:
           echo "Error: pi did not write a schema-validated JSON output to ${JSON_OUTPUT_FILE}" >&2
           exit 1
         fi
-        cat "${STDOUT_FILE}"
+        # Do not echo pi's output: it is untrusted text and could contain
+        # secrets the agent encountered, which would then be readable in the
+        # workflow logs.
         PI_RESPONSE_BASE64=$(base64 -w 0 < "${JSON_OUTPUT_FILE}")
         rm -f "${JSON_OUTPUT_FILE}" "${STDOUT_FILE}"
         echo "pi-response-base64=${PI_RESPONSE_BASE64}" >> "$GITHUB_OUTPUT"
