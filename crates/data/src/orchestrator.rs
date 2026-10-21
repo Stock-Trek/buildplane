@@ -1,6 +1,6 @@
 use crate::{
     compacter::Compactor,
-    constants::LOCK_KEY,
+    constants::{LOCK_KEY, common_trading_pairs},
     env_config::EnvConfig,
     error::{MduError, MduResult},
     lock::LockGuard,
@@ -10,7 +10,7 @@ use crate::{
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
 use chrono::{DateTime, Utc};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 pub struct Orchestrator;
 
@@ -47,7 +47,7 @@ impl Orchestrator {
         if let Err(error) = &update_result {
             error!("update failed: {error}");
         }
-        let compact_result = Compactor::all(s3_client, transfer_client, bucket).await;
+        let compact_result = Self::compact_all(s3_client, transfer_client, bucket).await;
         if let Err(error) = &compact_result {
             error!("compaction failed: {error}");
         }
@@ -57,6 +57,41 @@ impl Orchestrator {
             (Err(update_error), Err(compact_error)) => {
                 Err(MduError::multiple([update_error, compact_error]))
             }
+        }
+    }
+
+    async fn compact_all(
+        s3_client: &S3Client,
+        transfer_client: &TransferClient,
+        bucket: &Bucket,
+    ) -> MduResult<()> {
+        info!("compact all");
+        let mut prefixes = common_trading_pairs()
+            .into_iter()
+            .flat_map(|(cex_id, trading_mode, trading_pairs)| {
+                trading_pairs.into_iter().map(move |trading_pair| {
+                    ObjectKey::new(format!(
+                        "{}/{}/{}/{}/",
+                        trading_mode, cex_id, trading_pair.base, trading_pair.quote
+                    ))
+                })
+            })
+            .collect::<Vec<_>>();
+        prefixes.sort_unstable();
+        prefixes.dedup();
+        let mut errors = Vec::new();
+        for prefix in prefixes {
+            if let Err(error) =
+                Compactor::prefix(s3_client, transfer_client, bucket, &prefix).await
+            {
+                warn!("failed to compact folder {}: {error}", prefix);
+                errors.push(error);
+            }
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(MduError::multiple(errors))
         }
     }
 }

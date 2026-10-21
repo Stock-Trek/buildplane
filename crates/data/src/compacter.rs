@@ -1,5 +1,5 @@
 use crate::{
-    constants::{PARQUET_SUFFIX, common_trading_pairs},
+    constants::PARQUET_SUFFIX,
     error::{MduError, MduResult},
     parquet_reader::ParquetReader,
     parquet_writer::writer_properties,
@@ -88,39 +88,17 @@ struct SubfoldersFiles {
 }
 
 impl Compactor {
-    pub async fn all(
+    /// Compact one specific trading-pair prefix.
+    ///
+    /// Ready children are rolled up recursively, preserving the existing
+    /// staged-copy and delete-source safety behavior.
+    pub async fn prefix(
         s3_client: &S3Client,
         transfer_client: &TransferClient,
         bucket: &Bucket,
+        prefix: &ObjectKey,
     ) -> MduResult<()> {
-        info!("compact all");
-        let mut prefixes = common_trading_pairs()
-            .into_iter()
-            .flat_map(|(cex_id, trading_mode, trading_pairs)| {
-                trading_pairs.into_iter().map(move |trading_pair| {
-                    ObjectKey::new(format!(
-                        "{}/{}/{}/{}/",
-                        trading_mode, cex_id, trading_pair.base, trading_pair.quote
-                    ))
-                })
-            })
-            .collect::<Vec<_>>();
-        prefixes.sort_unstable();
-        prefixes.dedup();
-        let mut errors = Vec::new();
-        for prefix in prefixes {
-            if let Err(error) =
-                Self::folder(s3_client, transfer_client, bucket, &prefix, PARQUET_SUFFIX).await
-            {
-                warn!("failed to compact folder {}: {error}", prefix);
-                errors.push(error);
-            }
-        }
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(MduError::multiple(errors))
-        }
+        Self::folder(s3_client, transfer_client, bucket, prefix, PARQUET_SUFFIX).await
     }
 
     async fn folder(
