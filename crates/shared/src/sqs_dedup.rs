@@ -74,7 +74,6 @@ mod tests {
                 ref_name: "main".to_owned(),
                 ref_type: SqsRefType::Branch,
                 commit_hash: commit_hash.to_owned(),
-                forced: false,
             },
         }
     }
