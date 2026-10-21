@@ -1,13 +1,18 @@
 use crate::error::{BaError, BaResult};
 use std::{
     env::{self, VarError},
+    path::{Path, PathBuf},
     time::Duration,
 };
 use tracing_subscriber::EnvFilter;
 
 const BUILD_TIMEOUT_ENV: &str = "BUILD_AGENT_TIMEOUT_SECS";
+const SOURCE_DIR_ENV: &str = "BUILD_AGENT_SOURCE_DIR";
+const BUILD_CACHE_DIR_ENV: &str = "BUILD_AGENT_BUILD_CACHE_DIR";
 const DEFAULT_BUILD_TIMEOUT_SECS: u64 = 300;
 const DEFAULT_LOG_FILTER: &str = "info";
+const DEFAULT_SOURCE_DIR: &str = "/var/task";
+const DEFAULT_BUILD_CACHE_DIR: &str = "/tmp/buildplane-build-cache";
 
 /// Process-wide configuration for the build agent.
 ///
@@ -18,6 +23,8 @@ const DEFAULT_LOG_FILTER: &str = "info";
 pub struct EnvVarConfig {
     build_timeout: Duration,
     log_filter: EnvFilter,
+    source_dir: PathBuf,
+    build_cache_dir: PathBuf,
 }
 
 impl EnvVarConfig {
@@ -25,6 +32,8 @@ impl EnvVarConfig {
         Ok(Self {
             build_timeout: Self::build_timeout_from_env()?,
             log_filter: Self::log_filter_from_env()?,
+            source_dir: Self::path_from_env(SOURCE_DIR_ENV, DEFAULT_SOURCE_DIR)?,
+            build_cache_dir: Self::path_from_env(BUILD_CACHE_DIR_ENV, DEFAULT_BUILD_CACHE_DIR)?,
         })
     }
 
@@ -34,6 +43,14 @@ impl EnvVarConfig {
 
     pub fn log_filter(&self) -> EnvFilter {
         self.log_filter.clone()
+    }
+
+    pub fn source_dir(&self) -> &Path {
+        &self.source_dir
+    }
+
+    pub fn build_cache_dir(&self) -> &Path {
+        &self.build_cache_dir
     }
 
     fn build_timeout_from_env() -> BaResult<Duration> {
@@ -54,6 +71,14 @@ impl EnvVarConfig {
                 BaError::Config(format!("{} is invalid: {error}", EnvFilter::DEFAULT_ENV))
             }),
             None => Ok(EnvFilter::new(DEFAULT_LOG_FILTER)),
+        }
+    }
+
+    fn path_from_env(name: &str, default: &str) -> BaResult<PathBuf> {
+        match Self::optional(name)? {
+            Some(value) if value.is_empty() => Ok(PathBuf::from(default)),
+            Some(value) => Ok(PathBuf::from(value)),
+            None => Ok(PathBuf::from(default)),
         }
     }
 

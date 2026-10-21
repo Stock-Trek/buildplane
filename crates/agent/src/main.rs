@@ -18,7 +18,11 @@ mod tracing_setup;
 async fn main() -> Result<(), Error> {
     let config = EnvVarConfig::from_env()?;
     TracingSetup::setup(config.log_filter())?;
-    let handler = Handler::new(config.build_timeout());
+    let handler = Handler::new(
+        config.build_timeout(),
+        config.source_dir().to_path_buf(),
+        config.build_cache_dir().to_path_buf(),
+    );
     run(service_fn(move |event| {
         let handler = handler.clone();
         async move { BuildAgent::handle(handler, event).await }

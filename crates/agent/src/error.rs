@@ -81,6 +81,34 @@ pub enum BaError {
     #[error("failed to create temporary build directory")]
     CreateBuildDirectory(#[source] std::io::Error),
 
+    #[error("failed to prepare the build workspace at {path}")]
+    PrepareWorkspace {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("failed to copy build workspace entry {path}")]
+    CopyWorkspaceEntry {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("failed to copy the prebuilt build cache to {path}")]
+    CopyBuildCache {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
+    #[error("failed to prepare the build cache at {path}")]
+    PrepareBuildCache {
+        path: PathBuf,
+        #[source]
+        source: std::io::Error,
+    },
+
     #[error("failed to compile artifact {path}")]
     CompileArtifact {
         path: PathBuf,

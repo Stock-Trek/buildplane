@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+
 FROM rustserverless/lambda-rust:latest AS base
 
 ARG TARGETARCH
@@ -61,12 +63,43 @@ RUN cargo lambda build --manifest-path ./crates/agent/Cargo.toml --release
 FROM base AS build-agent
 
 WORKDIR ${LAMBDA_RUNTIME_DIR}
-COPY --from=builder /app/target/lambda/buildplane-agent/bootstrap .
+ENV BUILD_AGENT_SOURCE_DIR="${LAMBDA_RUNTIME_DIR}"
 COPY ./crates/exit_codes ./crates/exit_codes
 COPY ./crates/runner ./crates/runner
 COPY ./Cargo.lock ./Cargo.lock
 COPY ./Cargo.toml ./Cargo.toml
+COPY ./.cargo ./.cargo
 
-RUN cargo lambda build --manifest-path ./crates/runner/Cargo.toml --target=wasm32-wasip1 --release
+# Vendor the dependencies needed by the runner-only workspace. The agent uses
+# these vendored crates at runtime, so it never needs the private registry or
+# any registry credentials.
+RUN cargo vendor vendor > /tmp/vendor-config.toml \
+ && cat /tmp/vendor-config.toml >> .cargo/config.toml \
+ && rm /tmp/vendor-config.toml \
+ && sed -i "s#directory = \"vendor\"#directory = \"$(pwd)/vendor\"#" .cargo/config.toml
+
+# Install the native host used to run algorithms.
+RUN cargo build \
+      --manifest-path ./crates/runner/Cargo.toml \
+      --release \
+      --bin build-runner \
+      --locked \
+      --offline \
+      --target-dir /tmp/build-runner-target \
+ && cp /tmp/build-runner-target/release/build-runner /usr/local/bin/build-runner \
+ && rm -rf /tmp/build-runner-target
+
+# Prebuild the wasm runner and all of its dependencies. The agent copies this
+# target directory into /tmp on first use, so requests only rebuild the runner
+# crate after the user's sources have been extracted.
+RUN cargo build \
+      --manifest-path ./crates/runner/Cargo.toml \
+      --target wasm32-wasip1 \
+      --release \
+      --lib \
+      --locked \
+      --offline
+
+COPY --from=builder /app/target/lambda/buildplane-agent/bootstrap .
 
 CMD ["bootstrap"]
