@@ -3,7 +3,6 @@ use buildplane_shared::sqs_message::{GitSource, SqsRefType};
 use std::collections::BTreeMap;
 
 const COMMIT_HASH: &str = "COMMIT_HASH";
-const FORCED: &str = "FORCED";
 const GIT_HOST: &str = "GIT_HOST";
 const GIT_PROVIDER: &str = "GIT_PROVIDER";
 const REPO_ID: &str = "REPO_ID";
@@ -19,7 +18,6 @@ pub struct BuildRequest {
     pub ref_name: String,
     pub ref_type: SqsRefType,
     pub commit_hash: Option<String>,
-    pub forced: bool,
     pub signed_get_url: String,
     pub signed_post: PresignedPost,
 }
@@ -42,7 +40,6 @@ impl BuildRequest {
         ]);
         if let Some(commit_hash) = self.commit_hash.as_deref() {
             environment.insert(COMMIT_HASH, commit_hash.to_string());
-            environment.insert(FORCED, self.forced.to_string());
         }
         Ok(environment)
     }

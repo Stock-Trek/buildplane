@@ -7,7 +7,6 @@ pub struct GitHubEventPush {
     pub before: String,
     pub created: bool,
     pub deleted: bool,
-    pub forced: bool,
     pub installation: GitHubInstallation,
     pub r#ref: String,
     pub repository: GitHubRepository,

@@ -30,7 +30,6 @@ impl Handler {
             ref_name = %request.ref_name,
             ref_type = %request.ref_type,
             commit_hash = request.commit_hash.as_deref().unwrap_or("unknown"),
-            forced = request.forced.as_deref().unwrap_or("false"),
             "starting build"
         );
         let signed_post = request.signed_post(self.build_timeout)?;

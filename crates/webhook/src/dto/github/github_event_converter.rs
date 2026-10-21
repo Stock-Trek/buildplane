@@ -230,7 +230,6 @@ impl GitHubEventConverter {
             after,
             created,
             deleted,
-            forced,
             installation,
             r#ref,
             repository,
@@ -250,7 +249,6 @@ impl GitHubEventConverter {
             ref_name: ref_name.into(),
             ref_type,
             commit_hash: after,
-            forced,
         };
         Self::accept(host, delivery_id, installation.id, detail)
     }
