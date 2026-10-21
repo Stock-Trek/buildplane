@@ -139,7 +139,7 @@ impl Compactor {
             }
         };
         if !expected_subfolders.is_empty() {
-            let compacted_file = plan::compacted_file_path(prefix, suffix);
+            let compacted_file = plan::Planner::compacted_file_path(prefix, suffix);
             let staged_file = Self::staged_file_path(&compacted_file);
             if S3::has_file(s3_client, bucket, &compacted_file).await? {
                 info!(
@@ -183,7 +183,8 @@ impl Compactor {
         } else {
             subfolders_files
         };
-        let expected_files = plan::expected_compaction_sources_with_suffix(prefix, suffix)?;
+        let expected_files =
+            plan::Planner::expected_compaction_sources_with_suffix(prefix, suffix)?;
         let missing = expected_files
             .iter()
             .filter(|expected| !subfolders_files.files.contains(*expected))
@@ -197,7 +198,7 @@ impl Compactor {
             );
             return Ok(());
         }
-        let Some(target) = plan::plan_compaction_with_suffix(
+        let Some(target) = plan::Planner::plan_compaction_with_suffix(
             prefix,
             subfolders_files.files.iter().map(ObjectKey::as_str),
             suffix,

@@ -251,7 +251,7 @@ impl KlinesUpdater {
                     .map(str::to_string)
             })
             .collect::<HashSet<_>>();
-        for window in plan::plan_windows(&existing, *end_time, *backfill_start)? {
+        for window in plan::Planner::plan_windows(&existing, *end_time, *backfill_start)? {
             let candles = updater
                 .klines(trading_pair, window.start, window.end)
                 .await?;
