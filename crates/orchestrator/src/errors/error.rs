@@ -1,7 +1,7 @@
 use crate::errors::{
-    archive::RsArchiveError, run_task::RsRunTaskError, s3_presign::RsS3PresignError,
+    archive::RsArchiveError, invoke::RsLambdaInvokeError, s3_presign::RsS3PresignError,
 };
-use aws_sdk_ecs::operation::run_task::RunTaskError;
+use aws_sdk_lambda::operation::invoke::InvokeError;
 use buildplane_shared::errors::{error::RsSharedError, retryability::Retryability};
 use lambda_runtime::Diagnostic;
 
@@ -13,10 +13,10 @@ pub enum RsOrchestratorError {
     Archive(#[from] RsArchiveError),
     #[error("Run error: {0}")]
     Run(#[from] Box<dyn std::error::Error + Send + Sync>),
-    #[error("Run task error: {0}")]
-    RunTask(#[from] Box<RunTaskError>),
-    #[error("Run task failure: {0}")]
-    RunTaskFailure(#[from] RsRunTaskError),
+    #[error("Lambda invoke error: {0}")]
+    Lambda(#[from] Box<InvokeError>),
+    #[error("Lambda invocation failed: {0}")]
+    LambdaInvoke(#[from] RsLambdaInvokeError),
     #[error("S3Presign: {0}")]
     S3Presign(#[from] RsS3PresignError),
     #[error("Serde error: {0}")]
@@ -30,8 +30,8 @@ impl RsOrchestratorError {
         match self {
             Self::Archive(_) => "archive",
             Self::Run(_) => "run",
-            Self::RunTask(_) => "run_task",
-            Self::RunTaskFailure(_) => "run_task_failure",
+            Self::Lambda(_) => "lambda",
+            Self::LambdaInvoke(_) => "lambda_invoke",
             Self::S3Presign(_) => "s3_presign",
             Self::Serde(_) => "serde",
             Self::Shared(_) => "shared",
@@ -41,27 +41,16 @@ impl RsOrchestratorError {
     pub fn retryability(&self) -> Retryability {
         match self {
             Self::Run(_) => Retryability::Retryable,
-            Self::RunTask(error) => Self::run_task_retryability(error),
-            Self::RunTaskFailure(error) => error.retryability(),
+            Self::Lambda(error) => Self::lambda_retryability(error),
+            Self::LambdaInvoke(error) => error.retryability(),
             Self::S3Presign(error) => error.retryability(),
             Self::Serde(_) | Self::Archive(_) => Retryability::Permanent,
             Self::Shared(error) => error.retryability(),
         }
     }
 
-    fn run_task_retryability(error: &RunTaskError) -> Retryability {
-        match error {
-            RunTaskError::AccessDeniedException(_)
-            | RunTaskError::BlockedException(_)
-            | RunTaskError::ClientException(_)
-            | RunTaskError::ClusterNotFoundException(_)
-            | RunTaskError::ConflictException(_)
-            | RunTaskError::InvalidParameterException(_)
-            | RunTaskError::PlatformTaskDefinitionIncompatibilityException(_)
-            | RunTaskError::PlatformUnknownException(_)
-            | RunTaskError::UnsupportedFeatureException(_) => Retryability::Permanent,
-            _ => Retryability::Retryable,
-        }
+    fn lambda_retryability(error: &InvokeError) -> Retryability {
+        crate::errors::invoke::invoke_retryability(error)
     }
 }
 
