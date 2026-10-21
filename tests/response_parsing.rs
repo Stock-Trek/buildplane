@@ -12,6 +12,25 @@ use buildplane_exchange_types::{
 use serde_json::json;
 
 #[test]
+fn http_response_ignores_malformed_rate_limit_headers() {
+    let response = HttpResponse {
+        status: 200,
+        headers: vec![
+            ("x-mbx-order-count-".into(), "1".into()),
+            ("x-mbx-used-weight-".into(), "2".into()),
+            ("x-mbx-order-count-10".into(), "3".into()),
+            ("x-mbx-used-weight-xs".into(), "4".into()),
+            ("x-mbx-order-count-18446744073709551615s".into(), "5".into()),
+            ("x-mbx-used-weight-é".into(), "6".into()),
+            ("x-mbx-order-count-1m".into(), "not-a-number".into()),
+        ],
+        body: br#"{"serverTime":123}"#.to_vec(),
+    };
+    let parsed = BinanceResponse::<BinanceTimeResponse>::try_from_http(response).unwrap();
+    assert!(parsed.rate_limit_usage().unwrap().is_empty());
+}
+
+#[test]
 fn http_response_records_usage_retry_after_and_success_payload() {
     let response = HttpResponse {
         status: 200,

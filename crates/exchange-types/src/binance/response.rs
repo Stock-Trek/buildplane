@@ -60,38 +60,37 @@ where
                 None
             };
             if let Some(restriction) = restriction {
-                match name.rsplit_once('-') {
-                    None => {}
-                    Some(last_part) => {
-                        let last_part = last_part.1;
-                        let (num_str, letter) = last_part.split_at(last_part.len() - 1);
-                        let num = num_str.parse::<u64>().ok();
-                        let interval_nanos = letter.chars().next().and_then(|c| {
-                            BinanceRateLimitInterval::try_from(c)
-                                .ok()
-                                .and_then(|i| Nanoseconds::try_from(i).ok())
-                        });
-                        if let Some(num) = num
-                            && let Some(interval_nanos) = interval_nanos
-                        {
-                            let interval_nanos = Nanoseconds(num as i64 * interval_nanos.0);
-                            match value.parse::<u64>() {
-                                Err(_) => {}
-                                Ok(used) => {
-                                    usage.insert(
-                                        RateLimit {
-                                            restriction,
-                                            interval_nanos,
-                                        },
-                                        RateUsage {
-                                            limit: None,
-                                            used: Some(UsageCount(used)),
-                                        },
-                                    );
-                                }
-                            }
-                        }
-                    }
+                let Some((_, last_part)) = name.rsplit_once('-') else {
+                    continue;
+                };
+                // Suffixes are `<count><unit>`, e.g. `1m` or `10s`. They come
+                // from server-controlled headers, so malformed values must be
+                // ignored rather than panicking.
+                let Some(letter) = last_part.chars().next_back() else {
+                    continue;
+                };
+                let num_str = &last_part[..last_part.len() - letter.len_utf8()];
+                let num = num_str.parse::<u64>().ok();
+                let interval_nanos = BinanceRateLimitInterval::try_from(letter)
+                    .ok()
+                    .and_then(|i| Nanoseconds::try_from(i).ok());
+                if let Some(num) = num
+                    && let Some(interval_nanos) = interval_nanos
+                    && let Some(total_nanos) = i64::try_from(num)
+                        .ok()
+                        .and_then(|num| num.checked_mul(interval_nanos.0))
+                    && let Ok(used) = value.parse::<u64>()
+                {
+                    usage.insert(
+                        RateLimit {
+                            restriction,
+                            interval_nanos: Nanoseconds(total_nanos),
+                        },
+                        RateUsage {
+                            limit: None,
+                            used: Some(UsageCount(used)),
+                        },
+                    );
                 }
             }
         }
