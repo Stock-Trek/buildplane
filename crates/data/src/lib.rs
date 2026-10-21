@@ -3,6 +3,7 @@ pub mod constants;
 pub mod env_config;
 pub mod error;
 pub mod ingest;
+pub mod job;
 pub mod lock;
 pub mod orchestrator;
 pub mod parquet_reader;

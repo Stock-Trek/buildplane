@@ -2,6 +2,7 @@ use crate::{
     constants::{UPDATE_QUANTIZATION, common_trading_pairs},
     error::{MduError, MduResult},
     ingest::{Ingest, WindowIngest},
+    job::BackfillJob,
     plan,
     quantized_time::QuantizedTime,
     s3::{Bucket, ObjectKey, S3},
@@ -73,25 +74,13 @@ impl KlinesUpdater {
             let transfer_client = transfer_client.clone();
             let bucket = bucket.clone();
             let schema = schema.clone();
-            let updater = match cex_id {
-                CexId::Binance => match self.binance.get(&trading_mode).cloned() {
-                    Some(updater) => updater,
-                    None => {
-                        let error = MduError::UnsupportedTradingMode {
-                            trading_mode: format!("{trading_mode:?}"),
-                        };
-                        warn!(
-                            "skipping exchange {:?} in trading mode {:?}: {error}",
-                            cex_id, trading_mode
-                        );
-                        continue;
-                    }
-                },
-                other => {
-                    let error = MduError::UnsupportedExchange {
-                        exchange: format!("{other:?}"),
-                    };
-                    warn!("skipping exchange {:?}: {error}", other);
+            let updater = match self.exchange_updater(cex_id, trading_mode) {
+                Ok(updater) => updater,
+                Err(error) => {
+                    warn!(
+                        "skipping exchange {:?} in trading mode {:?}: {error}",
+                        cex_id, trading_mode
+                    );
                     continue;
                 }
             };
@@ -132,6 +121,90 @@ impl KlinesUpdater {
             Ok(())
         } else {
             Err(MduError::multiple(errors))
+        }
+    }
+
+    /// Re-ingest a specific pair and time range.
+    ///
+    /// Missing windows are always filled. With `force`, windows that already
+    /// have a leaf file are fetched again and overwritten. Compacted periods are
+    /// skipped because rebuilding their roll-ups belongs to compaction.
+    pub async fn backfill(
+        &self,
+        s3_client: &S3Client,
+        transfer_client: &TransferClient,
+        bucket: &Bucket,
+        backfill: &BackfillJob,
+    ) -> MduResult<usize> {
+        let resolved = backfill.resolve()?;
+        let updater = self.exchange_updater(resolved.cex_id, resolved.trading_mode)?;
+        let candles_base_path = format!(
+            "{}/{}/{}/{}",
+            resolved.trading_mode,
+            resolved.cex_id,
+            resolved.trading_pair.base,
+            resolved.trading_pair.quote
+        );
+        let base_path_prefix = ObjectKey::new(format!("{}/", candles_base_path));
+        info!(
+            "backfill {:?} between {} and {} (force: {})",
+            resolved.trading_pair, backfill.start, backfill.end, backfill.force
+        );
+        let existing = S3::list_files(s3_client, bucket, &base_path_prefix)
+            .await?
+            .into_iter()
+            .filter_map(|key| {
+                key.as_str()
+                    .strip_prefix(base_path_prefix.as_str())
+                    .map(str::to_string)
+            })
+            .collect::<HashSet<_>>();
+        let windows = plan::Planner::plan_backfill_windows(
+            &existing,
+            backfill.start,
+            backfill.end,
+            backfill.force,
+        )?;
+        let window_count = windows.len();
+        let schema = Ingest::schema();
+        for window in windows {
+            Ingest::ingest_window(
+                transfer_client,
+                bucket,
+                updater.as_ref(),
+                WindowIngest {
+                    trading_pair: &resolved.trading_pair,
+                    window,
+                    candles_base_path: &candles_base_path,
+                    schema: &schema,
+                },
+            )
+            .await?;
+        }
+        info!(
+            "backfill {:?} completed {} window(s)",
+            resolved.trading_pair, window_count
+        );
+        Ok(window_count)
+    }
+
+    fn exchange_updater(
+        &self,
+        cex_id: CexId,
+        trading_mode: TradingMode,
+    ) -> MduResult<Arc<dyn ExchangeUpdater>> {
+        match cex_id {
+            CexId::Binance => {
+                self.binance
+                    .get(&trading_mode)
+                    .cloned()
+                    .ok_or(MduError::UnsupportedTradingMode {
+                        trading_mode: format!("{trading_mode:?}"),
+                    })
+            }
+            other => Err(MduError::UnsupportedExchange {
+                exchange: format!("{other:?}"),
+            }),
         }
     }
 
