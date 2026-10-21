@@ -702,6 +702,7 @@ jobs:
           project-slug: "agents"
           env-slug: "dev"
           secret-name: "SHIPYARD_SSH_PRIVATE_KEY_READONLY"
+
       - name: Fetch Shipyard known host
         if: steps.save-response-type.outputs.response-type == 'CAN_ADDRESS_FULLY'
         uses: Infisical/secrets-action@d2e351f16c6ca20d17c85e6c992e04bdeb64e87d # v1.0.18
@@ -853,6 +854,14 @@ jobs:
             GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null \
             /usr/bin/git "${GIT_CONFIG_ARGS[@]}" \
             push --force-with-lease origin "HEAD:${ISSUE_BRANCH}"
+          # The push deliberately removed the local remote configuration so an
+          # agent-injected remote could not redirect the token. Restore a safe
+          # origin URL for later steps (notably the gh calls that raise the PR)
+          # without restoring any credentials.
+          /usr/bin/git config --local remote.origin.url \
+            "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git"
+          /usr/bin/git config --local remote.origin.fetch \
+            '+refs/heads/*:refs/remotes/origin/*'
       - name: Reply if no code changes made
         if: (steps.save-response-type.outputs.response-type == 'CAN_ADDRESS_FULLY') && (steps.check-for-code-changes.outputs.has-changes == 'false')
         env:
@@ -895,6 +904,10 @@ jobs:
           # cannot redirect the token or turn on debug logging.
           GH_CONFIG_DIR=$(/usr/bin/mktemp -d)
           trap 'rm -rf "$GH_CONFIG_DIR"' EXIT
+          # Resolve the repository explicitly rather than relying on a git
+          # remote: the push step removes remote configuration before pushing
+          # with a one-off URL, so the checkout may have no remotes at all.
+          REPO="${GITHUB_REPOSITORY}"
           # Write title and body to temporary files to handle quotes and backticks
           # Use a random, quoted delimiter so a summary containing "EOF" or shell metacharacters cannot break the heredoc
           # Event data is passed via environment variables so an issue title containing shell metacharacters cannot be injected into the script
@@ -915,6 +928,7 @@ jobs:
           PR_URL=$(env -i HOME="$HOME" PATH=/usr/bin:/bin \
             GH_TOKEN="$GH_TOKEN" GH_HOST=github.com GH_CONFIG_DIR="$GH_CONFIG_DIR" \
             "${GH}" pr list \
+            --repo "${REPO}" \
             --head "${{ needs.triage.outputs.issue-branch }}" \
             --state open \
             --json url \
@@ -923,6 +937,7 @@ jobs:
             PR_URL=$(env -i HOME="$HOME" PATH=/usr/bin:/bin \
               GH_TOKEN="$GH_TOKEN" GH_HOST=github.com GH_CONFIG_DIR="$GH_CONFIG_DIR" \
               "${GH}" pr create \
+              --repo "${REPO}" \
               --base "${{ needs.triage.outputs.issue-branch-base }}" \
               --head "${{ needs.triage.outputs.issue-branch }}" \
               --title "$(${CAT} /tmp/pr_title.txt)" \
