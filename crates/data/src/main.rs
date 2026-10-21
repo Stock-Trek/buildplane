@@ -7,11 +7,13 @@ use crate::{
     s3::{Bucket, ObjectKey, S3},
     updater::KlinesUpdater,
 };
+use buildplane_shared::{
+    env_vars::EnvVarConfig as SharedEnvVarConfig, tracing_setup::TracingSetup,
+};
 use chrono::{DateTime, Utc};
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use serde_json::{Value, json};
 use tracing::{error, info};
-use tracing_subscriber::{EnvFilter, fmt::Subscriber};
 
 mod compacter;
 mod constants;
@@ -28,25 +30,21 @@ mod updaters;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    setup_tracing()?;
-    run(service_fn(function_handler)).await
-}
-
-fn setup_tracing() -> MduResult<()> {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    let subscriber = Subscriber::builder()
-        .with_ansi(false)
-        .with_env_filter(filter)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber).map_err(|error| MduError::Tracing {
-        message: error.to_string(),
-    })?;
+    let shared_config = SharedEnvVarConfig::from_env();
+    TracingSetup::setup(&shared_config)?;
     info!("set up tracing");
-    Ok(())
+    run(service_fn(move |event| {
+        let shared_config = shared_config.clone();
+        async move { function_handler(event, shared_config).await }
+    }))
+    .await
 }
 
-async fn function_handler(_event: LambdaEvent<Value>) -> Result<Value, Error> {
-    let env_config = EnvConfig::from_env()?;
+async fn function_handler(
+    _event: LambdaEvent<Value>,
+    shared_config: SharedEnvVarConfig,
+) -> Result<Value, Error> {
+    let env_config = EnvConfig::from_shared(&shared_config)?;
     info!(
         "running lambda function {}",
         env_config.lambda_function_name

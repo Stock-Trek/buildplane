@@ -12,6 +12,7 @@ aws-sdk-s3-transfer-manager.workspace = true
 bytes.workspace = true
 buildplane-exchange-gateway = { path = "../exchange-gateway" }
 buildplane-exchange-types = { path = "../exchange-types" }
+buildplane-shared = { path = "../shared" }
 buildplane-type-bridge = { path = "../type-bridge" }
 chrono.workspace = true
 futures.workspace = true
@@ -22,4 +23,3 @@ stock-trek-types.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
