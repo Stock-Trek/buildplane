@@ -1,7 +1,4 @@
-use crate::{
-    aws_ops::build_request::BuildRequest,
-    errors::{error::RsOrchestratorResult, invoke::RsLambdaInvokeError},
-};
+use crate::{aws_ops::build_request::BuildRequest, errors::error::RsOrchestratorResult};
 use aws_config::SdkConfig;
 use aws_sdk_lambda::{Client as LambdaClient, primitives::Blob, types::InvocationType};
 use buildplane_shared::{
@@ -61,7 +58,7 @@ impl Lambda {
             "Invoking build agent Lambda"
         );
         let timeout = self.timeouts.operation_timeout(deadline)?;
-        let output = tokio::time::timeout(
+        tokio::time::timeout(
             timeout,
             self.client
                 .invoke()
@@ -77,19 +74,6 @@ impl Lambda {
             })
         })?
         .map_err(|error| Box::new(error.into_service_error()))?;
-        if let Some(function_error) = output.function_error() {
-            return Err(RsLambdaInvokeError::Function {
-                function_error: function_error.to_string(),
-                detail: output
-                    .payload()
-                    .map(|payload| String::from_utf8_lossy(payload.as_ref()).into_owned()),
-            }
-            .into());
-        }
-        let status_code = output.status_code();
-        if !(200..300).contains(&status_code) {
-            return Err(RsLambdaInvokeError::Status { status_code }.into());
-        }
         Ok(())
     }
 }

@@ -1,86 +1,36 @@
 use crate::{
-    artifacts::Artifacts,
-    env_var_config::EnvVarConfig,
-    error::{BaError, BaResult},
-    handler::Handler,
+    env_var_config::EnvVarConfig, error::BaResult, handler::Handler, request::BuildRequest,
     tracing_setup::TracingSetup,
 };
-use axum::{
-    Router,
-    routing::{get, post},
-};
+use lambda_runtime::{Error, LambdaEvent, run, service_fn};
+use serde_json::{Value, json};
 
 mod artifacts;
 mod env_var_config;
 mod error;
 mod handler;
+mod request;
 mod s3;
 mod source;
 mod tracing_setup;
 
-const RUN_PATH: &str = "/run";
-const HEALTH_PATH: &str = "/health";
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    let config = EnvVarConfig::from_env()?;
+    TracingSetup::setup(config.log_filter())?;
+    let handler = Handler::new(config.build_timeout());
+    run(service_fn(move |event| {
+        let handler = handler.clone();
+        async move { BuildAgent::handle(handler, event).await }
+    }))
+    .await
+}
 
 struct BuildAgent;
 
 impl BuildAgent {
-    async fn run() -> BaResult<()> {
-        let config = EnvVarConfig::from_env()?;
-        TracingSetup::setup(config.log_filter())?;
-        let artifacts = Artifacts::new(config.signed_post(), config.signed_get_url())?;
-        let handler = Handler::new(config.build_timeout(), artifacts);
-        let app = Router::new().route(HEALTH_PATH, get(Self::health)).route(
-            RUN_PATH,
-            post(move |body| {
-                let handler = handler.clone();
-                async move { handler.handle(body).await }
-            }),
-        );
-        let address = config.address();
-        let listener = tokio::net::TcpListener::bind(address)
-            .await
-            .map_err(|source| BaError::Bind {
-                address: address.to_string(),
-                source,
-            })?;
-        println!("build agent listening on {address}");
-        axum::serve(listener, app)
-            .with_graceful_shutdown(Self::shutdown_signal())
-            .await
-            .map_err(BaError::Serve)?;
-        Ok(())
+    async fn handle(handler: Handler, event: LambdaEvent<BuildRequest>) -> BaResult<Value> {
+        handler.handle(event.payload).await?;
+        Ok(json!({ "status": "ok" }))
     }
-
-    async fn health() -> &'static str {
-        "ok"
-    }
-
-    async fn shutdown_signal() {
-        let ctrl_c = async {
-            tokio::signal::ctrl_c()
-                .await
-                .expect("failed to install Ctrl+C handler");
-        };
-
-        #[cfg(unix)]
-        let terminate = async {
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-                .expect("failed to install SIGTERM handler")
-                .recv()
-                .await;
-        };
-
-        #[cfg(not(unix))]
-        let terminate = std::future::pending::<()>();
-
-        tokio::select! {
-            _ = ctrl_c => {},
-            _ = terminate => {},
-        }
-    }
-}
-
-#[tokio::main]
-async fn main() -> BaResult<()> {
-    BuildAgent::run().await
 }
