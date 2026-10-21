@@ -1040,6 +1040,7 @@ name = "buildplane-exchange-types"
 version = "0.1.1"
 dependencies = [
  "bs58",
+ "buildplane-shared",
  "data-encoding",
  "ed25519-compact",
  "hmac 0.13.0",
@@ -1055,6 +1056,7 @@ dependencies = [
  "sha2 0.11.1",
  "strum",
  "thiserror",
+ "url",
 ]
 
 [[package]]

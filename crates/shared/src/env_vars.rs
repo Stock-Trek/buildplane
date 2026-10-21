@@ -101,6 +101,16 @@ impl EnvVarConfig {
         self.optional(RUST_LOG)
     }
 
+    /// Read an environment variable by name without applying any parsing.
+    ///
+    /// This is for values whose names are only known at runtime, such as the
+    /// per-exchange URL overrides. An empty value is returned as-is so callers
+    /// can decide whether it is valid; typed accessors treat empty values as
+    /// absent.
+    pub fn env_var(&self, name: &str) -> RsSharedResult<Option<String>> {
+        self.raw(name)
+    }
+
     pub fn backfill_start(&self) -> RsSharedResult<Option<DateTime<Utc>>> {
         let Some(value) = self.optional(BACKFILL_START)? else {
             return Ok(None);
@@ -383,7 +393,7 @@ impl EnvVarConfig {
     }
 
     fn optional(&self, name: &str) -> RsSharedResult<Option<String>> {
-        Ok(self.raw(name)?.filter(|value| !value.is_empty()))
+        Ok(self.env_var(name)?.filter(|value| !value.is_empty()))
     }
 
     fn raw(&self, name: &str) -> RsSharedResult<Option<String>> {
