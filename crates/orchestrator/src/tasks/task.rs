@@ -13,12 +13,6 @@ use std::fmt::Display;
 
 const USER_GENERATED_DIRECTORY: &str = "src/algorithms";
 
-#[derive(Default)]
-struct CommitInfo {
-    hash: Option<String>,
-    forced: bool,
-}
-
 pub enum Task {
     AllReposAdd {
         source: GitSource,
@@ -41,7 +35,6 @@ pub enum Task {
         ref_name: String,
         ref_type: SqsRefType,
         commit_hash: Option<String>,
-        forced: bool,
     },
 }
 
@@ -91,7 +84,6 @@ impl Task {
                 ref_name,
                 ref_type,
                 commit_hash,
-                forced,
             } => match GitRemote::from_source(&request_context.context.github_auth, source)? {
                 GitRemote::GitHub(remote) => {
                     let repo_id = remote.parse_repo_id(repo_id)?;
@@ -102,10 +94,7 @@ impl Task {
                         repo_id,
                         ref_name,
                         *ref_type,
-                        CommitInfo {
-                            hash: commit_hash.clone(),
-                            forced: *forced,
-                        },
+                        commit_hash.clone(),
                     )
                     .await
                 }
@@ -175,7 +164,7 @@ impl Task {
             repo_id,
             &default_branch,
             SqsRefType::Branch,
-            CommitInfo::default(),
+            None,
         )
         .await
     }
@@ -263,7 +252,7 @@ impl Task {
         repo_id: RepoId,
         ref_name: &str,
         ref_type: SqsRefType,
-        commit: CommitInfo,
+        commit_hash: Option<String>,
     ) -> RsOrchestratorResult<()>
     where
         InstallationId: Display,
@@ -271,7 +260,7 @@ impl Task {
         Remote: GitHost<InstallationId, RepoId>,
     {
         let repo_id_string = repo_id.to_string();
-        let commit_hash = match commit.hash {
+        let commit_hash = match commit_hash {
             Some(commit_hash) => commit_hash,
             None => {
                 remote
@@ -314,7 +303,6 @@ impl Task {
                     ref_name: ref_name.to_string(),
                     ref_type,
                     commit_hash: Some(commit_hash),
-                    forced: commit.forced,
                     signed_get_url: uploaded.signed_get_url,
                     signed_post,
                 },
@@ -342,21 +330,18 @@ impl From<SqsMessage> for Task {
                 ref_name,
                 ref_type,
                 commit_hash: None,
-                forced: false,
             },
             SqsDetail::Commit {
                 repo_id,
                 ref_name,
                 ref_type,
                 commit_hash,
-                forced,
             } => Self::RefCommit {
                 source,
                 repo_id,
                 ref_name,
                 ref_type,
                 commit_hash: Some(commit_hash),
-                forced,
             },
         }
     }

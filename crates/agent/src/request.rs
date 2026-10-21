@@ -28,8 +28,6 @@ pub struct BuildRequest {
     pub ref_type: String,
     #[serde(rename = "COMMIT_HASH", default)]
     pub commit_hash: Option<String>,
-    #[serde(rename = "FORCED", default)]
-    pub forced: Option<String>,
     #[serde(rename = "SIGNED_GET_URL")]
     pub signed_get_url: String,
     #[serde(rename = "SIGNED_POST_URL")]
@@ -81,7 +79,6 @@ mod tests {
     fn payload() -> serde_json::Value {
         json!({
             "COMMIT_HASH": "0123456789abcdef",
-            "FORCED": "false",
             "GIT_HOST": "github.com",
             "GIT_PROVIDER": "github",
             "REPO_ID": "42",
@@ -103,7 +100,6 @@ mod tests {
         assert_eq!(request.ref_name, "main");
         assert_eq!(request.ref_type, "branch");
         assert_eq!(request.commit_hash.as_deref(), Some("0123456789abcdef"));
-        assert_eq!(request.forced.as_deref(), Some("false"));
         assert_eq!(request.signed_get_url, "https://example.com/source.zip");
         assert_eq!(request.signed_post_url, "https://example.com/upload");
     }

@@ -37,7 +37,6 @@ pub enum SqsDetail {
         ref_name: String,
         ref_type: SqsRefType,
         commit_hash: String,
-        forced: bool,
     },
 }
 
