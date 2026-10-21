@@ -51,14 +51,11 @@ impl BinanceRequestFactory {
         } else {
             (query_params, vec![])
         };
-        let query = if query_params.is_empty() {
-            Some(endpoint.to_string())
-        } else {
-            Some(format!("{}?{}", endpoint, query_params))
-        };
+        let query = (!query_params.is_empty()).then_some(query_params);
         let body = None;
         Ok(HttpRequest {
             method,
+            path: endpoint.to_string(),
             query,
             headers,
             body,
