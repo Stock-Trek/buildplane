@@ -31,18 +31,13 @@ mod updaters;
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let shared_config = SharedEnvVarConfig::from_env();
-    setup_tracing(&shared_config)?;
+    TracingSetup::setup(&shared_config)?;
+    info!("set up tracing");
     run(service_fn(move |event| {
         let shared_config = shared_config.clone();
         async move { function_handler(event, shared_config).await }
     }))
     .await
-}
-
-fn setup_tracing(config: &SharedEnvVarConfig) -> MduResult<()> {
-    TracingSetup::setup(config)?;
-    info!("set up tracing");
-    Ok(())
 }
 
 async fn function_handler(
