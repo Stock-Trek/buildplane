@@ -15,7 +15,7 @@ runs:
   steps:
     - shell: bash
       env:
-        SHIPYARD_CARGO_TOKEN: ${{ inputs.shipyard-cargo-token }}
+        CARGO_REGISTRIES_SHIPYARD_TOKEN: ${{ inputs.shipyard-cargo-token }}
         SHIPYARD_SSH_PRIVATE_KEY: ${{ inputs.shipyard-ssh-private-key }}
         SHIPYARD_KNOWN_HOST: ${{ inputs.shipyard-known-host }}
       run: |
@@ -65,8 +65,8 @@ runs:
         # The registry token is passed to Cargo through the environment of this
         # step only, so it is never written to ~/.cargo/credentials and never
         # reaches a later step.
-        if [ -n "${SHIPYARD_CARGO_TOKEN:-}" ]; then
-          export CARGO_REGISTRIES_SHIPYARD_TOKEN="${SHIPYARD_CARGO_TOKEN}"
+        if [ -n "${CARGO_REGISTRIES_SHIPYARD_TOKEN:-}" ]; then
+          export CARGO_REGISTRIES_SHIPYARD_TOKEN="${CARGO_REGISTRIES_SHIPYARD_TOKEN}"
         fi
 
         # --locked refuses to update Cargo.lock, so the cache matches the
@@ -77,14 +77,14 @@ runs:
         # inherits (the Infisical steps export them through GITHUB_ENV). The
         # crates stay in Cargo's local cache, which is all the agent needs.
         for name in \
-          SHIPYARD_CARGO_TOKEN_READONLY \
+          CARGO_REGISTRIES_SHIPYARD_TOKEN \
           SHIPYARD_SSH_PRIVATE_KEY_READONLY \
           SHIPYARD_KNOWN_HOST; do
           if [ -n "${!name:-}" ]; then
             printf '%s=\n' "${name}" >> "$GITHUB_ENV"
           fi
         done
-        unset CARGO_REGISTRIES_SHIPYARD_TOKEN SHIPYARD_CARGO_TOKEN \
+        unset CARGO_REGISTRIES_SHIPYARD_TOKEN CARGO_REGISTRIES_SHIPYARD_TOKEN \
           SHIPYARD_SSH_PRIVATE_KEY SHIPYARD_KNOWN_HOST
 
         # The dependencies are now in Cargo's local cache, so tell invoke-pi to

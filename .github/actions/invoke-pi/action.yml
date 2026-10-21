@@ -76,7 +76,7 @@ runs:
         for name in \
           DEEPSEEK_API_KEY \
           EDENAI_API_KEY \
-          SHIPYARD_CARGO_TOKEN_READONLY \
+          CARGO_REGISTRIES_SHIPYARD_TOKEN \
           SHIPYARD_SSH_PRIVATE_KEY_READONLY \
           SHIPYARD_KNOWN_HOST; do
           if [ -n "${!name:-}" ]; then
