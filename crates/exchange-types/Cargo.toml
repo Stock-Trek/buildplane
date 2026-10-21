@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 bs58.workspace = true
+buildplane-shared = { path = "../shared" }
 data-encoding.workspace = true
 ed25519-compact.workspace = true
 hmac.workspace = true

@@ -1,4 +1,5 @@
 use crate::error::{ETError, ETResult};
+use buildplane_shared::{env_vars::EnvVarConfig, errors::error::RsSharedError};
 use serde::{Deserialize, Serialize};
 use std::env::VarError;
 use strum::Display;
@@ -18,53 +19,63 @@ pub trait Urls {
             protocol.to_string().to_uppercase(),
             trading_mode.to_string().to_uppercase()
         );
-        let value = match std::env::var(&env_var_name) {
-            Ok(value) => value,
-            Err(VarError::NotPresent) => self.default(protocol, trading_mode).to_owned(),
-            Err(VarError::NotUnicode(value)) => {
-                return Err(ETError::BadValue {
-                    name: env_var_name,
-                    value: value.to_string_lossy().into_owned(),
-                    reason: "Environment variable is not valid UTF-8".into(),
-                });
-            }
-        };
-        validate_url(&env_var_name, &value, protocol)?;
+        let default = self.default(protocol, trading_mode);
+        let value = EnvVarConfig::from_env()
+            .env_var(&env_var_name)
+            .map_err(|error| {
+                let value = match &error {
+                    RsSharedError::EnvVar(error) => match error.as_ref() {
+                        VarError::NotUnicode(value) => value.to_string_lossy().into_owned(),
+                        VarError::NotPresent => default.to_owned(),
+                    },
+                    _ => default.to_owned(),
+                };
+                ETError::BadValue {
+                    name: env_var_name.clone(),
+                    value,
+                    reason: error.to_string(),
+                }
+            })?
+            .unwrap_or_else(|| default.to_owned());
+        protocol.validate_url(&env_var_name, &value)?;
         Ok(value)
     }
-}
-
-fn validate_url(name: &str, value: &str, protocol: Protocol) -> ETResult<()> {
-    let url = Url::parse(value).map_err(|error| ETError::BadValue {
-        name: name.into(),
-        value: value.into(),
-        reason: error.to_string(),
-    })?;
-    let expected_schemes = match protocol {
-        Protocol::Http => "http, https",
-        Protocol::Websocket => "ws, wss",
-    };
-    let valid_scheme = match protocol {
-        Protocol::Http => matches!(url.scheme(), "http" | "https"),
-        Protocol::Websocket => matches!(url.scheme(), "ws" | "wss"),
-    };
-    if !valid_scheme {
-        return Err(ETError::BadValue {
-            name: name.into(),
-            value: value.into(),
-            reason: format!(
-                "URL scheme must be one of {expected_schemes}, got {}",
-                url.scheme()
-            ),
-        });
-    }
-    Ok(())
 }
 
 #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Protocol {
     Http,
     Websocket,
+}
+
+impl Protocol {
+    fn allowed_schemes(self) -> &'static [&'static str] {
+        match self {
+            Self::Http => &["http", "https"],
+            Self::Websocket => &["ws", "wss"],
+        }
+    }
+
+    fn validate_url(self, name: &str, value: &str) -> ETResult<()> {
+        let url = Url::parse(value).map_err(|error| ETError::BadValue {
+            name: name.into(),
+            value: value.into(),
+            reason: error.to_string(),
+        })?;
+        let allowed_schemes = self.allowed_schemes();
+        if !allowed_schemes.contains(&url.scheme()) {
+            return Err(ETError::BadValue {
+                name: name.into(),
+                value: value.into(),
+                reason: format!(
+                    "URL scheme must be one of {}, got {}",
+                    allowed_schemes.join(", "),
+                    url.scheme()
+                ),
+            });
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Display, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
