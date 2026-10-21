@@ -3,6 +3,7 @@ use crate::{
     error::{MduError, MduResult},
     parquet_reader::ParquetReader,
     parquet_writer::writer_properties,
+    plan,
     s3::{Bucket, ObjectKey, S3},
     subfolders::SubFolders,
 };
@@ -138,7 +139,7 @@ impl Compactor {
             }
         };
         if !expected_subfolders.is_empty() {
-            let compacted_file = Self::compacted_file_path(prefix, suffix);
+            let compacted_file = plan::compacted_file_path(prefix, suffix);
             let staged_file = Self::staged_file_path(&compacted_file);
             if S3::has_file(s3_client, bucket, &compacted_file).await? {
                 info!(
@@ -182,17 +183,7 @@ impl Compactor {
         } else {
             subfolders_files
         };
-        let expected_files = expected_subfolders
-            .iter()
-            .map(|f| {
-                ObjectKey::new(format!(
-                    "{}{}{}",
-                    prefix,
-                    f.strip_suffix('/').unwrap_or(f),
-                    suffix
-                ))
-            })
-            .collect::<Vec<_>>();
+        let expected_files = plan::expected_compaction_sources_with_suffix(prefix, suffix)?;
         let missing = expected_files
             .iter()
             .filter(|expected| !subfolders_files.files.contains(*expected))
@@ -206,27 +197,30 @@ impl Compactor {
             );
             return Ok(());
         }
-        let compacted_file = Self::compacted_file_path(prefix, suffix);
-        info!("compact files {:?} to {}", expected_files, compacted_file);
+        let Some(target) = plan::plan_compaction_with_suffix(
+            prefix,
+            subfolders_files.files.iter().map(ObjectKey::as_str),
+            suffix,
+        )?
+        else {
+            info!("Compaction for {} is not ready", prefix);
+            return Ok(());
+        };
+        info!(
+            "compact files {:?} to {}",
+            target.source_files, target.compacted_file
+        );
         Self::files(
             s3_client,
             transfer_client,
             bucket,
             prefix,
-            &expected_files,
-            &compacted_file,
+            &target.source_files,
+            &target.compacted_file,
             suffix,
         )
         .await?;
         Ok(())
-    }
-
-    fn compacted_file_path(prefix: &ObjectKey, suffix: &str) -> ObjectKey {
-        ObjectKey::new(format!(
-            "{}{}",
-            prefix.as_str().trim_end_matches('/'),
-            suffix
-        ))
     }
 
     fn staged_file_path(compacted_file: &ObjectKey) -> ObjectKey {

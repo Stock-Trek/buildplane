@@ -6,6 +6,7 @@ pub mod lock;
 pub mod orchestrator;
 pub mod parquet_reader;
 pub mod parquet_writer;
+pub mod plan;
 pub mod quantized_time;
 pub mod s3;
 pub mod subfolders;
