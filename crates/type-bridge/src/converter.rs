@@ -59,7 +59,7 @@ pub trait Converter {
     ) -> TBResult<OrderRequest<Ticker, Decimal>> {
         let order_request_with_precision =
             FloatsToDecimals::new(trading_precision, cex_preferences.rounding)
-                .floats_to_decimals(order_request);
+                .floats_to_decimals(order_request)?;
         SemanticChecker.consistent_or_err(&order_request_with_precision, self.capabilities())?;
         AssetIdsToTickers::asset_ids_to_tickers(order_request_with_precision, self.ticker_mapping())
     }

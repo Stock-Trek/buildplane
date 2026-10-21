@@ -1,4 +1,4 @@
-use crate::trading_precision::TradingPrecision;
+use crate::{TBResult, trading_precision::TradingPrecision};
 use rust_decimal::{Decimal, RoundingStrategy, prelude::ToPrimitive};
 use stock_trek_types::cex::{
     activation::Activation, asset_id::AssetId, order_request::OrderRequest,
@@ -21,7 +21,7 @@ impl FloatsToDecimals {
     pub fn floats_to_decimals(
         &self,
         order_request: OrderRequest<AssetId, f64>,
-    ) -> OrderRequest<AssetId, Decimal> {
+    ) -> TBResult<OrderRequest<AssetId, Decimal>> {
         match order_request {
             OrderRequest::Limit {
                 activation,
@@ -32,79 +32,79 @@ impl FloatsToDecimals {
                 side,
                 tag,
                 time_in_force,
-            } => OrderRequest::Limit {
+            } => Ok(OrderRequest::Limit {
                 base,
                 quote,
                 side,
-                activation: self.activation(activation),
-                limit_price: self.price(limit_price),
+                activation: self.activation(activation)?,
+                limit_price: self.price(limit_price)?,
                 time_in_force,
-                quantity: self.quantity(quantity, true),
+                quantity: self.quantity(quantity, true)?,
                 tag,
-            },
+            }),
             OrderRequest::MarketBuy {
                 base,
                 quote,
                 activation,
                 quote_quantity,
                 tag,
-            } => OrderRequest::MarketBuy {
+            } => Ok(OrderRequest::MarketBuy {
                 base,
                 quote,
-                activation: self.activation(activation),
-                quote_quantity: self.quote_quantity(quote_quantity),
+                activation: self.activation(activation)?,
+                quote_quantity: self.quote_quantity(quote_quantity)?,
                 tag,
-            },
+            }),
             OrderRequest::MarketSell {
                 base,
                 quote,
                 activation,
                 base_quantity,
                 tag,
-            } => OrderRequest::MarketSell {
+            } => Ok(OrderRequest::MarketSell {
                 base,
                 quote,
-                activation: self.activation(activation),
-                base_quantity: self.base_quantity(base_quantity, false),
+                activation: self.activation(activation)?,
+                base_quantity: self.base_quantity(base_quantity, false)?,
                 tag,
-            },
+            }),
         }
     }
 
-    fn activation(&self, activation: Activation<f64>) -> Activation<Decimal> {
+    fn activation(&self, activation: Activation<f64>) -> TBResult<Activation<Decimal>> {
         match activation {
-            Activation::Immediate => Activation::Immediate,
+            Activation::Immediate => Ok(Activation::Immediate),
             Activation::PriceTriggered {
                 activation_price,
                 basis,
                 direction,
                 mode,
-            } => Activation::PriceTriggered {
+            } => Ok(Activation::PriceTriggered {
                 activation_price: self.trading_precision.to_valid_quote(
                     activation_price,
                     self.activation_price_rounding_strategy(direction),
-                ),
+                )?,
                 basis,
                 direction,
                 mode,
-            },
+            }),
             Activation::Trailing {
                 activation_price,
                 basis,
                 callback_rate_bps,
                 direction,
-            } => Activation::Trailing {
+            } => Ok(Activation::Trailing {
                 activation_price: self.trading_precision.to_valid_quote(
                     activation_price,
                     self.activation_price_rounding_strategy(direction),
-                ),
+                )?,
                 basis,
                 callback_rate_bps: self.callback_rate_bps(callback_rate_bps),
                 direction,
-            },
+            }),
         }
     }
-    fn base_quantity(&self, quantity: f64, is_limit: bool) -> Decimal {
+    fn base_quantity(&self, quantity: f64, is_limit: bool) -> TBResult<Decimal> {
         if is_limit {
             self.trading_precision
                 .to_valid_base_limit(quantity, self.rounding.quantity)
@@ -113,11 +113,11 @@ impl FloatsToDecimals {
                 .to_valid_base_market(quantity, self.rounding.quantity)
         }
     }
-    fn quote_quantity(&self, quantity: f64) -> Decimal {
+    fn quote_quantity(&self, quantity: f64) -> TBResult<Decimal> {
         self.trading_precision
             .to_valid_quote(quantity, self.rounding.quantity)
     }
-    fn price(&self, price: f64) -> Decimal {
+    fn price(&self, price: f64) -> TBResult<Decimal> {
         self.trading_precision
             .to_valid_quote(price, self.rounding.price)
     }
@@ -127,10 +127,10 @@ impl FloatsToDecimals {
             .to_u32()
             .unwrap_or(callback_rate_bps)
     }
-    fn quantity(&self, quantity: Quantity<f64>, is_limit: bool) -> Quantity<Decimal> {
+    fn quantity(&self, quantity: Quantity<f64>, is_limit: bool) -> TBResult<Quantity<Decimal>> {
         match quantity {
-            Quantity::OfBase(q) => Quantity::OfBase(self.base_quantity(q, is_limit)),
-            Quantity::OfQuote(q) => Quantity::OfQuote(self.quote_quantity(q)),
+            Quantity::OfBase(q) => Ok(Quantity::OfBase(self.base_quantity(q, is_limit)?)),
+            Quantity::OfQuote(q) => Ok(Quantity::OfQuote(self.quote_quantity(q)?)),
         }
     }
     fn activation_price_rounding_strategy(&self, direction: TriggerDirection) -> RoundingStrategy {
