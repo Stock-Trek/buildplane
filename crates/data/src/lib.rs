@@ -2,6 +2,7 @@ pub mod compacter;
 pub mod constants;
 pub mod env_config;
 pub mod error;
+pub mod ingest;
 pub mod lock;
 pub mod orchestrator;
 pub mod parquet_reader;
