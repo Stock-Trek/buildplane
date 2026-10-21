@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const MAX_THROTTLE_AFTER: Duration = Duration::from_secs(u32::MAX as u64);
+const MAX_THROTTLE_AFTER: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Clone)]
 pub struct RateLimiterState {
