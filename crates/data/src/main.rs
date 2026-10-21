@@ -1,6 +1,6 @@
 #![recursion_limit = "256"]
 
-use buildplane_data::{env_config::EnvConfig, orchestrator::Orchestrator};
+use buildplane_data::{env_config::EnvConfig, job::Job, orchestrator::Orchestrator};
 use buildplane_shared::{
     env_vars::EnvVarConfig as SharedEnvVarConfig, tracing_setup::TracingSetup,
 };
@@ -21,14 +21,21 @@ async fn main() -> Result<(), Error> {
 }
 
 async fn function_handler(
-    _event: LambdaEvent<Value>,
+    event: LambdaEvent<Value>,
     shared_config: SharedEnvVarConfig,
 ) -> Result<Value, Error> {
     let env_config = EnvConfig::from_shared(&shared_config)?;
+    let job = Job::from_value(event.payload)?;
     info!(
-        "running lambda function {}",
-        env_config.lambda_function_name
+        "running lambda function {} with {} job",
+        env_config.lambda_function_name,
+        job.mode()
     );
-    Orchestrator::run(&env_config).await?;
-    Ok(json!({ "status": "ok" }))
+    let outcome = Orchestrator::run_job(&env_config, &job).await?;
+    Ok(json!({
+        "status": "ok",
+        "mode": job.mode(),
+        "windows_ingested": outcome.windows_ingested,
+        "compaction_targets": outcome.compaction_targets,
+    }))
 }

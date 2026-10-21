@@ -79,6 +79,31 @@ impl Planner {
         start: DateTime<Utc>,
         end_time: DateTime<Utc>,
     ) -> MduResult<Vec<Window>> {
+        Self::plan_windows_between_with_overwrite(existing, start, end_time, false)
+    }
+
+    /// Plan windows for a targeted backfill.
+    ///
+    /// The start is quantized to the update boundary. When `force` is set,
+    /// windows with an existing leaf file are planned again so they can be
+    /// overwritten. Compacted periods are always skipped because rebuilding a
+    /// roll-up is a separate compaction operation.
+    pub fn plan_backfill_windows(
+        existing: &HashSet<String>,
+        start: DateTime<Utc>,
+        end_time: DateTime<Utc>,
+        force: bool,
+    ) -> MduResult<Vec<Window>> {
+        let start = QuantizedTime::timestamp(start, UPDATE_QUANTIZATION)?;
+        Self::plan_windows_between_with_overwrite(existing, start, end_time, force)
+    }
+
+    fn plan_windows_between_with_overwrite(
+        existing: &HashSet<String>,
+        start: DateTime<Utc>,
+        end_time: DateTime<Utc>,
+        overwrite_existing: bool,
+    ) -> MduResult<Vec<Window>> {
         let mut start = start;
         let mut windows = Vec::new();
         while start < end_time {
@@ -90,7 +115,7 @@ impl Planner {
             if window_end > end_time {
                 break;
             }
-            if !existing.contains(&Self::window_file_path(start)) {
+            if overwrite_existing || !existing.contains(&Self::window_file_path(start)) {
                 windows.push(Window::new(start, window_end));
             }
             start = window_end;
@@ -334,6 +359,57 @@ mod tests {
             vec![
                 window(utc(2024, 1, 1, 0, 0), utc(2024, 1, 1, 0, 6)),
                 window(utc(2024, 1, 1, 0, 6), utc(2024, 1, 1, 0, 12)),
+            ]
+        );
+    }
+
+    #[test]
+    fn forced_backfill_replans_existing_windows() {
+        let existing = paths(&["2024/01/01/00/00.parquet", "2024/01/01/00/06.parquet"]);
+        assert_eq!(
+            Planner::plan_backfill_windows(
+                &existing,
+                utc(2024, 1, 1, 0, 2),
+                utc(2024, 1, 1, 0, 12),
+                true,
+            )
+            .unwrap(),
+            vec![
+                window(utc(2024, 1, 1, 0, 0), utc(2024, 1, 1, 0, 6)),
+                window(utc(2024, 1, 1, 0, 6), utc(2024, 1, 1, 0, 12)),
+            ]
+        );
+    }
+
+    #[test]
+    fn non_forced_backfill_skips_existing_windows() {
+        let existing = paths(&["2024/01/01/00/00.parquet"]);
+        assert_eq!(
+            Planner::plan_backfill_windows(
+                &existing,
+                utc(2024, 1, 1, 0, 0),
+                utc(2024, 1, 1, 0, 12),
+                false,
+            )
+            .unwrap(),
+            vec![window(utc(2024, 1, 1, 0, 6), utc(2024, 1, 1, 0, 12))]
+        );
+    }
+
+    #[test]
+    fn forced_backfill_still_skips_compacted_periods() {
+        let existing = paths(&["2024/01/01/00.parquet"]);
+        assert_eq!(
+            Planner::plan_backfill_windows(
+                &existing,
+                utc(2024, 1, 1, 0, 0),
+                utc(2024, 1, 1, 1, 12),
+                true,
+            )
+            .unwrap(),
+            vec![
+                window(utc(2024, 1, 1, 1, 0), utc(2024, 1, 1, 1, 6)),
+                window(utc(2024, 1, 1, 1, 6), utc(2024, 1, 1, 1, 12)),
             ]
         );
     }

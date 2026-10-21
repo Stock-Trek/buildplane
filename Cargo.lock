@@ -1009,6 +1009,7 @@ dependencies = [
  "futures",
  "lambda_runtime",
  "parquet",
+ "serde",
  "serde_json",
  "stock-trek-types",
  "thiserror",

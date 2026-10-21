@@ -3,6 +3,7 @@ use crate::{
     constants::{LOCK_KEY, common_trading_pairs},
     env_config::EnvConfig,
     error::{MduError, MduResult},
+    job::{Job, JobOutcome},
     lock::LockGuard,
     s3::{Bucket, ObjectKey, S3},
     updater::KlinesUpdater,
@@ -15,16 +16,27 @@ use tracing::{error, info, warn};
 pub struct Orchestrator;
 
 impl Orchestrator {
+    /// Run the default scheduled update and compaction.
+    ///
+    /// This keeps the previous entry point available for callers that do not
+    /// need to select a job explicitly.
     pub async fn run(env_config: &EnvConfig) -> MduResult<()> {
+        Self::run_job(env_config, &Job::Update).await.map(|_| ())
+    }
+
+    /// Acquire the global lock and execute one explicitly selected job.
+    pub async fn run_job(env_config: &EnvConfig, job: &Job) -> MduResult<JobOutcome> {
+        job.validate()?;
         info!("get s3 and transfer clients");
         let (s3_client, transfer_client) = S3::clients().await;
         let bucket = &env_config.s3_bucket;
         let lock_key = ObjectKey::new(LOCK_KEY);
         let mut lock = LockGuard::acquire(&s3_client, bucket, &lock_key).await?;
-        let result = Self::process(
+        let result = Self::process_job(
             &s3_client,
             &transfer_client,
             bucket,
+            job,
             env_config.backfill_start,
         )
         .await;
@@ -34,12 +46,52 @@ impl Orchestrator {
         result
     }
 
-    async fn process(
+    async fn process_job(
+        s3_client: &S3Client,
+        transfer_client: &TransferClient,
+        bucket: &Bucket,
+        job: &Job,
+        scheduled_backfill_start: Option<DateTime<Utc>>,
+    ) -> MduResult<JobOutcome> {
+        match job {
+            Job::Update => {
+                Self::process_scheduled(
+                    s3_client,
+                    transfer_client,
+                    bucket,
+                    scheduled_backfill_start,
+                )
+                .await
+            }
+            Job::Backfill(backfill) => {
+                info!("running targeted backfill for {:?}", backfill.pair);
+                let updater = KlinesUpdater::try_new()?;
+                let windows_ingested = updater
+                    .backfill(s3_client, transfer_client, bucket, backfill)
+                    .await?;
+                Ok(JobOutcome {
+                    windows_ingested,
+                    compaction_targets: 0,
+                })
+            }
+            Job::Compact(compact) => {
+                let prefix = compact.prefix()?;
+                info!("running targeted compaction for {}", prefix);
+                Compactor::prefix(s3_client, transfer_client, bucket, &prefix).await?;
+                Ok(JobOutcome {
+                    windows_ingested: 0,
+                    compaction_targets: 1,
+                })
+            }
+        }
+    }
+
+    async fn process_scheduled(
         s3_client: &S3Client,
         transfer_client: &TransferClient,
         bucket: &Bucket,
         backfill_start: Option<DateTime<Utc>>,
-    ) -> MduResult<()> {
+    ) -> MduResult<JobOutcome> {
         let updater = KlinesUpdater::try_new()?;
         let update_result = updater
             .update(s3_client, transfer_client, bucket, backfill_start)
@@ -52,7 +104,7 @@ impl Orchestrator {
             error!("compaction failed: {error}");
         }
         match (update_result, compact_result) {
-            (Ok(()), Ok(())) => Ok(()),
+            (Ok(()), Ok(())) => Ok(JobOutcome::default()),
             (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
             (Err(update_error), Err(compact_error)) => {
                 Err(MduError::multiple([update_error, compact_error]))
