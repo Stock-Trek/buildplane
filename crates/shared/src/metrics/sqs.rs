@@ -15,4 +15,8 @@ impl SqsMetrics {
             counter!(MESSAGES_FAILED_TOTAL).increment(count as u64);
         }
     }
+
+    pub fn record_duplicate_message() {
+        counter!(DUPLICATE_MESSAGES_TOTAL).increment(1);
+    }
 }
