@@ -274,7 +274,7 @@ impl Task {
         let files = remote
             .directory_files(
                 repo_id,
-                ref_name,
+                &commit_hash,
                 USER_GENERATED_DIRECTORY,
                 request_context.deadline,
             )
