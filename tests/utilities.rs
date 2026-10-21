@@ -1,5 +1,5 @@
 use buildplane_exchange_types::{
-    binance::recv_window::BinanceRecvWindow,
+    binance::{klines_limit::BinanceKlinesLimit, recv_window::BinanceRecvWindow},
     encode::ByteEncoder,
     new_types::{Milliseconds, UsageCount},
 };
@@ -13,6 +13,14 @@ fn percent_encoding_preserves_unreserved_bytes() {
 fn percent_encoding_escapes_reserved_and_non_ascii_bytes() {
     assert_eq!(ByteEncoder::Percent.encode(b"a b&c=d"), "a%20b%26c%3Dd");
     assert_eq!(ByteEncoder::Percent.encode(b"\xFF\x7F"), "%FF%7F");
+}
+
+#[test]
+fn klines_limit_accepts_only_one_to_maximum() {
+    assert!(BinanceKlinesLimit::try_new(0).is_err());
+    assert!(BinanceKlinesLimit::try_new(1).is_ok());
+    assert!(BinanceKlinesLimit::try_new(1_000).is_ok());
+    assert!(BinanceKlinesLimit::try_new(1_001).is_err());
 }
 
 #[test]

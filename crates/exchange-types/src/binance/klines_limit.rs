@@ -7,6 +7,7 @@ use std::fmt;
 pub struct BinanceKlinesLimit(u32);
 
 impl BinanceKlinesLimit {
+    pub const MINIMUM: u32 = 1;
     pub const MAXIMUM: u32 = 1000;
 
     pub fn try_new(klines_limit: u32) -> ETResult<Self> {
@@ -14,15 +15,15 @@ impl BinanceKlinesLimit {
             Ok(Self(klines_limit))
         } else {
             Err(ETError::BadValue {
-                name: "recv_window".into(),
+                name: "klines_limit".into(),
                 value: klines_limit.to_string(),
-                reason: format!("Out of bounds <={}", Self::MAXIMUM),
+                reason: format!("Out of bounds >={} <={}", Self::MINIMUM, Self::MAXIMUM),
             })
         }
     }
 
     pub fn is_valid(klines_limit: u32) -> bool {
-        klines_limit <= Self::MAXIMUM
+        (Self::MINIMUM..=Self::MAXIMUM).contains(&klines_limit)
     }
 }
 
