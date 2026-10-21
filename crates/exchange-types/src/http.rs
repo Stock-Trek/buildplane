@@ -1,6 +1,7 @@
 #[derive(Debug, Clone)]
 pub struct HttpRequest {
     pub method: HttpMethod,
+    pub path: String,
     pub query: Option<String>,
     pub headers: Vec<(String, String)>,
     pub body: Option<Vec<u8>>,

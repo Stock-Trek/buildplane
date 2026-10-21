@@ -40,12 +40,9 @@ fn signed_http_request_embeds_verifiable_signature_and_api_key_header() {
     request.set_timestamp(Milliseconds(1_700_000_000_000));
     let http = request.try_into_http(&signer).unwrap();
     assert_eq!(http.method, HttpMethod::POST);
+    assert_eq!(http.path, "order");
     let query = http.query.unwrap();
-    assert!(query.starts_with("order?"));
-    let (params, signature) = query
-        .trim_start_matches("order?")
-        .split_once("&signature=")
-        .unwrap();
+    let (params, signature) = query.split_once("&signature=").unwrap();
     for param in [
         "quantity=0.5",
         "side=BUY",
@@ -73,7 +70,8 @@ fn unsigned_http_request_has_no_headers_or_signature() {
         .try_into_http(&signer("", ""))
         .unwrap();
     assert_eq!(http.method, HttpMethod::GET);
-    assert_eq!(http.query, Some("time".to_string()));
+    assert_eq!(http.path, "time");
+    assert_eq!(http.query, None);
     assert!(http.headers.is_empty());
     assert!(http.body.is_none());
 }
@@ -84,8 +82,9 @@ fn http_request_percent_encodes_list_query_params() {
         symbols: vec!["BTCUSDT".into(), "ETHUSDT".into()],
     };
     let http = request.try_into_http(&signer("", "")).unwrap();
+    assert_eq!(http.path, "exchangeInfo");
     let query = http.query.unwrap();
-    assert!(query.starts_with("exchangeInfo?"));
+    assert!(query.starts_with("symbols="));
     assert!(query.contains("symbols=%5B%22BTCUSDT%22%2C%22ETHUSDT%22%5D"));
     assert!(http.headers.is_empty());
 }

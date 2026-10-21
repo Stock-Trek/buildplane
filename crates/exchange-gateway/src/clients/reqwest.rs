@@ -25,15 +25,13 @@ impl ReqwestHttpClient {
             base_url: base_url.into(),
         }
     }
-    fn build_url(&self, query: Option<&str>) -> String {
-        match query {
-            // `query` carries the origin-form request target: the endpoint
-            // and any query parameters together (e.g. `"order?symbol=..."`).
-            Some(query) if !query.is_empty() => {
-                format!("{}/{}", self.base_url, query.trim_start_matches('/'))
-            }
-            _ => self.base_url.clone(),
+    fn build_url(&self, path: &str, query: Option<&str>) -> String {
+        let mut url = format!("{}/{}", self.base_url, path.trim_start_matches('/'));
+        if let Some(query) = query.filter(|query| !query.is_empty()) {
+            url.push('?');
+            url.push_str(query);
         }
+        url
     }
     fn method(method: HttpMethod) -> reqwest::Method {
         match method {
@@ -49,7 +47,7 @@ impl ReqwestHttpClient {
 #[async_trait]
 impl HttpClient for ReqwestHttpClient {
     async fn send(&self, request: HttpRequest, timeout: Duration) -> EGResult<HttpResponse> {
-        let url = self.build_url(request.query.as_deref());
+        let url = self.build_url(&request.path, request.query.as_deref());
         let mut request_builder = self
             .client
             .request(Self::method(request.method), &url)
