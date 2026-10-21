@@ -2,6 +2,7 @@ use crate::errors::{
     config::RsConfigError,
     error::{RsSharedError, RsSharedResult},
 };
+use chrono::{DateTime, NaiveDate, Utc};
 use std::{
     collections::HashMap,
     ffi::{OsStr, OsString},
@@ -12,6 +13,7 @@ use url::Url;
 
 const AWS_ENDPOINT_URL_S3: &str = "AWS_ENDPOINT_URL_S3";
 const AWS_LAMBDA_FUNCTION_NAME: &str = "AWS_LAMBDA_FUNCTION_NAME";
+const BACKFILL_START: &str = "BACKFILL_START";
 const BUILD_AGENT_CLUSTER_ARN: &str = "BUILD_AGENT_CLUSTER_ARN";
 const BUILD_AGENT_CONTAINER_NAME: &str = "BUILD_AGENT_CONTAINER_NAME";
 const BUILD_AGENT_TASK_DEFINITION_ARN: &str = "BUILD_AGENT_TASK_DEFINITION_ARN";
@@ -27,7 +29,8 @@ const INFISICAL_BASE_URL: &str = "INFISICAL_BASE_URL";
 const INFISICAL_ENVIRONMENT: &str = "INFISICAL_ENVIRONMENT";
 const INFISICAL_IDENTITY_ID: &str = "INFISICAL_IDENTITY_ID";
 const INFISICAL_PROJECT_ID: &str = "INFISICAL_PROJECT_ID";
-const LOG_FILTER: &str = "RUST_LOG";
+const RUST_LOG: &str = "RUST_LOG";
+const S3_BUCKET: &str = "S3_BUCKET";
 const S3_BUCKET_USER_ARTIFACTS: &str = "S3_BUCKET_USER_ARTIFACTS";
 const S3_MAX_OBJECT_SIZE_BYTES: &str = "S3_MAX_OBJECT_SIZE_BYTES";
 pub const S3_SIGNED_URL_EXPIRY: &str = "S3_SIGNED_URL_EXPIRY";
@@ -91,7 +94,14 @@ impl EnvVarConfig {
     }
 
     pub fn log_filter(&self) -> RsSharedResult<Option<String>> {
-        self.optional(LOG_FILTER)
+        self.optional(RUST_LOG)
+    }
+
+    pub fn backfill_start(&self) -> RsSharedResult<Option<DateTime<Utc>>> {
+        let Some(value) = self.optional(BACKFILL_START)? else {
+            return Ok(None);
+        };
+        Self::parse_timestamp(BACKFILL_START, value.trim()).map(Some)
     }
 
     pub fn deadline_buffer(&self) -> RsSharedResult<Duration> {
@@ -174,6 +184,10 @@ impl EnvVarConfig {
                 "must be greater than zero",
             ))
         })
+    }
+
+    pub fn s3_bucket(&self) -> RsSharedResult<String> {
+        self.required(S3_BUCKET)
     }
 
     pub fn s3_bucket_user_artifacts(&self) -> RsSharedResult<String> {
@@ -305,6 +319,26 @@ impl EnvVarConfig {
             .map_err(|error| RsSharedError::Config(RsConfigError::invalid_source(key, error)))
     }
 
+    fn parse_timestamp(name: &str, value: &str) -> RsSharedResult<DateTime<Utc>> {
+        if let Ok(date_time) = DateTime::parse_from_rfc3339(value) {
+            return Ok(date_time.with_timezone(&Utc));
+        }
+        if let Ok(date) = NaiveDate::parse_from_str(value, "%Y-%m-%d") {
+            let Some(date_time) = date.and_hms_opt(0, 0, 0) else {
+                return Err(Self::invalid_timestamp(name, value));
+            };
+            return Ok(date_time.and_utc());
+        }
+        Err(Self::invalid_timestamp(name, value))
+    }
+
+    fn invalid_timestamp(name: &str, value: &str) -> RsSharedError {
+        RsSharedError::Config(RsConfigError::invalid(
+            name,
+            format!("must be an RFC 3339 timestamp or YYYY-MM-DD date, got {value}"),
+        ))
+    }
+
     fn optional_csv(&self, name: &str) -> RsSharedResult<Vec<String>> {
         match self.optional(name)? {
             Some(value) => Ok(Self::split_csv(&value)),
@@ -342,5 +376,61 @@ impl EnvVarConfig {
             .filter(|value| !value.is_empty())
             .map(str::to_owned)
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::EnvVarConfig;
+    use chrono::{DateTime, Utc};
+
+    #[test]
+    fn log_filter_reads_rust_log() {
+        let config = EnvVarConfig::from_map([("RUST_LOG", "debug")]);
+        assert_eq!(config.log_filter().unwrap().as_deref(), Some("debug"));
+    }
+
+    #[test]
+    fn s3_bucket_reads_s3_bucket() {
+        let config = EnvVarConfig::from_map([("S3_BUCKET", "market-data")]);
+        assert_eq!(config.s3_bucket().unwrap(), "market-data");
+    }
+
+    #[test]
+    fn backfill_start_is_optional() {
+        let config = EnvVarConfig::from_map(std::iter::empty::<(&str, &str)>());
+        assert_eq!(config.backfill_start().unwrap(), None);
+    }
+
+    #[test]
+    fn backfill_start_accepts_rfc3339_timestamp() {
+        let config = EnvVarConfig::from_map([("BACKFILL_START", "2024-01-02T03:04:05Z")]);
+        assert_eq!(
+            config.backfill_start().unwrap(),
+            Some(
+                DateTime::parse_from_rfc3339("2024-01-02T03:04:05Z")
+                    .unwrap()
+                    .with_timezone(&Utc)
+            )
+        );
+    }
+
+    #[test]
+    fn backfill_start_accepts_date() {
+        let config = EnvVarConfig::from_map([("BACKFILL_START", "2024-01-02")]);
+        assert_eq!(
+            config.backfill_start().unwrap(),
+            Some(
+                DateTime::parse_from_rfc3339("2024-01-02T00:00:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc)
+            )
+        );
+    }
+
+    #[test]
+    fn backfill_start_rejects_invalid_timestamp() {
+        let config = EnvVarConfig::from_map([("BACKFILL_START", "not-a-date")]);
+        assert!(config.backfill_start().is_err());
     }
 }

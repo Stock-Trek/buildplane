@@ -52,18 +52,8 @@ pub enum MduError {
     MissingSymbol { trading_pair: String },
     #[error("Unknown {exchange} submission outcome while fetching klines")]
     UnknownSubmissionOutcome { exchange: &'static str },
-    #[error("Failed to initialize tracing: {message}")]
-    Tracing { message: String },
-    #[error("Missing required environment variable {name}")]
-    MissingEnvVar { name: &'static str },
-    #[error("Environment variable {name} must not be empty")]
-    EmptyEnvVar { name: &'static str },
-    #[error("Environment variable {name} is not valid Unicode")]
-    InvalidEnvVar { name: &'static str },
-    #[error(
-        "Environment variable {name} must be an RFC 3339 timestamp or YYYY-MM-DD date, got {value}"
-    )]
-    InvalidTimestamp { name: &'static str, value: String },
+    #[error("Configuration error: {0}")]
+    Config(#[from] buildplane_shared::errors::error::RsSharedError),
     #[error("Failed to acquire lock {key}: another invocation is already running")]
     LockContention { key: String },
     #[error("Lock {key} is missing an ETag and cannot be released safely")]
