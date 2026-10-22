@@ -25,10 +25,9 @@ pub trait Urls {
             .env_var(&env_var_name)
             .map_err(|error| {
                 let value = match &error {
-                    BpError::Config(ConfigError::EnvVar(error)) => match error {
-                        VarError::NotUnicode(value) => value.to_string_lossy().into_owned(),
-                        VarError::NotPresent => default.to_owned(),
-                    },
+                    BpError::Config(ConfigError::EnvVar(VarError::NotUnicode(value))) => {
+                        value.to_string_lossy().into_owned()
+                    }
                     _ => default.to_owned(),
                 };
                 BpError::Exchange(ExchangeError::BadValue {
