@@ -19,9 +19,8 @@ use stock_trek_types::cex::{cex_id::CexId, trading_pair::TradingPair};
 ///   "force": true }
 /// ```
 ///
-/// An empty payload (and the scheduled EventBridge payload, which has no mode)
-/// defaults to [`Job::Update`] so existing deployments keep their behavior.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// The payload must explicitly include a `mode`, `job`, or `action` field.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "mode", rename_all = "snake_case")]
 pub enum Job {
     #[serde(
@@ -31,17 +30,25 @@ pub enum Job {
         alias = "update_all",
         alias = "update-all"
     )]
-    #[default]
     Update,
     Backfill(BackfillJob),
     Compact(CompactJob),
 }
 
+impl<'de> Deserialize<'de> for Job {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        Self::parse_value(Value::deserialize(deserializer)?).map_err(de::Error::custom)
+    }
+}
+
 impl Job {
     /// Parse a Lambda payload, accepting `mode`, `job`, or `action` as the tag.
     ///
-    /// A payload without a mode is treated as the scheduled update so existing
-    /// EventBridge invocations remain valid.
+    /// A payload without an explicit mode is rejected rather than defaulting to
+    /// a scheduled update.
     pub fn from_value(value: Value) -> MduResult<Self> {
         let job = Self::parse_value(value)?;
         job.validate()?;
@@ -50,15 +57,22 @@ impl Job {
 
     fn parse_value(value: Value) -> MduResult<Self> {
         match value {
-            Value::Null => Ok(Self::Update),
             Value::String(mode) => Self::from_mode(&mode, Map::new()),
             Value::Object(mut object) => {
-                let tag_key = ["mode", "job", "action"]
+                let mut tag_keys = ["mode", "job", "action"]
                     .into_iter()
-                    .find(|key| object.contains_key(*key));
-                let Some(tag_key) = tag_key else {
-                    return Ok(Self::Update);
+                    .filter(|key| object.contains_key(*key));
+                let Some(tag_key) = tag_keys.next() else {
+                    return Err(MduError::InvalidJob {
+                        message: "job payload must include one of mode, job, or action".to_string(),
+                    });
                 };
+                if tag_keys.next().is_some() {
+                    return Err(MduError::InvalidJob {
+                        message: "job payload must include only one of mode, job, or action"
+                            .to_string(),
+                    });
+                }
                 let tag = object.remove(tag_key).unwrap_or(Value::Null);
                 match tag {
                     Value::String(mode) => Self::from_mode(&mode, object),
@@ -113,15 +127,25 @@ impl Job {
 
     fn from_mode(mode: &str, object: Map<String, Value>) -> MduResult<Self> {
         let mode = mode.trim().to_ascii_lowercase().replace('-', "_");
-        let payload = Value::Object(object);
         match mode.as_str() {
-            "update" | "scheduled" | "scheduled_update" | "update_all" => Ok(Self::Update),
-            "backfill" => serde_json::from_value(payload)
+            "update" | "scheduled" | "scheduled_update" | "update_all" => {
+                if object.is_empty() {
+                    Ok(Self::Update)
+                } else {
+                    Err(MduError::InvalidJob {
+                        message: format!(
+                            "update job does not accept fields: {}",
+                            object.keys().cloned().collect::<Vec<_>>().join(", ")
+                        ),
+                    })
+                }
+            }
+            "backfill" => serde_json::from_value(Value::Object(object))
                 .map(Self::Backfill)
                 .map_err(|error| MduError::InvalidJob {
                     message: format!("invalid backfill job: {error}"),
                 }),
-            "compact" => serde_json::from_value(payload)
+            "compact" => serde_json::from_value(Value::Object(object))
                 .map(Self::Compact)
                 .map_err(|error| MduError::InvalidJob {
                     message: format!("invalid compact job: {error}"),
@@ -135,6 +159,7 @@ impl Job {
 
 /// A targeted backfill for one trading pair and time range.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct BackfillJob {
     #[serde(alias = "trading_pair", alias = "pair_path")]
     pub pair: TradingPairPath,
@@ -146,7 +171,7 @@ pub struct BackfillJob {
     ///
     /// Compacted periods are still skipped; rebuilding a compacted roll-up is
     /// a separate compaction concern.
-    #[serde(default, alias = "overwrite", alias = "repair")]
+    #[serde(alias = "overwrite", alias = "repair")]
     pub force: bool,
 }
 
@@ -182,6 +207,7 @@ impl BackfillJob {
 
 /// A targeted compaction for one prefix.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CompactJob {
     #[serde(alias = "prefix", alias = "path")]
     pub target: String,
@@ -292,31 +318,33 @@ impl<'de> Deserialize<'de> for TradingPairPath {
         #[serde(untagged)]
         enum TradingPairPathRepr {
             Path(String),
-            Parts {
-                #[serde(alias = "mode", alias = "tradingMode")]
-                trading_mode: String,
-                #[serde(
-                    alias = "exchange",
-                    alias = "cex",
-                    alias = "cexId",
-                    alias = "exchange_id"
-                )]
-                cex_id: String,
-                #[serde(alias = "base_asset", alias = "baseAsset")]
-                base: String,
-                #[serde(alias = "quote_asset", alias = "quoteAsset")]
-                quote: String,
-            },
+            Parts(TradingPairPathParts),
+        }
+
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct TradingPairPathParts {
+            #[serde(alias = "mode", alias = "tradingMode")]
+            trading_mode: String,
+            #[serde(
+                alias = "exchange",
+                alias = "cex",
+                alias = "cexId",
+                alias = "exchange_id"
+            )]
+            cex_id: String,
+            #[serde(alias = "base_asset", alias = "baseAsset")]
+            base: String,
+            #[serde(alias = "quote_asset", alias = "quoteAsset")]
+            quote: String,
         }
 
         match TradingPairPathRepr::deserialize(deserializer)? {
             TradingPairPathRepr::Path(path) => Ok(Self::new(path)),
-            TradingPairPathRepr::Parts {
-                trading_mode,
-                cex_id,
-                base,
-                quote,
-            } => Ok(Self::new(format!("{trading_mode}/{cex_id}/{base}/{quote}"))),
+            TradingPairPathRepr::Parts(parts) => Ok(Self::new(format!(
+                "{}/{}/{}/{}",
+                parts.trading_mode, parts.cex_id, parts.base, parts.quote
+            ))),
         }
     }
 }
@@ -368,9 +396,77 @@ mod tests {
     }
 
     #[test]
-    fn empty_payload_defaults_to_scheduled_update() {
-        assert_eq!(Job::from_value(json!({})).unwrap(), Job::Update);
-        assert_eq!(Job::from_value(Value::Null).unwrap(), Job::Update);
+    fn payloads_without_a_mode_are_rejected() {
+        assert!(Job::from_value(json!({})).is_err());
+        assert!(Job::from_value(Value::Null).is_err());
+        assert!(Job::from_value(json!({ "mod": "backfill", "strat": "2024-01-01" })).is_err());
+    }
+
+    #[test]
+    fn multiple_mode_keys_are_rejected() {
+        assert!(Job::from_value(json!({ "mode": "update", "job": "update" })).is_err());
+    }
+
+    #[test]
+    fn unknown_fields_are_rejected() {
+        assert!(Job::from_value(json!({ "mode": "update", "extra": true })).is_err());
+        assert!(
+            Job::from_value(json!({
+                "mode": "backfill",
+                "pair": "paper/binance/bitcoin/tetherusd",
+                "start": "2024-01-01",
+                "end": "2024-01-02",
+                "force": false,
+                "extra": true
+            }))
+            .is_err()
+        );
+        assert!(
+            Job::from_value(json!({
+                "mode": "compact",
+                "target": "paper/binance/bitcoin/tetherusd",
+                "extra": true
+            }))
+            .is_err()
+        );
+        assert!(
+            Job::from_value(json!({
+                "mode": "backfill",
+                "pair": {
+                    "trading_mode": "Paper",
+                    "exchange": "Binance",
+                    "base": "Bitcoin",
+                    "quote": "TetherUSD",
+                    "extra": true
+                },
+                "start": "2024-01-01",
+                "end": "2024-01-02",
+                "force": false
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn backfill_requires_explicit_force() {
+        assert!(
+            Job::from_value(json!({
+                "mode": "backfill",
+                "pair": "paper/binance/bitcoin/tetherusd",
+                "start": "2024-01-01",
+                "end": "2024-01-02"
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn direct_deserialization_uses_the_same_strict_contract() {
+        assert_eq!(
+            serde_json::from_value::<Job>(json!({ "job": "update" })).unwrap(),
+            Job::Update
+        );
+        assert!(serde_json::from_value::<Job>(json!({ "mode": "update", "extra": true })).is_err());
     }
 
     #[test]
@@ -414,7 +510,8 @@ mod tests {
                 "quote": "TetherUSD"
             },
             "start": "2024-01-01T00:00:00Z",
-            "end": "2024-01-01T01:00:00Z"
+            "end": "2024-01-01T01:00:00Z",
+            "force": false
         }))
         .unwrap();
         let Job::Backfill(backfill) = job else {
@@ -466,7 +563,8 @@ mod tests {
                 "mode": "backfill",
                 "pair": "paper/binance/bitcoin/tetherusd",
                 "start": "2024-01-02",
-                "end": "2024-01-01"
+                "end": "2024-01-01",
+                "force": false
             }))
             .is_err()
         );
@@ -475,7 +573,8 @@ mod tests {
                 "mode": "backfill",
                 "pair": "paper/binance/bitcoin/tetherusd",
                 "start": "2024-01-01",
-                "end": "2024-01-02"
+                "end": "2024-01-02",
+                "force": false
             }))
             .unwrap()
             .validate()
