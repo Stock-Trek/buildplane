@@ -1,14 +1,15 @@
-use data_encoding::{BASE64, HEXLOWER};
-use ed25519_compact::{KeyPair, Seed, Signature as Ed25519Signature};
 use buildplane_exchange_types::{
     api_key_credential::ApiKeyCredentials, binance::exchange::BinanceExchange, encode::ByteEncoder,
     encrypt::EncryptionAlgorithm, signer::Signer,
 };
-use hmac::{Hmac, Mac};
+use data_encoding::{BASE64, HEXLOWER};
+use ed25519_compact::{KeyPair, Seed, Signature as Ed25519Signature};
+use hmac::{Hmac, KeyInit, Mac};
 use rsa::{
     RsaPrivateKey,
     pkcs1v15::{Signature as RsaSignature, VerifyingKey as RsaVerifyingKey},
     pkcs8::{EncodePrivateKey, LineEnding},
+    sha2::Sha256 as RsaSha256,
 };
 use secrecy::SecretString;
 use sha2::Sha256;
@@ -108,7 +109,7 @@ fn rsa_sha256_signature_verifies_with_the_public_key() {
     let signature = signer.signature(message).unwrap();
     let signature_bytes = BASE64.decode(signature.as_bytes()).unwrap();
     let signature = RsaSignature::try_from(signature_bytes.as_slice()).unwrap();
-    let verifying_key = RsaVerifyingKey::<Sha256>::new(private_key.to_public_key());
+    let verifying_key = RsaVerifyingKey::<RsaSha256>::new(private_key.to_public_key());
     use rsa::signature::Verifier;
     assert!(verifying_key.verify(message, &signature).is_ok());
 }
