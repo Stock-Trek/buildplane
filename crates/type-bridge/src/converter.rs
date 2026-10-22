@@ -9,7 +9,7 @@ use buildplane_exchange_types::{
     response::{ETHttpResponse, ETWebsocketResponse},
     ticker::Ticker,
 };
-use buildplane_shared::errors::BpResult;
+use buildplane_shared::errors::{BpError, BpResult, ValidationError};
 use rust_decimal::Decimal;
 use stock_trek_types::cex::{
     asset_id::AssetId, capability::CexCapability, order_request::OrderRequest,
@@ -33,7 +33,15 @@ pub trait Converter {
 
     fn capabilities(&self) -> &Vec<CexCapability>;
     fn ticker_mapping(&self) -> &TickerMapping;
-    fn set_trading_precision(&self, trading_precision: TradingPrecision) -> BpResult<()>;
+    /// Combine this converter with the trading precisions fetched from the
+    /// exchange. Only the resulting [`TradingConverter`] can build order
+    /// requests, so an order can never be built without exchange info.
+    fn into_trading_converter(self, exchange_info: TBExchangeInfo) -> TradingConverter<Self>
+    where
+        Self: Sized,
+    {
+        TradingConverter::new(self, exchange_info)
+    }
     fn asset_limits_request(
         &self,
         trading_pair: &TradingPair,
@@ -43,6 +51,7 @@ pub trait Converter {
     fn order_request(
         &self,
         order_request: OrderRequest<AssetId, f64>,
+        trading_precision: TradingPrecision,
         cex_preferences: &CexPreferences,
     ) -> BpResult<Self::OrderRequest>;
     fn asset_limits_response(&self, response: Self::AssetLimitsResponse)
@@ -63,5 +72,143 @@ pub trait Converter {
                 .floats_to_decimals(order_request)?;
         SemanticChecker.consistent_or_err(&order_request_with_precision, self.capabilities())?;
         AssetIdsToTickers::asset_ids_to_tickers(order_request_with_precision, self.ticker_mapping())
+    }
+}
+
+/// A converter paired with the trading precisions fetched from its exchange.
+///
+/// Order requests are deliberately only available on this type. It ties the
+/// precision lookup to the exchange info response and removes the need to
+/// mutate a converter after it has been created.
+#[derive(Debug, Clone)]
+pub struct TradingConverter<C> {
+    converter: C,
+    exchange_info: TBExchangeInfo,
+}
+
+impl<C> TradingConverter<C> {
+    pub fn new(converter: C, exchange_info: TBExchangeInfo) -> Self {
+        Self {
+            converter,
+            exchange_info,
+        }
+    }
+    pub fn converter(&self) -> &C {
+        &self.converter
+    }
+    pub fn exchange_info(&self) -> &TBExchangeInfo {
+        &self.exchange_info
+    }
+}
+
+impl<C> TradingConverter<C>
+where
+    C: Converter,
+{
+    pub fn trading_precision(&self, trading_pair: &TradingPair) -> BpResult<TradingPrecision> {
+        self.exchange_info
+            .trading_precision(trading_pair)
+            .ok_or_else(|| {
+                BpError::Validation(ValidationError::MissingValue(format!(
+                    "Trading precision for trading pair {trading_pair:?}"
+                )))
+            })
+    }
+    pub fn order_request(
+        &self,
+        order_request: OrderRequest<AssetId, f64>,
+        cex_preferences: &CexPreferences,
+    ) -> BpResult<C::OrderRequest> {
+        let trading_pair = match &order_request {
+            OrderRequest::Limit { base, quote, .. }
+            | OrderRequest::MarketBuy { base, quote, .. }
+            | OrderRequest::MarketSell { base, quote, .. } => TradingPair::new(*base, *quote),
+        };
+        let trading_precision = self.trading_precision(&trading_pair)?;
+        self.converter
+            .order_request(order_request, trading_precision, cex_preferences)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{BinanceConverter, MinMaxStep};
+    use rust_decimal::RoundingStrategy;
+    use std::collections::HashMap;
+    use stock_trek_types::cex::{
+        activation::Activation, preferences::CexRoundingPreferences, quantity::Quantity,
+        side::Side, tag::Tag, time_in_force::TimeInForce,
+    };
+
+    fn precision() -> TradingPrecision {
+        let limits = MinMaxStep {
+            min: Decimal::ZERO,
+            max: Decimal::from(100_000),
+            step: Decimal::new(1, 2),
+        };
+        TradingPrecision::new(limits, limits, limits)
+    }
+
+    fn preferences() -> CexPreferences {
+        CexPreferences {
+            max_network_delay_millis: 0,
+            rounding: CexRoundingPreferences {
+                activation_price_triggered_above: RoundingStrategy::MidpointNearestEven,
+                activation_price_triggered_below: RoundingStrategy::MidpointNearestEven,
+                price: RoundingStrategy::MidpointNearestEven,
+                quantity: RoundingStrategy::MidpointNearestEven,
+                callback_rate_bps: RoundingStrategy::MidpointNearestEven,
+            },
+        }
+    }
+
+    fn order_request() -> OrderRequest<AssetId, f64> {
+        OrderRequest::Limit {
+            base: AssetId::Bitcoin,
+            quote: AssetId::TetherUSD,
+            side: Side::Buy,
+            activation: Activation::Immediate,
+            limit_price: 100.123,
+            time_in_force: TimeInForce::GoodTillCancelled,
+            quantity: Quantity::OfBase(1.234),
+            tag: Tag::new("test"),
+        }
+    }
+
+    fn exchange_info(include_pair: bool) -> TBExchangeInfo {
+        let mut trading_precisions = HashMap::new();
+        if include_pair {
+            trading_precisions.insert(
+                TradingPair::new(AssetId::Bitcoin, AssetId::TetherUSD),
+                precision(),
+            );
+        }
+        TBExchangeInfo { trading_precisions }
+    }
+
+    #[test]
+    fn trading_converter_uses_the_precision_for_the_order_pair() {
+        let converter = BinanceConverter::default().into_trading_converter(exchange_info(true));
+
+        let request = converter
+            .order_request(order_request(), &preferences())
+            .unwrap();
+
+        assert_eq!(request.symbol, "BTCUSDT");
+        assert_eq!(request.price, Some(Decimal::new(10012, 2)));
+        assert_eq!(request.quantity, Some(Decimal::new(123, 2)));
+    }
+
+    #[test]
+    fn trading_converter_rejects_pairs_without_precision() {
+        let converter = BinanceConverter::default().into_trading_converter(exchange_info(false));
+
+        let result = converter.order_request(order_request(), &preferences());
+
+        assert!(matches!(
+            result,
+            Err(BpError::Validation(ValidationError::MissingValue(_)))
+        ));
     }
 }

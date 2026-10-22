@@ -25,8 +25,8 @@ use buildplane_exchange_types::{
     },
     new_types::Milliseconds,
 };
-use buildplane_shared::errors::{ExchangeError, SystemError, ValidationError};
-use std::{collections::HashMap, sync::OnceLock};
+use buildplane_shared::errors::{ExchangeError, ValidationError};
+use std::collections::HashMap;
 use stock_trek_types::cex::{
     activation::Activation, asset_id::AssetId, capability::CexCapability,
     order_request::OrderRequest, order_response::OrderResponse, order_status::OrderStatus,
@@ -37,7 +37,6 @@ use stock_trek_types::cex::{
 pub struct BinanceConverter {
     capabilities: Vec<CexCapability>,
     ticker_mapping: TickerMapping,
-    trading_precision: OnceLock<TradingPrecision>,
 }
 
 impl Default for BinanceConverter {
@@ -45,7 +44,6 @@ impl Default for BinanceConverter {
         Self {
             capabilities: vec![],
             ticker_mapping: Self::ticker_mapping(),
-            trading_precision: OnceLock::new(),
         }
     }
 }
@@ -64,11 +62,6 @@ impl Converter for BinanceConverter {
     }
     fn ticker_mapping(&self) -> &TickerMapping {
         &self.ticker_mapping
-    }
-    fn set_trading_precision(&self, trading_precision: TradingPrecision) -> BpResult<()> {
-        self.trading_precision
-            .set(trading_precision)
-            .map_err(|_| BpError::System(SystemError::PoisonedLock))
     }
     fn asset_limits_request(
         &self,
@@ -102,15 +95,11 @@ impl Converter for BinanceConverter {
     fn order_request(
         &self,
         order_request: OrderRequest<AssetId, f64>,
+        trading_precision: TradingPrecision,
         cex_preferences: &CexPreferences,
     ) -> BpResult<Self::OrderRequest> {
-        let Some(trading_precision) = self.trading_precision.get() else {
-            return Err(BpError::Validation(ValidationError::MissingValue(
-                "Trading Precision".into(),
-            )));
-        };
         let precise =
-            self.try_convert_precise(order_request, cex_preferences, *trading_precision)?;
+            self.try_convert_precise(order_request, cex_preferences, trading_precision)?;
         let (base, quote, side, activation, quantity, quote_order_qty, price, time_in_force, tag) =
             match precise {
                 OrderRequest::Limit {
