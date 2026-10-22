@@ -92,8 +92,11 @@ impl Sqs {
                     break;
                 }
             };
+            let batch_failures = self
+                .send_batch_chunk(messages, &bodies, batch, timeout)
+                .await;
             failures.extend(
-                self.send_batch_chunk(messages, &bodies, batch, timeout)
+                self.retry_failed_individually(messages, &bodies, batch_failures, deadline)
                     .await,
             );
         }
@@ -168,6 +171,79 @@ impl Sqs {
                 "RequestTimeout",
                 "SQS send_message_batch timed out".to_owned(),
             ),
+        }
+    }
+
+    async fn retry_failed_individually(
+        &self,
+        messages: &[SqsMessage],
+        bodies: &[String],
+        failures: Vec<SqsBatchFailure>,
+        deadline: Deadline,
+    ) -> Vec<SqsBatchFailure> {
+        let mut remaining = Vec::new();
+        for failure in failures {
+            if failure.is_permanent() {
+                remaining.push(failure);
+                continue;
+            }
+            let Some(index) = failure
+                .source
+                .as_ref()
+                .and_then(|source| messages.iter().position(|message| message == source))
+            else {
+                remaining.push(failure);
+                continue;
+            };
+            let timeout = match self.timeouts.operation_timeout(deadline) {
+                Ok(timeout) => timeout,
+                Err(_) => {
+                    remaining.push(failure);
+                    continue;
+                }
+            };
+            if let Some(failure) = self
+                .send_individually(index, &messages[index], &bodies[index], timeout)
+                .await
+            {
+                remaining.push(failure);
+            }
+        }
+        remaining
+    }
+
+    async fn send_individually(
+        &self,
+        index: usize,
+        message: &SqsMessage,
+        body: &str,
+        timeout: Duration,
+    ) -> Option<SqsBatchFailure> {
+        let result = tokio::time::timeout(
+            timeout,
+            self.client
+                .send_message()
+                .queue_url(&self.config.queue_url)
+                .message_body(body)
+                .send(),
+        )
+        .await;
+        match result {
+            Ok(Ok(_)) => None,
+            Ok(Err(error)) => {
+                let error = error.into_service_error();
+                let code = error.code().unwrap_or("RequestFailure").to_owned();
+                Some(SqsBatchFailure {
+                    source: Some(message.clone()),
+                    code,
+                    detail: Some(error.to_string()),
+                })
+            }
+            Err(_) => Some(SqsBatchFailure {
+                source: Some(message.clone()),
+                code: "RequestTimeout".to_owned(),
+                detail: Some(format!("SQS send_message timed out for entry {index}")),
+            }),
         }
     }
 
