@@ -28,6 +28,71 @@ pub struct BuildRequestSignedPost {
     pub max_artifact_size_bytes: Option<u64>,
 }
 
+/// The outcome of a build agent invocation.
+///
+/// The agent returns this payload for both successful and permanently failed
+/// builds. A permanent failure (for example a user compile error) is returned
+/// as `Ok`, which stops the Lambda asynchronous invocation from retrying a
+/// build that cannot succeed. Transient failures are returned as `Err` so the
+/// invocation is retried.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BuildOutcome {
+    pub status: BuildStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<BuildFailure>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BuildStatus {
+    #[serde(rename = "ok")]
+    Ok,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BuildFailure {
+    pub error_type: String,
+    pub message: String,
+    pub retryable: bool,
+}
+
+impl BuildOutcome {
+    pub fn success() -> Self {
+        Self {
+            status: BuildStatus::Ok,
+            error: None,
+        }
+    }
+
+    pub fn failure(
+        error_type: impl Into<String>,
+        message: impl Into<String>,
+        retryable: bool,
+    ) -> Self {
+        Self {
+            status: BuildStatus::Failed,
+            error: Some(BuildFailure {
+                error_type: error_type.into(),
+                message: message.into(),
+                retryable,
+            }),
+        }
+    }
+
+    pub fn is_success(&self) -> bool {
+        self.status == BuildStatus::Ok
+    }
+
+    pub fn is_failure(&self) -> bool {
+        self.status == BuildStatus::Failed
+    }
+
+    pub fn error(&self) -> Option<&BuildFailure> {
+        self.error.as_ref()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -111,6 +176,31 @@ mod tests {
             payload["signed_post"]
                 .get("max_artifact_size_bytes")
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn success_outcome_keeps_the_existing_status_payload() {
+        let payload = serde_json::to_value(BuildOutcome::success()).unwrap();
+
+        assert_eq!(payload, json!({ "status": "ok" }));
+    }
+
+    #[test]
+    fn failure_outcome_contains_structured_error_details() {
+        let outcome = BuildOutcome::failure("command_failed", "compile failed", false);
+        let payload = serde_json::to_value(&outcome).unwrap();
+
+        assert_eq!(payload["status"], "failed");
+        assert_eq!(payload["error"]["error_type"], "command_failed");
+        assert_eq!(payload["error"]["message"], "compile failed");
+        assert_eq!(payload["error"]["retryable"], false);
+        assert!(outcome.is_failure());
+        assert!(!outcome.is_success());
+        assert_eq!(outcome.error().unwrap().error_type, "command_failed");
+        assert_eq!(
+            serde_json::from_value::<BuildOutcome>(payload).unwrap(),
+            outcome
         );
     }
 }
