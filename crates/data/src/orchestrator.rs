@@ -77,7 +77,8 @@ impl Orchestrator {
                     .backfill(s3_client, transfer_client, bucket, backfill)
                     .await?;
                 Ok(JobOutcome {
-                    windows_ingested,
+                    windows_ingested: windows_ingested.windows_ingested,
+                    windows_skipped: windows_ingested.windows_skipped,
                     compaction_targets: 0,
                 })
             }
@@ -87,6 +88,7 @@ impl Orchestrator {
                 Compactor::prefix(s3_client, transfer_client, bucket, &prefix).await?;
                 Ok(JobOutcome {
                     windows_ingested: 0,
+                    windows_skipped: 0,
                     compaction_targets: 1,
                 })
             }
@@ -111,8 +113,12 @@ impl Orchestrator {
             error!("compaction failed: {error}");
         }
         match (update_result, compact_result) {
-            (Ok(()), Ok(())) => Ok(JobOutcome::default()),
-            (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
+            (Ok(update), Ok(())) => Ok(JobOutcome {
+                windows_ingested: update.windows_ingested,
+                windows_skipped: update.windows_skipped,
+                compaction_targets: 0,
+            }),
+            (Err(error), Ok(())) | (Ok(_), Err(error)) => Err(error),
             (Err(update_error), Err(compact_error)) => {
                 Err(BpError::multiple([update_error, compact_error]))
             }

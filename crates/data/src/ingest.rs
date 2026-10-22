@@ -18,6 +18,21 @@ use tracing::warn;
 
 pub struct Ingest;
 
+/// The result of trying to ingest one window.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum IngestOutcome {
+    /// The window was written to storage.
+    Ingested,
+    /// The exchange did not return a complete set of candles, so nothing was written.
+    SkippedIncomplete { expected: usize, received: usize },
+}
+
+impl IngestOutcome {
+    pub fn is_ingested(self) -> bool {
+        matches!(self, Self::Ingested)
+    }
+}
+
 pub struct WindowIngest<'a> {
     pub trading_pair: &'a TradingPair,
     pub window: Window,
@@ -31,7 +46,7 @@ impl Ingest {
         bucket: &Bucket,
         updater: &dyn ExchangeUpdater,
         ingest: WindowIngest<'_>,
-    ) -> BpResult<()> {
+    ) -> BpResult<IngestOutcome> {
         let WindowIngest {
             trading_pair,
             window,
@@ -42,20 +57,19 @@ impl Ingest {
             .klines(trading_pair, window.start, window.end)
             .await?;
         if !Self::candles_are_complete(&candles, window.start, window.end) {
+            let expected = Self::expected_candles(window.start, window.end);
+            let received = candles.len();
             warn!(
                 "incomplete klines for {:?} between {} and {}: expected {} candles, received {}; skipping upload",
-                trading_pair,
-                window.start,
-                window.end,
-                Self::expected_candles(window.start, window.end),
-                candles.len()
+                trading_pair, window.start, window.end, expected, received
             );
-            return Ok(());
+            return Ok(IngestOutcome::SkippedIncomplete { expected, received });
         }
         let candles_bytes = Self::candles_to_bytes(&candles, schema)?;
         let candles_file_path =
             ObjectKey::new(format!("{}/{}", candles_base_path, window.file_path()));
-        S3::upload_bytes(transfer_client, bucket, &candles_file_path, candles_bytes).await
+        S3::upload_bytes(transfer_client, bucket, &candles_file_path, candles_bytes).await?;
+        Ok(IngestOutcome::Ingested)
     }
 
     pub fn schema() -> SchemaRef {
