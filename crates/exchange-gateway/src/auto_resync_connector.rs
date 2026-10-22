@@ -59,13 +59,13 @@ impl<Exchange, Client> AutoResyncConnector<Exchange, Client> {
             sync_clock_fn,
         ))
         .await;
-        if let Err(payload) = result {
+        if let Err(panic) = result {
             // Surface the panic before letting it propagate so the task never dies silently.
             Self::report_failure(
                 &panic_callback,
                 &BpError::Connector(ConnectorError::AutoResyncClockPanicked),
             );
-            std::panic::resume_unwind(payload);
+            std::panic::resume_unwind(panic.into_payload());
         }
     }
 
