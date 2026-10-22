@@ -182,15 +182,16 @@ impl S3 {
         .map_err(|_| BpError::TimeoutOperation {
             operation: "S3 upload object",
         })?
-        .map_err(BpError::Upload)?;
+        .map_err(|source| BpError::http_request("upload object", key, source))?;
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(BpError::StorageUploadRejected {
-                key: key.to_owned(),
-                status: status.as_u16(),
+            return Err(BpError::http_rejected(
+                "upload object",
+                key,
+                status.as_u16(),
                 body,
-            });
+            ));
         }
         let signed_get_url = self.presigned_url(
             &credentials,
@@ -308,12 +309,7 @@ impl S3 {
         R: std::fmt::Debug + Send + Sync + 'static,
     {
         let retryable = Self::sdk_error_retryable(&error);
-        BpError::S3PresignOperation {
-            operation,
-            target,
-            retryable,
-            source: Box::new(error),
-        }
+        BpError::s3_with_retryability(operation, target, retryable, error)
     }
 
     fn sdk_error_retryable<E, R>(error: &SdkError<E, R>) -> bool

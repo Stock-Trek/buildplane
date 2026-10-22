@@ -48,7 +48,7 @@ impl SqsHandler {
                 }
                 let message_id = record
                     .message_id
-                    .ok_or_else(|| BpError::InvalidMessageMissingMessageId)?;
+                    .ok_or_else(|| BpError::MissingMessageId)?;
                 tracing::error!(
                     message_id = %message_id,
                     %error,
@@ -70,7 +70,7 @@ impl SqsHandler {
         let body = record
             .body
             .as_deref()
-            .ok_or_else(|| BpError::InvalidMessageMissingBody)?;
+            .ok_or_else(|| BpError::MissingMessageBody)?;
         let message: SqsMessage = serde_json::from_str(body)?;
         let dedup = request_context.context.dedup.clone();
         if dedup.is_duplicate(&message) {

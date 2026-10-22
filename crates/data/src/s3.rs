@@ -215,7 +215,7 @@ impl S3 {
                     .build()
                 {
                     Ok(object) => objects.push(object),
-                    Err(error) => errors.push(BpError::s3_request(
+                    Err(error) => errors.push(BpError::s3(
                         "build delete identifier",
                         Self::object_target(bucket, key),
                         error,
@@ -228,7 +228,7 @@ impl S3 {
             let delete = match Delete::builder().set_objects(Some(objects)).build() {
                 Ok(delete) => delete,
                 Err(error) => {
-                    errors.push(BpError::s3_request(
+                    errors.push(BpError::s3(
                         "build delete request",
                         target.clone(),
                         error,

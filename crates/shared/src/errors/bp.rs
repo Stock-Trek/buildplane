@@ -23,15 +23,9 @@ const HTTP_INTERNAL_SERVER_ERROR: u16 = 500;
 
 pub type BpResult<T> = Result<T, BpError>;
 
-/// The single error type used across buildplane.
-///
-/// Variants are grouped by the kind of failure rather than by the crate that
-/// originally raised them, so the same category covers every caller that can
-/// encounter it.
 #[derive(Debug, thiserror::Error, strum::AsRefStr, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum BpError {
-    // Configuration and validation.
     #[error("{name} is missing")]
     ConfigMissing { name: String },
     #[error("{name} must not be empty")]
@@ -45,142 +39,50 @@ pub enum BpError {
         #[source]
         source: Option<Box<dyn StdError + Send + Sync + 'static>>,
     },
-    #[error("{host:?} is not a hostname, IP address, or host:port")]
-    HostInvalid { host: String },
-    #[error("host {host:?} is not in the allowed GitHub hosts list")]
-    HostNotAllowed { host: String },
-    #[error("GitHub repository id {repo_id:?} is not numeric: {source}")]
-    InvalidMessageGitHubRepositoryId {
-        repo_id: String,
-        #[source]
-        source: std::num::ParseIntError,
-    },
-    #[error("invalid path: {value:?}")]
-    InvalidMessageInvalidPath { value: String },
-    #[error("SQS record is missing a message id; cannot report a batch item failure")]
-    InvalidMessageMissingMessageId,
-    #[error("SQS record is missing a body")]
-    InvalidMessageMissingBody,
-    #[error("Missing {0}")]
-    TypeBridgeMissing(String),
-    #[error("Bad response from exchange. {0}")]
-    BadResponse(String),
-    #[error("Poisoned Lock")]
-    PoisonedLock,
-    #[error("System Time was before epoch")]
-    SystemTimeBeforeEpoch,
     #[error("Unsupported {name}: {value}")]
     Unsupported { name: String, value: String },
     #[error("Invalid value for {name}: {value}")]
     InvalidValue { name: String, value: String },
-
-    // Environment and process startup.
+    #[error("invalid path: {value:?}")]
+    InvalidPath { value: String },
+    #[error("GitHub repository id {repo_id:?} is not numeric: {source}")]
+    InvalidRepositoryId {
+        repo_id: String,
+        #[source]
+        source: std::num::ParseIntError,
+    },
+    #[error("SQS record is missing a message id; cannot report a batch item failure")]
+    MissingMessageId,
+    #[error("SQS record is missing a body")]
+    MissingMessageBody,
+    #[error("Missing {0}")]
+    MissingValue(String),
+    #[error("Bad response from exchange. {0}")]
+    BadResponse(String),
+    #[error("{host:?} is not a hostname, IP address, or host:port")]
+    HostInvalid { host: String },
+    #[error("host {host:?} is not in the allowed GitHub hosts list")]
+    HostNotAllowed { host: String },
     #[error("EnvVar: {0}")]
     EnvVar(#[from] std::env::VarError),
     #[error("failed to install tracing subscriber")]
     Tracing(#[from] tracing::subscriber::SetGlobalDefaultError),
+    #[error("Poisoned Lock")]
+    PoisonedLock,
+    #[error("System Time was before epoch")]
+    SystemTimeBeforeEpoch,
 
-    // Build-agent work.
     #[error("invalid configuration: {0}")]
     BuildConfig(String),
     #[error("build timed out after {0:?}")]
     BuildTimeout(Duration),
-    #[error("failed to download user source archive")]
-    BuildDownloadSource(#[source] reqwest::Error),
-    #[error("download of user source archive was rejected with status {status}: {body}")]
-    BuildSourceDownloadRejected { status: u16, body: String },
-    #[error("failed to read user source archive response")]
-    BuildReadSourceResponse(#[source] reqwest::Error),
-    #[error("failed to read user source archive")]
-    BuildReadSourceArchive(#[source] zip::result::ZipError),
-    #[error("user source archive contains unsafe path {0}")]
-    BuildUnsafeSourcePath(String),
-    #[error("failed to create source directory {path}")]
-    BuildCreateSourceDirectory {
+    #[error("{operation} failed for {path} with {status}")]
+    CommandFailed {
+        operation: &'static str,
         path: PathBuf,
-        #[source]
-        source: std::io::Error,
+        status: ExitStatus,
     },
-    #[error("failed to write source file {path}")]
-    BuildWriteSourceFile {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("failed to read artifact {path}")]
-    BuildReadArtifact {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("failed to read artifact directory {path}")]
-    BuildReadArtifactDirectory {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("failed to create user source archive")]
-    BuildCreateSourceArchive(#[source] zip::result::ZipError),
-    #[error("failed to write user source archive {path}")]
-    BuildWriteSourceArchive {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("failed to build the upload request for {path}")]
-    BuildUploadRequest {
-        path: PathBuf,
-        #[source]
-        source: reqwest::Error,
-    },
-    #[error("failed to upload artifact {path}")]
-    BuildUploadArtifact {
-        path: PathBuf,
-        #[source]
-        source: reqwest::Error,
-    },
-    #[error("upload of {path} was rejected with status {status}: {body}")]
-    BuildUploadRejected {
-        path: PathBuf,
-        status: u16,
-        body: String,
-    },
-    #[error("failed to create temporary build directory")]
-    BuildCreateBuildDirectory(#[source] std::io::Error),
-    #[error("failed to prepare the build workspace at {path}")]
-    BuildPrepareWorkspace {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("failed to copy build workspace entry {path}")]
-    BuildCopyWorkspaceEntry {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("failed to copy the prebuilt build cache to {path}")]
-    BuildCopyBuildCache {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("failed to prepare the build cache at {path}")]
-    BuildPrepareBuildCache {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("failed to compile artifact {path}")]
-    BuildCompileArtifact {
-        path: PathBuf,
-        #[source]
-        source: std::io::Error,
-    },
-    #[error("compilation of artifact {path} exited with {status}")]
-    BuildCompileArtifactFailed { path: PathBuf, status: ExitStatus },
 
-    // Data ingestion, planning, and processing.
     #[error("Arrow error: {0}")]
     Arrow(#[from] arrow_schema::ArrowError),
     #[error("Parquet error: {0}")]
@@ -192,17 +94,15 @@ pub enum BpError {
         #[source]
         source: Box<dyn StdError + Send + Sync>,
     },
+    #[error("I/O error: {0}")]
+    IoError(#[from] std::io::Error),
+    #[error("Zip error: {0}")]
+    Zip(#[from] zip::result::ZipError),
     #[error("S3 {operation} failed for {target}: {source}")]
     S3 {
         operation: &'static str,
         target: String,
-        #[source]
-        source: Box<dyn StdError + Send + Sync>,
-    },
-    #[error("Failed to build S3 {operation} request for {target}: {source}")]
-    S3Request {
-        operation: &'static str,
-        target: String,
+        retryable: bool,
         #[source]
         source: Box<dyn StdError + Send + Sync>,
     },
@@ -262,11 +162,6 @@ pub enum BpError {
     #[error("{count} operation(s) failed: {failures}")]
     Multiple { count: usize, failures: String },
 
-    // Archives and object storage.
-    #[error("failed to write source archive: {0}")]
-    ArchiveIo(#[from] std::io::Error),
-    #[error("failed to create source archive: {0}")]
-    ArchiveZip(#[from] zip::result::ZipError),
     #[error("failed to load AWS credentials: {0}")]
     Credentials(#[from] CredentialsError),
     #[error("invalid S3 endpoint URL: {source}")]
@@ -286,24 +181,21 @@ pub enum BpError {
         size: usize,
         max_bytes: u64,
     },
-    #[error("failed to upload object to S3: {0}")]
-    Upload(#[source] reqwest::Error),
-    #[error("S3 {operation} failed for {target}: {source}")]
-    S3PresignOperation {
+    #[error("{operation} request failed for {target}: {source}")]
+    HttpRequest {
         operation: &'static str,
         target: String,
-        retryable: bool,
         #[source]
-        source: Box<dyn StdError + Send + Sync>,
+        source: reqwest::Error,
     },
-    #[error("S3 rejected upload for key {key:?} with status {status}: {body}")]
-    StorageUploadRejected {
-        key: String,
+    #[error("{operation} request for {target} was rejected with status {status}: {body}")]
+    HttpRejected {
+        operation: &'static str,
+        target: String,
         status: u16,
         body: String,
     },
 
-    // Exchange protocol encoding and decoding.
     #[error("Cannot send request {request_type} on protocol {protocol}")]
     BadProtocol {
         request_type: String,
@@ -326,7 +218,6 @@ pub enum BpError {
     #[error("Value for {0} deserialized as Unknown")]
     UnknownValue(String),
 
-    // Exchange gateway, submission, and rate limiting.
     #[error("Auto resync clock task panicked")]
     AutoResyncClockPanicked,
     #[error("Auto resync clock task is no longer running")]
@@ -382,7 +273,6 @@ pub enum BpError {
     #[error("Connector was not initialised with a websocket listener")]
     WebsocketListenerMissing,
 
-    // Cloud messaging and invocation.
     #[error("SQS PartialBatch failed to send {} message(s): {}", .failures.len(), Self::format_batch_failures(.failures))]
     SqsPartialBatch { failures: Vec<SqsBatchFailure> },
     #[error(
@@ -399,7 +289,6 @@ pub enum BpError {
     #[error("Lambda invoke error: {0}")]
     LambdaSdkInvoke(#[from] Box<SdkInvokeError>),
 
-    // GitHub and repository access.
     #[error("failed to build GitHub client: {0}")]
     GitHubBuildClient(#[source] octocrab::Error),
     #[error("no commit found for {ref_name:?} in repository {repo_id}")]
@@ -517,7 +406,6 @@ pub enum BpError {
         content_type: String,
     },
 
-    // Webhook HTTP handling and secret retrieval.
     #[error("Http error: {0}")]
     Http(#[from] http::Error),
     #[error("Invalid header name: {0}")]
@@ -539,7 +427,6 @@ pub enum BpError {
     #[error("Signing error: {0}")]
     Signing(#[from] SigningError),
 
-    // Deadlines and operation timeouts.
     #[error("{operation} timed out")]
     TimeoutOperation { operation: &'static str },
     #[error("deadline reached before operation could start")]
@@ -578,6 +465,12 @@ impl BpError {
         }
     }
 
+    pub fn invalid_path(value: impl Into<String>) -> Self {
+        Self::InvalidPath {
+            value: value.into(),
+        }
+    }
+
     pub fn io<E>(operation: &'static str, path: impl Into<String>, source: E) -> Self
     where
         E: Into<Box<dyn StdError + Send + Sync>>,
@@ -596,17 +489,24 @@ impl BpError {
         Self::S3 {
             operation,
             target: target.into(),
+            retryable: true,
             source: source.into(),
         }
     }
 
-    pub fn s3_request<E>(operation: &'static str, target: impl Into<String>, source: E) -> Self
+    pub fn s3_with_retryability<E>(
+        operation: &'static str,
+        target: impl Into<String>,
+        retryable: bool,
+        source: E,
+    ) -> Self
     where
         E: Into<Box<dyn StdError + Send + Sync>>,
     {
-        Self::S3Request {
+        Self::S3 {
             operation,
             target: target.into(),
+            retryable,
             source: source.into(),
         }
     }
@@ -628,6 +528,44 @@ impl BpError {
         Self::CandleConversion {
             field,
             source: source.into(),
+        }
+    }
+
+    pub fn http_request(
+        operation: &'static str,
+        target: impl Into<String>,
+        source: reqwest::Error,
+    ) -> Self {
+        Self::HttpRequest {
+            operation,
+            target: target.into(),
+            source,
+        }
+    }
+
+    pub fn http_rejected(
+        operation: &'static str,
+        target: impl Into<String>,
+        status: u16,
+        body: impl Into<String>,
+    ) -> Self {
+        Self::HttpRejected {
+            operation,
+            target: target.into(),
+            status,
+            body: body.into(),
+        }
+    }
+
+    pub fn command_failed(
+        operation: &'static str,
+        path: impl Into<PathBuf>,
+        status: ExitStatus,
+    ) -> Self {
+        Self::CommandFailed {
+            operation,
+            path: path.into(),
+            status,
         }
     }
 
@@ -729,16 +667,14 @@ impl BpError {
 
     pub fn retryability(&self) -> Retryability {
         match self {
-            Self::Io { .. }
-            | Self::S3 { .. }
-            | Self::S3Request { .. }
+            Self::IoError(_)
+            | Self::Io { .. }
+            | Self::S3 { retryable: true, .. }
             | Self::S3DeleteObjects { .. }
             | Self::Exchange { .. }
             | Self::Arrow(_)
             | Self::Parquet(_)
             | Self::Task(_)
-            | Self::ArchiveIo(_)
-            | Self::Upload(_)
             | Self::External(_)
             | Self::GatewayHttpStatus { status: 408 | 429 }
             | Self::RateLimited
@@ -746,6 +682,11 @@ impl BpError {
             | Self::TimeoutOperation { .. }
             | Self::TimeoutDeadlineExceeded
             | Self::SecretsUnavailable { .. } => Retryability::Retryable,
+            Self::S3 {
+                retryable: false, ..
+            }
+            | Self::Zip(_)
+            | Self::CommandFailed { .. } => Retryability::Permanent,
             Self::GatewayHttpStatus { status } if *status >= HTTP_INTERNAL_SERVER_ERROR => {
                 Retryability::Retryable
             }
@@ -758,17 +699,12 @@ impl BpError {
             Self::LambdaSdkInvoke(error) => invoke_retryability(error),
             Self::Credentials(error) => credentials_retryability(error),
             Self::Reqwest(error) => reqwest_retryability(error),
-            Self::S3PresignOperation { retryable, .. } => {
-                if *retryable {
-                    Retryability::Retryable
-                } else {
-                    Retryability::Permanent
-                }
-            }
-            Self::StorageUploadRejected { status, .. } => http_status_retryability(*status),
+            Self::HttpRequest { source, .. } => reqwest_retryability(source),
+            Self::HttpRejected { status, .. } => http_status_retryability(*status),
             Self::Send { source, .. } => match source.as_ref() {
                 Self::TimedOut | Self::External(_) => Retryability::Retryable,
                 Self::GatewayHttpStatus { status } => http_status_retryability(*status),
+                Self::HttpRequest { source, .. } => reqwest_retryability(source),
                 _ => Retryability::Permanent,
             },
             Self::GitHubGetCommit { source, .. }

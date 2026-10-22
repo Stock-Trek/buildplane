@@ -73,18 +73,14 @@ impl SignedPost {
     pub async fn upload_named(&self, path: &Path, name: &Path) -> BpResult<()> {
         let bytes = tokio::fs::read(path)
             .await
-            .map_err(|source| BpError::BuildReadArtifact {
-                path: path.to_path_buf(),
-                source,
-            })?;
+            .map_err(|source| BpError::io("read artifact", path.display().to_string(), source))?;
         let file_name = Self::upload_name(name)?;
 
         let file = reqwest::multipart::Part::bytes(bytes)
             .file_name(file_name.clone())
             .mime_str("application/octet-stream")
-            .map_err(|source| BpError::BuildUploadRequest {
-                path: path.to_path_buf(),
-                source,
+            .map_err(|source| {
+                BpError::http_request("build upload request", path.display().to_string(), source)
             })?;
 
         // S3 requires the file to be the last field in the multipart body.
@@ -100,19 +96,19 @@ impl SignedPost {
             .multipart(form)
             .send()
             .await
-            .map_err(|source| BpError::BuildUploadArtifact {
-                path: path.to_path_buf(),
-                source,
+            .map_err(|source| {
+                BpError::http_request("upload artifact", path.display().to_string(), source)
             })?;
 
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(BpError::BuildUploadRejected {
-                path: path.to_path_buf(),
-                status: status.as_u16(),
+            return Err(BpError::http_rejected(
+                "upload artifact",
+                path.display().to_string(),
+                status.as_u16(),
                 body,
-            });
+            ));
         }
 
         info!(artifact = %path.display(), object = %file_name, "uploaded build artifact");

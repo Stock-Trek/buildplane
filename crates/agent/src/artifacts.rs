@@ -38,7 +38,13 @@ impl Artifacts {
         source_dir: PathBuf,
         build_cache_dir: PathBuf,
     ) -> BpResult<Self> {
-        let build_dir = tempfile::tempdir().map_err(BpError::BuildCreateBuildDirectory)?;
+        let build_dir = tempfile::tempdir().map_err(|source| {
+            BpError::io(
+                "create build directory",
+                "temporary build directory",
+                source,
+            )
+        })?;
         Ok(Self {
             signed_post,
             source_get_url,
@@ -65,9 +71,12 @@ impl Artifacts {
             )));
         }
 
-        std_fs::create_dir_all(workspace).map_err(|source| BpError::BuildPrepareWorkspace {
-            path: workspace.to_path_buf(),
-            source,
+        std_fs::create_dir_all(workspace).map_err(|source| {
+            BpError::io(
+                "prepare build workspace",
+                workspace.display().to_string(),
+                source,
+            )
         })?;
         for entry in WORKSPACE_ENTRIES {
             let from = self.source_dir.join(entry);
@@ -75,8 +84,13 @@ impl Artifacts {
                 continue;
             }
             let to = workspace.join(entry);
-            copy_path(&from, &to)
-                .map_err(|source| BpError::BuildCopyWorkspaceEntry { path: from, source })?;
+            copy_path(&from, &to).map_err(|source| {
+                BpError::io(
+                    "copy build workspace entry",
+                    from.display().to_string(),
+                    source,
+                )
+            })?;
         }
         Ok(())
     }
@@ -109,16 +123,12 @@ impl Artifacts {
             .kill_on_drop(true)
             .status()
             .await
-            .map_err(|source| BpError::BuildCompileArtifact {
-                path: module.clone(),
-                source,
+            .map_err(|source| {
+                BpError::io("compile artifact", module.display().to_string(), source)
             })?;
 
         if !status.success() {
-            return Err(BpError::BuildCompileArtifactFailed {
-                path: module,
-                status,
-            });
+            return Err(BpError::command_failed("compile artifact", module, status));
         }
         info!(
             manifest = %manifest.display(),
@@ -136,16 +146,22 @@ impl Artifacts {
     /// produced by user code from an earlier invocation.
     async fn prepare_target_dir(&self) -> BpResult<TempDir> {
         let cache_root = self.build_cache_dir.clone();
-        std_fs::create_dir_all(&cache_root).map_err(|source| BpError::BuildPrepareBuildCache {
-            path: cache_root.clone(),
-            source,
+        std_fs::create_dir_all(&cache_root).map_err(|source| {
+            BpError::io(
+                "prepare build cache",
+                cache_root.display().to_string(),
+                source,
+            )
         })?;
         let target_dir = tempfile::Builder::new()
             .prefix("buildplane-target-")
             .tempdir_in(&cache_root)
-            .map_err(|source| BpError::BuildPrepareBuildCache {
-                path: cache_root,
-                source,
+            .map_err(|source| {
+                BpError::io(
+                    "prepare build cache",
+                    cache_root.display().to_string(),
+                    source,
+                )
             })?;
 
         let source = self.source_dir.join(SOURCE_TARGET_DIR);
@@ -157,9 +173,12 @@ impl Artifacts {
                 .map_err(|source| {
                     BpError::BuildConfig(format!("failed to prepare build cache: {source}"))
                 })?
-                .map_err(|source| BpError::BuildCopyBuildCache {
-                    path: target_dir.path().to_path_buf(),
-                    source,
+                .map_err(|source| {
+                    BpError::io(
+                        "copy build cache",
+                        target_dir.path().display().to_string(),
+                        source,
+                    )
                 })?;
         }
 
@@ -178,16 +197,16 @@ impl Artifacts {
             .kill_on_drop(true)
             .status()
             .await
-            .map_err(|source| BpError::BuildCompileArtifact {
-                path: module.to_path_buf(),
-                source,
+            .map_err(|source| {
+                BpError::io("compile artifact", module.display().to_string(), source)
             })?;
 
         if !status.success() {
-            return Err(BpError::BuildCompileArtifactFailed {
-                path: module.to_path_buf(),
+            return Err(BpError::command_failed(
+                "compile artifact",
+                module.to_path_buf(),
                 status,
-            });
+            ));
         }
         info!(module = %module.display(), output = %output.display(), "compiled wasm artifact");
         Ok(output)
@@ -200,10 +219,11 @@ impl Artifacts {
         let archive = Self::source_archive(&root, &files)?;
         let archive_path = self.build_dir.path().join(USER_GENERATED_ARCHIVE);
         fs::write(&archive_path, archive).await.map_err(|source| {
-            BpError::BuildWriteSourceArchive {
-                path: archive_path.clone(),
+            BpError::io(
+                "write source archive",
+                archive_path.display().to_string(),
                 source,
-            }
+            )
         })?;
         self.signed_post
             .upload_named(&archive_path, Path::new(USER_GENERATED_ARCHIVE))
@@ -231,63 +251,55 @@ impl Artifacts {
                     ))
                 })?
                 .replace('\\', "/");
-            archive
-                .start_file(name, options)
-                .map_err(BpError::BuildCreateSourceArchive)?;
-            let contents = std_fs::read(file).map_err(|source| BpError::BuildReadArtifact {
-                path: file.clone(),
-                source,
+            archive.start_file(name, options).map_err(BpError::Zip)?;
+            let contents = std_fs::read(file)
+                .map_err(|source| BpError::io("read artifact", file.display().to_string(), source))?;
+            archive.write_all(&contents).map_err(|source| {
+                BpError::io("write source archive", file.display().to_string(), source)
             })?;
-            archive
-                .write_all(&contents)
-                .map_err(|source| BpError::BuildWriteSourceArchive {
-                    path: file.clone(),
-                    source,
-                })?;
         }
-        Ok(archive
-            .finish()
-            .map_err(BpError::BuildCreateSourceArchive)?
-            .into_inner())
+        Ok(archive.finish().map_err(BpError::Zip)?.into_inner())
     }
 
     async fn user_generated_files(root: &Path) -> BpResult<Vec<PathBuf>> {
         let root =
             fs::canonicalize(root)
                 .await
-                .map_err(|source| BpError::BuildReadArtifactDirectory {
-                    path: root.to_path_buf(),
-                    source,
+                .map_err(|source| {
+                    BpError::io(
+                        "read artifact directory",
+                        root.display().to_string(),
+                        source,
+                    )
                 })?;
         let mut files = Vec::new();
         let mut pending = vec![root.clone()];
         while let Some(directory) = pending.pop() {
             let mut entries = fs::read_dir(&directory).await.map_err(|source| {
-                BpError::BuildReadArtifactDirectory {
-                    path: directory.clone(),
+                BpError::io(
+                    "read artifact directory",
+                    directory.display().to_string(),
                     source,
-                }
+                )
             })?;
             while let Some(entry) = entries.next_entry().await.map_err(|source| {
-                BpError::BuildReadArtifactDirectory {
-                    path: directory.clone(),
+                BpError::io(
+                    "read artifact directory",
+                    directory.display().to_string(),
                     source,
-                }
+                )
             })? {
                 let path = entry.path();
                 let file_type = entry.file_type().await.map_err(|source| {
-                    BpError::BuildReadArtifactDirectory {
-                        path: directory.clone(),
+                    BpError::io(
+                        "read artifact directory",
+                        directory.display().to_string(),
                         source,
-                    }
+                    )
                 })?;
-                let resolved =
-                    fs::canonicalize(&path)
-                        .await
-                        .map_err(|source| BpError::BuildReadArtifact {
-                            path: path.clone(),
-                            source,
-                        })?;
+                let resolved = fs::canonicalize(&path).await.map_err(|source| {
+                    BpError::io("read artifact", path.display().to_string(), source)
+                })?;
                 if !resolved.starts_with(&root) {
                     return Err(BpError::BuildConfig(format!(
                         "artifact path {} resolves outside {USER_GENERATED_DIR}",
@@ -295,13 +307,9 @@ impl Artifacts {
                     )));
                 }
 
-                let target =
-                    fs::metadata(&resolved)
-                        .await
-                        .map_err(|source| BpError::BuildReadArtifact {
-                            path: path.clone(),
-                            source,
-                        })?;
+                let target = fs::metadata(&resolved).await.map_err(|source| {
+                    BpError::io("read artifact", path.display().to_string(), source)
+                })?;
                 if target.is_dir() {
                     if file_type.is_symlink() {
                         return Err(BpError::BuildConfig(format!(

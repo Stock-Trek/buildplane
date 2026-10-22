@@ -148,7 +148,7 @@ impl S3Keys {
         if Self::is_valid_ref_name(value) {
             Ok(value.to_string())
         } else {
-            Err(BpError::InvalidMessageInvalidPath {
+            Err(BpError::InvalidPath {
                 value: value.to_string(),
             })?
         }

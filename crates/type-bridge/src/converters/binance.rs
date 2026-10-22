@@ -76,7 +76,7 @@ impl Converter for BinanceConverter {
     ) -> BpResult<Self::AssetLimitsRequest> {
         let symbol = match self.ticker_mapping().symbol(trading_pair) {
             None => {
-                return Err(BpError::TypeBridgeMissing(format!(
+                return Err(BpError::MissingValue(format!(
                     "Symbol for trading pair: {:?}",
                     trading_pair
                 )));
@@ -104,7 +104,7 @@ impl Converter for BinanceConverter {
         cex_preferences: &CexPreferences,
     ) -> BpResult<Self::OrderRequest> {
         let Some(trading_precision) = self.trading_precision.get() else {
-            return Err(BpError::TypeBridgeMissing("Trading Precision".into()));
+            return Err(BpError::MissingValue("Trading Precision".into()));
         };
         let precise =
             self.try_convert_precise(order_request, cex_preferences, *trading_precision)?;
@@ -376,7 +376,7 @@ impl BinanceConverter {
                 });
             }
         }
-        Err(BpError::TypeBridgeMissing(
+        Err(BpError::MissingValue(
             "LOT_SIZE filter in symbol filters".into(),
         ))
     }
@@ -416,7 +416,7 @@ impl BinanceConverter {
                 });
             }
         }
-        Err(BpError::TypeBridgeMissing(
+        Err(BpError::MissingValue(
             "PRICE_FILTER in symbol filters".into(),
         ))
     }

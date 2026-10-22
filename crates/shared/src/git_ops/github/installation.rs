@@ -124,7 +124,7 @@ impl GitHost<u64, u64> for GitHubInstallation {
     fn parse_repo_id(&self, repo_id: &str) -> BpResult<u64> {
         repo_id
             .parse()
-            .map_err(|error| BpError::InvalidMessageGitHubRepositoryId {
+            .map_err(|error| BpError::InvalidRepositoryId {
                 repo_id: repo_id.to_owned(),
                 source: error,
             })
