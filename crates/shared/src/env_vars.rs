@@ -1,6 +1,9 @@
-use crate::errors::{
-    config::RsConfigError,
-    error::{RsSharedError, RsSharedResult},
+use crate::{
+    errors::{
+        config::RsConfigError,
+        error::{RsSharedError, RsSharedResult},
+    },
+    git_ops::github::installation::DirectoryLimits,
 };
 use chrono::{DateTime, NaiveDate, Utc};
 use std::{
@@ -50,9 +53,6 @@ const WEBHOOK_SECRET_FAILURE_BACKOFF: &str = "WEBHOOK_SECRET_FAILURE_BACKOFF";
 
 const DEFAULT_DEADLINE_BUFFER: Duration = Duration::from_secs(5);
 const DEFAULT_GITHUB_MAX_CACHED_INSTALLATIONS: usize = 128;
-const DEFAULT_GITHUB_MAX_DIRECTORY_BYTES: u64 = 16 * 1024 * 1024;
-const DEFAULT_GITHUB_MAX_DIRECTORY_DEPTH: usize = 32;
-const DEFAULT_GITHUB_MAX_DIRECTORY_FILES: usize = 10_000;
 const DEFAULT_S3_MAX_OBJECT_SIZE_BYTES: u64 = 16 * 1024 * 1024;
 const DEFAULT_S3_SIGNED_URL_EXPIRY: Duration = Duration::from_secs(60 * 60);
 const DEFAULT_SQS_DEDUP_MAX_MESSAGES: usize = 4096;
@@ -154,7 +154,7 @@ impl EnvVarConfig {
     pub fn github_max_directory_depth(&self) -> RsSharedResult<NonZeroUsize> {
         let depth = self.parsed(
             GITHUB_MAX_DIRECTORY_DEPTH,
-            DEFAULT_GITHUB_MAX_DIRECTORY_DEPTH,
+            DirectoryLimits::default().max_depth,
         )?;
         NonZeroUsize::new(depth).ok_or_else(|| {
             RsSharedError::Config(RsConfigError::invalid(
@@ -167,7 +167,7 @@ impl EnvVarConfig {
     pub fn github_max_directory_files(&self) -> RsSharedResult<NonZeroUsize> {
         let files = self.parsed(
             GITHUB_MAX_DIRECTORY_FILES,
-            DEFAULT_GITHUB_MAX_DIRECTORY_FILES,
+            DirectoryLimits::default().max_files,
         )?;
         NonZeroUsize::new(files).ok_or_else(|| {
             RsSharedError::Config(RsConfigError::invalid(
@@ -180,7 +180,7 @@ impl EnvVarConfig {
     pub fn github_max_directory_bytes(&self) -> RsSharedResult<NonZeroU64> {
         let bytes = self.parsed(
             GITHUB_MAX_DIRECTORY_BYTES,
-            DEFAULT_GITHUB_MAX_DIRECTORY_BYTES,
+            DirectoryLimits::default().max_total_bytes,
         )?;
         NonZeroU64::new(bytes).ok_or_else(|| {
             RsSharedError::Config(RsConfigError::invalid(
