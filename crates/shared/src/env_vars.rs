@@ -17,12 +17,6 @@ const AWS_ENDPOINT_URL_S3: &str = "AWS_ENDPOINT_URL_S3";
 const AWS_LAMBDA_FUNCTION_NAME: &str = "AWS_LAMBDA_FUNCTION_NAME";
 const BACKFILL_START: &str = "BACKFILL_START";
 const BUILD_AGENT_FUNCTION_NAME: &str = "BUILD_AGENT_FUNCTION_NAME";
-const BUILD_AGENT_FUNCTION_ARN: &str = "BUILD_AGENT_FUNCTION_ARN";
-const BUILD_AGENT_LAMBDA_FUNCTION_NAME: &str = "BUILD_AGENT_LAMBDA_FUNCTION_NAME";
-const BUILD_AGENT_LAMBDA_ARN: &str = "BUILD_AGENT_LAMBDA_ARN";
-const BUILD_AGENT_LAMBDA_FUNCTION_ARN: &str = "BUILD_AGENT_LAMBDA_FUNCTION_ARN";
-const BUILD_AGENT_LAMBDA_NAME: &str = "BUILD_AGENT_LAMBDA_NAME";
-const BUILD_AGENT_ARN: &str = "BUILD_AGENT_ARN";
 const DEADLINE_BUFFER: &str = "DEADLINE_BUFFER";
 const ENTERPRISE_ALLOWED_HOSTS: &str = "GITHUB_ENTERPRISE_ALLOWED_HOSTS";
 const GITHUB_APP_ID: &str = "GITHUB_APP_ID";
@@ -220,28 +214,7 @@ impl EnvVarConfig {
     }
 
     pub fn build_agent_function_name(&self) -> BpResult<String> {
-        self.first_present(&[
-            BUILD_AGENT_FUNCTION_NAME,
-            BUILD_AGENT_FUNCTION_ARN,
-            BUILD_AGENT_LAMBDA_FUNCTION_NAME,
-            BUILD_AGENT_LAMBDA_ARN,
-            BUILD_AGENT_LAMBDA_FUNCTION_ARN,
-            BUILD_AGENT_LAMBDA_NAME,
-            BUILD_AGENT_ARN,
-        ])?
-        .ok_or_else(|| BpError::config_missing(BUILD_AGENT_FUNCTION_NAME))
-    }
-
-    pub fn build_agent_function_arn(&self) -> BpResult<String> {
-        self.build_agent_function_name()
-    }
-
-    pub fn build_agent_lambda_function_name(&self) -> BpResult<String> {
-        self.build_agent_function_name()
-    }
-
-    pub fn build_agent_lambda_arn(&self) -> BpResult<String> {
-        self.build_agent_function_name()
+        self.required(BUILD_AGENT_FUNCTION_NAME)
     }
 
     pub fn webhook_dedup_max_deliveries(&self) -> BpResult<NonZeroUsize> {
@@ -356,15 +329,6 @@ impl EnvVarConfig {
             Some(value) => Ok(Self::split_csv(&value)),
             None => Ok(Vec::new()),
         }
-    }
-
-    fn first_present(&self, names: &[&str]) -> BpResult<Option<String>> {
-        for name in names {
-            if let Some(value) = self.optional(name)? {
-                return Ok(Some(value));
-            }
-        }
-        Ok(None)
     }
 
     /// Read an environment variable by name without applying any parsing.
