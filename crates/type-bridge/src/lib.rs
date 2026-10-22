@@ -15,7 +15,7 @@ pub use buildplane_shared::errors::{BpError, BpResult};
 
 pub use crate::{
     asset_limits::TBAssetLimits,
-    converter::Converter,
+    converter::{Converter, TradingConverter},
     converters::binance::BinanceConverter,
     exchange_info::TBExchangeInfo,
     response::TBResponse,
@@ -27,7 +27,7 @@ pub use crate::{
 pub mod prelude {
     pub use crate::{
         BpError, BpResult, Converter, MinMaxStep, TBExchangeInfo, TBResponse,
-        TBSessionAuthentication, TickerMapping, TradingPrecision,
+        TBSessionAuthentication, TickerMapping, TradingConverter, TradingPrecision,
     };
 }
 
