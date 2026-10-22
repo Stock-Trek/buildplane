@@ -103,13 +103,7 @@ impl Artifacts {
     }
 
     fn validate_user_generated(sources: &[PathBuf]) -> BpResult<()> {
-        let sources: Vec<&Path> = sources
-            .iter()
-            .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
-            .map(PathBuf::as_path)
-            .collect();
-
-        for path in &sources {
+        for path in sources {
             stock_trek_check::verify::verify(path.display().to_string()).map_err(|error| {
                 BpError::Validation(ValidationError::InvalidValue {
                     name: format!("user generated code {}", path.display()),
@@ -501,6 +495,17 @@ mod tests {
         std_fs::write(&modules, b"pub mod algorithm;\n").unwrap();
 
         let error = Artifacts::validate_user_generated(&[algorithm, modules]).unwrap_err();
+
+        assert!(matches!(error, BpError::Validation(_)));
+    }
+
+    #[test]
+    fn checks_sources_without_rust_extension() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("algorithm.txt");
+        std_fs::write(&source, b"use std::fs;\n\npub struct Example;\n").unwrap();
+
+        let error = Artifacts::validate_user_generated(&[source]).unwrap_err();
 
         assert!(matches!(error, BpError::Validation(_)));
     }
