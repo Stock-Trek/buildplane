@@ -31,19 +31,19 @@ impl ByteEncoder {
                         cap += 2;
                     }
                 }
-                let mut out = Vec::with_capacity(cap);
+                let mut out = String::with_capacity(cap);
                 // Second pass: encode.
                 for &b in bytes {
                     if Self::is_unreserved(b) {
-                        out.push(b);
+                        // Unreserved bytes are ASCII, so this conversion is lossless.
+                        out.push(b as char);
                     } else {
-                        out.push(b'%');
-                        out.push(Self::HEX_DIGITS[(b >> 4) as usize]);
-                        out.push(Self::HEX_DIGITS[(b & 0x0f) as usize]);
+                        out.push('%');
+                        out.push(Self::HEX_DIGITS[(b >> 4) as usize] as char);
+                        out.push(Self::HEX_DIGITS[(b & 0x0f) as usize] as char);
                     }
                 }
-                // SAFETY: All bytes written are ASCII → valid UTF‑8.
-                unsafe { String::from_utf8_unchecked(out) }
+                out
             }
         }
     }
