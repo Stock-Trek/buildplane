@@ -7,6 +7,7 @@ use std::{
     collections::HashMap,
     ffi::{OsStr, OsString},
     num::{NonZeroU64, NonZeroUsize},
+    path::PathBuf,
     time::Duration,
 };
 use url::Url;
@@ -14,7 +15,10 @@ use url::Url;
 const AWS_ENDPOINT_URL_S3: &str = "AWS_ENDPOINT_URL_S3";
 const AWS_LAMBDA_FUNCTION_NAME: &str = "AWS_LAMBDA_FUNCTION_NAME";
 const BACKFILL_START: &str = "BACKFILL_START";
+const BUILD_AGENT_BUILD_CACHE_DIR: &str = "BUILD_AGENT_BUILD_CACHE_DIR";
 const BUILD_AGENT_FUNCTION_NAME: &str = "BUILD_AGENT_FUNCTION_NAME";
+const BUILD_AGENT_SOURCE_DIR: &str = "BUILD_AGENT_SOURCE_DIR";
+const BUILD_AGENT_TIMEOUT_SECS: &str = "BUILD_AGENT_TIMEOUT_SECS";
 const DEADLINE_BUFFER: &str = "DEADLINE_BUFFER";
 const ENTERPRISE_ALLOWED_HOSTS: &str = "GITHUB_ENTERPRISE_ALLOWED_HOSTS";
 const GITHUB_APP_ID: &str = "GITHUB_APP_ID";
@@ -43,6 +47,9 @@ const WEBHOOK_DEDUP_TTL: &str = "WEBHOOK_DEDUP_TTL";
 const WEBHOOK_REFRESH_COOLDOWN: &str = "WEBHOOK_REFRESH_COOLDOWN";
 const WEBHOOK_SECRET_FAILURE_BACKOFF: &str = "WEBHOOK_SECRET_FAILURE_BACKOFF";
 
+const DEFAULT_BUILD_AGENT_BUILD_CACHE_DIR: &str = "/tmp/buildplane-build-cache";
+const DEFAULT_BUILD_AGENT_SOURCE_DIR: &str = "/var/task";
+const DEFAULT_BUILD_AGENT_TIMEOUT: Duration = Duration::from_secs(300);
 const DEFAULT_DEADLINE_BUFFER: Duration = Duration::from_secs(5);
 const DEFAULT_GITHUB_MAX_CACHED_INSTALLATIONS: usize = 128;
 const DEFAULT_S3_MAX_ARTIFACT_SIZE_BYTES: u64 = 16 * 1024 * 1024;
@@ -223,8 +230,23 @@ impl EnvVarConfig {
         self.optional(AWS_ENDPOINT_URL_S3)
     }
 
+    pub fn build_agent_build_cache_dir(&self) -> BpResult<PathBuf> {
+        self.path(
+            BUILD_AGENT_BUILD_CACHE_DIR,
+            DEFAULT_BUILD_AGENT_BUILD_CACHE_DIR,
+        )
+    }
+
     pub fn build_agent_function_name(&self) -> BpResult<String> {
         self.required(BUILD_AGENT_FUNCTION_NAME)
+    }
+
+    pub fn build_agent_source_dir(&self) -> BpResult<PathBuf> {
+        self.path(BUILD_AGENT_SOURCE_DIR, DEFAULT_BUILD_AGENT_SOURCE_DIR)
+    }
+
+    pub fn build_agent_timeout(&self) -> BpResult<Duration> {
+        self.duration(BUILD_AGENT_TIMEOUT_SECS, DEFAULT_BUILD_AGENT_TIMEOUT)
     }
 
     pub fn webhook_dedup_max_deliveries(&self) -> BpResult<NonZeroUsize> {
@@ -312,6 +334,12 @@ impl EnvVarConfig {
         value
             .parse::<T>()
             .map_err(|error| BpError::config_invalid_source(key, error))
+    }
+
+    fn path(&self, key: &str, default: &str) -> BpResult<PathBuf> {
+        Ok(self
+            .optional(key)?
+            .map_or_else(|| PathBuf::from(default), PathBuf::from))
     }
 
     fn parse_timestamp(name: &str, value: &str) -> BpResult<DateTime<Utc>> {
@@ -444,6 +472,59 @@ mod tests {
         let value = config.optional("BUILDPLANE_TEST_MISSING_ENV_VAR").unwrap();
 
         assert!(value.is_none());
+    }
+
+    #[test]
+    fn build_agent_settings_have_defaults() {
+        let config = EnvVarConfig::from_map(Vec::<(String, String)>::new());
+
+        assert_eq!(
+            config.build_agent_timeout().unwrap(),
+            Duration::from_secs(300)
+        );
+        assert_eq!(
+            config.build_agent_source_dir().unwrap(),
+            PathBuf::from("/var/task")
+        );
+        assert_eq!(
+            config.build_agent_build_cache_dir().unwrap(),
+            PathBuf::from("/tmp/buildplane-build-cache")
+        );
+    }
+
+    #[test]
+    fn build_agent_settings_are_parsed() {
+        let config = EnvVarConfig::from_map([
+            (BUILD_AGENT_TIMEOUT_SECS, "120"),
+            (BUILD_AGENT_SOURCE_DIR, "/srv/agent"),
+            (BUILD_AGENT_BUILD_CACHE_DIR, "/var/cache/agent"),
+        ]);
+
+        assert_eq!(
+            config.build_agent_timeout().unwrap(),
+            Duration::from_secs(120)
+        );
+        assert_eq!(
+            config.build_agent_source_dir().unwrap(),
+            PathBuf::from("/srv/agent")
+        );
+        assert_eq!(
+            config.build_agent_build_cache_dir().unwrap(),
+            PathBuf::from("/var/cache/agent")
+        );
+    }
+
+    #[test]
+    fn build_agent_timeout_reports_invalid_values() {
+        let config = EnvVarConfig::from_map([(BUILD_AGENT_TIMEOUT_SECS, "not a number")]);
+
+        let error = config.build_agent_timeout().unwrap_err();
+
+        assert!(matches!(
+            &error,
+            BpError::Config(ConfigError::Invalid { name, .. })
+                if name == BUILD_AGENT_TIMEOUT_SECS
+        ));
     }
 
     #[test]

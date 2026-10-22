@@ -990,7 +990,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "zip",
 ]
 

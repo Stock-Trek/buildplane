@@ -1,40 +1,38 @@
-use crate::{env_var_config::EnvVarConfig, handler::Handler, tracing_setup::TracingSetup};
+use crate::handler::Handler;
 use buildplane_shared::build_request::{BuildOutcome, BuildRequest};
-use buildplane_shared::env_vars::EnvVarConfig as SharedEnvVarConfig;
+use buildplane_shared::env_vars::EnvVarConfig;
 use buildplane_shared::errors::{BpError, BpResult};
 use buildplane_shared::metrics::build::BuildMetrics;
 use buildplane_shared::metrics::descriptions::DescriptionsMetrics;
+use buildplane_shared::tracing_setup::TracingSetup;
 use lambda_runtime::{LambdaEvent, service_fn};
 use metrics_cloudwatch_embedded::lambda::service::run;
 use std::time::Instant;
 
 mod artifacts;
-mod env_var_config;
 mod handler;
 mod s3;
 mod source;
-mod tracing_setup;
 
 const DEFAULT_FUNCTION_NAME: &str = "buildplane-agent";
 
 #[tokio::main]
 async fn main() -> BpResult<()> {
-    let config = EnvVarConfig::from_env()?;
-    TracingSetup::setup(config.log_filter())?;
-    let shared_config = SharedEnvVarConfig::from_env();
+    let config = EnvVarConfig::from_env();
+    TracingSetup::setup(&config)?;
     let recorder = metrics_cloudwatch_embedded::Builder::new()
         .cloudwatch_namespace("buildplane/agent")
         .with_dimension(
             "function",
-            shared_config.lambda_function_name(DEFAULT_FUNCTION_NAME)?,
+            config.lambda_function_name(DEFAULT_FUNCTION_NAME)?,
         )
         .lambda_cold_start_metric(buildplane_shared::metrics::descriptions::COLD_STARTS_TOTAL)
         .init()?;
     DescriptionsMetrics::describe();
     let handler = Handler::new(
-        config.build_timeout(),
-        config.source_dir().to_path_buf(),
-        config.build_cache_dir().to_path_buf(),
+        config.build_agent_timeout()?,
+        config.build_agent_source_dir()?,
+        config.build_agent_build_cache_dir()?,
     );
     run(
         recorder,
