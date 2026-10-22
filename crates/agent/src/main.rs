@@ -1,8 +1,12 @@
 use crate::{env_var_config::EnvVarConfig, handler::Handler, tracing_setup::TracingSetup};
-use buildplane_shared::build_request::BuildRequest;
-use buildplane_shared::errors::BpResult;
-use lambda_runtime::{Error, LambdaEvent, run, service_fn};
-use serde_json::{Value, json};
+use buildplane_shared::build_request::{BuildOutcome, BuildRequest};
+use buildplane_shared::env_vars::EnvVarConfig as SharedEnvVarConfig;
+use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_shared::metrics::build::BuildMetrics;
+use buildplane_shared::metrics::descriptions::DescriptionsMetrics;
+use lambda_runtime::{LambdaEvent, service_fn};
+use metrics_cloudwatch_embedded::lambda::service::run;
+use std::time::Instant;
 
 mod artifacts;
 mod env_var_config;
@@ -11,27 +15,111 @@ mod s3;
 mod source;
 mod tracing_setup;
 
+const DEFAULT_FUNCTION_NAME: &str = "buildplane-agent";
+
 #[tokio::main]
-async fn main() -> Result<(), Error> {
+async fn main() -> BpResult<()> {
     let config = EnvVarConfig::from_env()?;
     TracingSetup::setup(config.log_filter())?;
+    let shared_config = SharedEnvVarConfig::from_env();
+    let recorder = metrics_cloudwatch_embedded::Builder::new()
+        .cloudwatch_namespace("buildplane/agent")
+        .with_dimension(
+            "function",
+            shared_config.lambda_function_name(DEFAULT_FUNCTION_NAME)?,
+        )
+        .lambda_cold_start_metric(buildplane_shared::metrics::descriptions::COLD_STARTS_TOTAL)
+        .init()?;
+    DescriptionsMetrics::describe();
     let handler = Handler::new(
         config.build_timeout(),
         config.source_dir().to_path_buf(),
         config.build_cache_dir().to_path_buf(),
     );
-    run(service_fn(move |event| {
-        let handler = handler.clone();
-        async move { BuildAgent::handle(handler, event).await }
-    }))
+    run(
+        recorder,
+        service_fn(move |event| {
+            let handler = handler.clone();
+            async move { BuildAgent::handle(handler, event).await }
+        }),
+    )
     .await
+    .map_err(BpError::external)
 }
 
 struct BuildAgent;
 
 impl BuildAgent {
-    async fn handle(handler: Handler, event: LambdaEvent<BuildRequest>) -> BpResult<Value> {
-        handler.handle(event.payload).await?;
-        Ok(json!({ "status": "ok" }))
+    async fn handle(handler: Handler, event: LambdaEvent<BuildRequest>) -> BpResult<BuildOutcome> {
+        let started_at = Instant::now();
+        match handler.handle(event.payload).await {
+            Ok(()) => {
+                BuildMetrics::record_success(started_at.elapsed());
+                Ok(BuildOutcome::success())
+            }
+            Err(error) => Self::handle_error(error, started_at),
+        }
+    }
+
+    fn handle_error(error: BpError, started_at: Instant) -> BpResult<BuildOutcome> {
+        let duration = started_at.elapsed();
+        if error.is_retryable() {
+            BuildMetrics::record_retryable_failure(error.error_type(), duration);
+            tracing::error!(
+                error_type = error.error_type(),
+                %error,
+                "build failed with a retryable error"
+            );
+            // Returning Err lets the Lambda asynchronous invocation retry the
+            // build, which is only appropriate for transient failures.
+            return Err(error);
+        }
+
+        BuildMetrics::record_permanent_failure(error.error_type(), duration);
+        tracing::error!(
+            error_type = error.error_type(),
+            %error,
+            "build failed permanently"
+        );
+        // A permanent failure, such as a user compile error, cannot be fixed by
+        // retrying. Return Ok with a structured failure payload so Lambda does
+        // not retry it and the outcome is available to callers and logs.
+        Ok(BuildOutcome::failure(
+            error.error_type(),
+            error.to_string(),
+            false,
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use buildplane_shared::errors::{ConfigError, TimeoutError};
+    use std::time::Duration;
+
+    #[test]
+    fn permanent_build_errors_are_returned_as_structured_outcomes() {
+        let error = BpError::Config(ConfigError::Build("compile failed".to_string()));
+
+        let outcome =
+            BuildAgent::handle_error(error, Instant::now() - Duration::from_secs(1)).unwrap();
+
+        assert!(outcome.is_failure());
+        let error = outcome.error().unwrap();
+        assert_eq!(error.error_type, "build");
+        assert!(error.message.contains("compile failed"));
+        assert!(!error.retryable);
+    }
+
+    #[test]
+    fn retryable_build_errors_are_returned_so_lambda_retries() {
+        let error = BpError::Timeout(TimeoutError::BuildTimeout(Duration::from_secs(300)));
+
+        let error =
+            BuildAgent::handle_error(error, Instant::now() - Duration::from_secs(1)).unwrap_err();
+
+        assert_eq!(error.error_type(), "build_timeout");
+        assert!(error.is_retryable());
     }
 }

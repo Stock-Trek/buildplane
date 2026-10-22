@@ -16,9 +16,13 @@ pub const SECRET_LOAD_SUCCESSES_TOTAL: &str = "secret_load_successes_total";
 pub const MESSAGES_SENT_TOTAL: &str = "messages_sent_total";
 pub const MESSAGES_FAILED_TOTAL: &str = "messages_failed_total";
 pub const DUPLICATE_MESSAGES_TOTAL: &str = "duplicate_messages_total";
+pub const BUILD_OUTCOMES_TOTAL: &str = "build_outcomes_total";
+pub const BUILD_DURATION_SECONDS: &str = "build_duration_seconds";
 
 pub const STATUS_SUCCESS: &str = "success";
 pub const STATUS_ERROR: &str = "error";
+pub const STATUS_PERMANENT_FAILURE: &str = "permanent_failure";
+pub const STATUS_RETRYABLE_FAILURE: &str = "retryable_failure";
 
 pub struct DescriptionsMetrics;
 
@@ -84,6 +88,14 @@ impl DescriptionsMetrics {
         describe_counter!(
             DUPLICATE_MESSAGES_TOTAL,
             "Total number of SQS messages dropped as duplicates"
+        );
+        describe_counter!(
+            BUILD_OUTCOMES_TOTAL,
+            "Total number of build outcomes, labelled by status and error type"
+        );
+        describe_histogram!(
+            BUILD_DURATION_SECONDS,
+            "Duration of builds in seconds, labelled by status and error type"
         );
     }
 }
