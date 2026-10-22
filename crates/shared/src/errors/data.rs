@@ -1,4 +1,4 @@
-use crate::errors::retryability::Retryability;
+use crate::errors::{bp::BpError, retryability::Retryability};
 use chrono::{DateTime, Utc};
 use std::error::Error as StdError;
 
@@ -34,8 +34,12 @@ pub enum DataError {
     LockContention { key: String },
     #[error("Lock {key} is missing an ETag and cannot be released safely")]
     MissingLockETag { key: String },
-    #[error("{count} operation(s) failed: {failures}")]
-    Multiple { count: usize, failures: String },
+    #[error(
+        "{} operation(s) failed: {}",
+        .failures.len(),
+        Self::format_failures(.failures)
+    )]
+    Multiple { failures: Vec<BpError> },
     #[error("Cannot get subfolders from path with too many delimiters {path}")]
     TooManyPathSegments { path: String },
     #[error("Trading pair {pair} is not configured for data collection")]
@@ -43,15 +47,12 @@ pub enum DataError {
 }
 
 impl DataError {
-    pub fn multiple(failures: impl IntoIterator<Item = crate::errors::bp::BpError>) -> Self {
-        let failures = failures.into_iter().collect::<Vec<_>>();
-        let count = failures.len();
+    pub fn multiple(failures: impl IntoIterator<Item = BpError>) -> Self {
         let failures = failures
-            .iter()
-            .map(ToString::to_string)
-            .collect::<Vec<_>>()
-            .join("; ");
-        Self::Multiple { count, failures }
+            .into_iter()
+            .flat_map(Self::flatten_failure)
+            .collect::<Vec<_>>();
+        Self::Multiple { failures }
     }
 
     pub fn error_type(&self) -> &'static str {
@@ -61,7 +62,88 @@ impl DataError {
     pub fn retryability(&self) -> Retryability {
         match self {
             Self::LockContention { .. } => Retryability::Retryable,
+            Self::Multiple { failures } if failures.iter().any(BpError::is_retryable) => {
+                Retryability::Retryable
+            }
             _ => Retryability::Permanent,
         }
+    }
+
+    fn flatten_failure(error: BpError) -> Vec<BpError> {
+        match error {
+            BpError::Data(Self::Multiple { failures }) => failures,
+            error => vec![error],
+        }
+    }
+
+    fn format_failures(failures: &[BpError]) -> String {
+        failures
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("; ")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::errors::{ConfigError, TimeoutError};
+    use std::time::Duration;
+
+    #[test]
+    fn multiple_is_retryable_when_any_failure_is_retryable() {
+        let error = BpError::multiple([
+            BpError::Config(ConfigError::Missing {
+                name: "test".to_string(),
+            }),
+            BpError::Timeout(TimeoutError::TimedOut),
+        ]);
+
+        assert!(error.is_retryable());
+    }
+
+    #[test]
+    fn multiple_is_permanent_when_every_failure_is_permanent() {
+        let error = BpError::multiple([
+            BpError::Config(ConfigError::Missing {
+                name: "first".to_string(),
+            }),
+            BpError::Config(ConfigError::Missing {
+                name: "second".to_string(),
+            }),
+        ]);
+
+        assert!(!error.is_retryable());
+    }
+
+    #[test]
+    fn multiple_flattens_nested_failures() {
+        let error = BpError::multiple([
+            BpError::multiple([BpError::Timeout(TimeoutError::TimedOut)]),
+            BpError::Config(ConfigError::Missing {
+                name: "test".to_string(),
+            }),
+        ]);
+
+        let BpError::Data(DataError::Multiple { failures }) = &error else {
+            panic!("expected aggregated error");
+        };
+        assert_eq!(failures.len(), 2);
+        assert!(error.is_retryable());
+    }
+
+    #[test]
+    fn multiple_display_includes_each_failure() {
+        let error = BpError::multiple([
+            BpError::Config(ConfigError::Missing {
+                name: "first".to_string(),
+            }),
+            BpError::Timeout(TimeoutError::BuildTimeout(Duration::from_secs(1))),
+        ]);
+
+        let message = error.to_string();
+        assert!(message.contains("first"));
+        assert!(message.contains("build timed out"));
     }
 }
