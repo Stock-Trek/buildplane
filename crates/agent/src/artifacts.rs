@@ -216,7 +216,6 @@ impl Artifacts {
     }
 
     pub async fn publish(&self, cwasm: &Path) -> BpResult<()> {
-        self.signed_post.upload(cwasm).await?;
         let root = self.build_dir.path().join(USER_GENERATED_DIR);
         let files = Self::user_generated_files(&root).await?;
         let archive = Self::source_archive(&root, &files)?;
@@ -231,6 +230,7 @@ impl Artifacts {
         self.signed_post
             .upload_named(&archive_path, Path::new(USER_GENERATED_ARCHIVE))
             .await?;
+        self.signed_post.upload(cwasm).await?;
         info!(files = files.len(), "published build artifacts");
         Ok(())
     }
