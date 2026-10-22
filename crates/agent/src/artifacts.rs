@@ -1,6 +1,6 @@
 use crate::{s3::SignedPost, source::Source};
 use buildplane_shared::errors::{BpError, BpResult};
-use buildplane_shared::errors::{ConfigError, IoError};
+use buildplane_shared::errors::{ConfigError, IoError, ValidationError};
 use std::{
     fs as std_fs,
     io::{self, Cursor, Write},
@@ -57,7 +57,8 @@ impl Artifacts {
 
     pub async fn compile(&self) -> BpResult<PathBuf> {
         self.prepare_workspace()?;
-        self.unpack_source().await?;
+        let sources = self.unpack_source().await?;
+        Self::validate_user_generated(&sources)?;
         let target_dir = self.prepare_target_dir().await?;
         let wasm = self.build_wasm(target_dir.path()).await?;
         self.compile_wasm(&wasm).await
@@ -96,9 +97,22 @@ impl Artifacts {
         Ok(())
     }
 
-    async fn unpack_source(&self) -> BpResult<()> {
+    async fn unpack_source(&self) -> BpResult<Vec<PathBuf>> {
         let source = Source::download(&self.source_get_url).await?;
         source.extract(self.build_dir.path())
+    }
+
+    fn validate_user_generated(sources: &[PathBuf]) -> BpResult<()> {
+        for path in sources {
+            stock_trek_check::verify::verify(path.display().to_string()).map_err(|error| {
+                BpError::Validation(ValidationError::InvalidValue {
+                    name: format!("user generated code {}", path.display()),
+                    value: error.to_string(),
+                })
+            })?;
+        }
+        info!(files = sources.len(), "validated user generated code");
+        Ok(())
     }
 
     async fn build_wasm(&self, target_dir: &Path) -> BpResult<PathBuf> {
@@ -451,5 +465,60 @@ mod tests {
             "algorithms/algorithm.rs"
         );
         assert_eq!(archive.by_index(1).unwrap().name().unwrap(), "mod.rs");
+    }
+
+    #[test]
+    fn validates_user_generated_algorithm_sources() {
+        let root = tempfile::tempdir().unwrap();
+        let algorithm = root.path().join("algorithm.rs");
+        std_fs::write(
+            &algorithm,
+            b"use stock_trek::prelude::Algorithm;\n\npub struct Example;\n",
+        )
+        .unwrap();
+        let modules = root.path().join("mod.rs");
+        std_fs::write(&modules, b"// module declarations\n").unwrap();
+
+        Artifacts::validate_user_generated(&[modules, algorithm]).unwrap();
+    }
+
+    #[test]
+    fn checks_mod_rs_alongside_algorithm_sources() {
+        let root = tempfile::tempdir().unwrap();
+        let algorithm = root.path().join("algorithm.rs");
+        std_fs::write(
+            &algorithm,
+            b"use stock_trek::prelude::Algorithm;\n\npub struct Example;\n",
+        )
+        .unwrap();
+        let modules = root.path().join("mod.rs");
+        std_fs::write(&modules, b"pub mod algorithm;\n").unwrap();
+
+        let error = Artifacts::validate_user_generated(&[algorithm, modules]).unwrap_err();
+
+        assert!(matches!(error, BpError::Validation(_)));
+    }
+
+    #[test]
+    fn checks_sources_without_rust_extension() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("algorithm.txt");
+        std_fs::write(&source, b"use std::fs;\n\npub struct Example;\n").unwrap();
+
+        let error = Artifacts::validate_user_generated(&[source]).unwrap_err();
+
+        assert!(matches!(error, BpError::Validation(_)));
+    }
+
+    #[test]
+    fn rejects_user_generated_sources_with_blocked_syntax() {
+        let root = tempfile::tempdir().unwrap();
+        let algorithm = root.path().join("algorithm.rs");
+        std_fs::write(&algorithm, b"use std::fs;\n\npub struct Example;\n").unwrap();
+
+        let error = Artifacts::validate_user_generated(&[algorithm]).unwrap_err();
+
+        assert!(matches!(error, BpError::Validation(_)));
+        assert!(error.to_string().contains("user generated code"));
     }
 }

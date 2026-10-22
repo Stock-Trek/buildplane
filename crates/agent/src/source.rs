@@ -50,7 +50,7 @@ impl Source {
         })
     }
 
-    pub fn extract(&self, destination: &Path) -> BpResult<()> {
+    pub fn extract(&self, destination: &Path) -> BpResult<Vec<PathBuf>> {
         let mut archive = ZipArchive::new(Cursor::new(&self.bytes))
             .map_err(|error| BpError::Io(IoError::Zip(error)))?;
 
@@ -68,6 +68,7 @@ impl Source {
             entries.push(Self::entry_path(&name)?);
         }
 
+        let mut files = Vec::new();
         for (index, relative) in entries.into_iter().enumerate() {
             let mut entry = archive
                 .by_index(index)
@@ -101,6 +102,7 @@ impl Source {
             output.flush().map_err(|source| {
                 BpError::io("write source file", path.display().to_string(), source)
             })?;
+            files.push(path);
         }
 
         info!(
@@ -108,7 +110,7 @@ impl Source {
             entries = entry_count,
             "unpacked user source archive"
         );
-        Ok(())
+        Ok(files)
     }
 
     fn entry_path(name: &str) -> BpResult<PathBuf> {
