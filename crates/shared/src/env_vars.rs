@@ -104,16 +104,6 @@ impl EnvVarConfig {
         self.optional(RUST_LOG)
     }
 
-    /// Read an environment variable by name without applying any parsing.
-    ///
-    /// This is for values whose names are only known at runtime, such as the
-    /// per-exchange URL overrides. Missing and empty values are reported as
-    /// [`VarError::NotPresent`].
-    pub fn required(&self, name: &str) -> BpResult<String> {
-        self.optional(name)?
-            .ok_or_else(|| BpError::Config(ConfigError::EnvVar(VarError::NotPresent)))
-    }
-
     pub fn backfill_start(&self) -> BpResult<Option<DateTime<Utc>>> {
         let Some(value) = self.optional(BACKFILL_START)? else {
             return Ok(None);
@@ -375,6 +365,16 @@ impl EnvVarConfig {
             }
         }
         Ok(None)
+    }
+
+    /// Read an environment variable by name without applying any parsing.
+    ///
+    /// This is for values whose names are only known at runtime, such as the
+    /// per-exchange URL overrides. Missing and empty values are reported as
+    /// [`VarError::NotPresent`].
+    pub fn required(&self, name: &str) -> BpResult<String> {
+        self.optional(name)?
+            .ok_or_else(|| BpError::Config(ConfigError::EnvVar(VarError::NotPresent)))
     }
 
     fn optional(&self, name: &str) -> BpResult<Option<String>> {
