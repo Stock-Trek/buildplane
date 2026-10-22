@@ -7,25 +7,38 @@ use buildplane_shared::errors::DataError;
 use buildplane_shared::errors::{BpError, BpResult};
 use chrono::{DateTime, Utc};
 use std::{
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio::time::{Instant, sleep};
+use tokio::{
+    task::JoinHandle,
+    time::{Instant, MissedTickBehavior, interval, sleep},
+};
 use tracing::{info, warn};
 
 use crate::s3::{Bucket, ObjectKey, S3};
 
 const STALE_AFTER: Duration = Duration::from_secs(16 * 60);
+const RENEW_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(60);
 const RETRY_INTERVAL: Duration = Duration::from_secs(5);
 static NEXT_LOCK_TOKEN: AtomicU64 = AtomicU64::new(0);
+
+struct LockState {
+    e_tag: String,
+    released: bool,
+    lost: bool,
+}
 
 pub struct LockGuard {
     s3_client: S3Client,
     bucket: Bucket,
     key: ObjectKey,
-    e_tag: String,
-    released: bool,
+    state: Arc<Mutex<LockState>>,
+    heartbeat: Option<JoinHandle<()>>,
 }
 
 impl LockGuard {
@@ -75,13 +88,97 @@ impl LockGuard {
             }));
         };
         info!("acquired lock {} ({})", key, e_tag);
+        let state = Arc::new(Mutex::new(LockState {
+            e_tag,
+            released: false,
+            lost: false,
+        }));
+        let heartbeat = Self::spawn_heartbeat(
+            s3_client.clone(),
+            bucket.clone(),
+            key.clone(),
+            Arc::clone(&state),
+        );
         Ok(Some(Self {
             s3_client: s3_client.clone(),
             bucket: bucket.clone(),
             key: key.clone(),
-            e_tag,
-            released: false,
+            state,
+            heartbeat: Some(heartbeat),
         }))
+    }
+
+    fn spawn_heartbeat(
+        s3_client: S3Client,
+        bucket: Bucket,
+        key: ObjectKey,
+        state: Arc<Mutex<LockState>>,
+    ) -> JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut ticker = interval(RENEW_INTERVAL);
+            ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                let e_tag = {
+                    let state = state
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    if state.released || state.lost {
+                        break;
+                    }
+                    state.e_tag.clone()
+                };
+                match Self::renew(&s3_client, &bucket, &key, &e_tag).await {
+                    Ok(Some(e_tag)) => {
+                        let mut state = state
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        state.e_tag = e_tag;
+                    }
+                    Ok(None) => {
+                        let mut state = state
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        if !state.released {
+                            state.lost = true;
+                            warn!("lock {} was taken over before it could be renewed", key);
+                        }
+                        break;
+                    }
+                    Err(error) => warn!("failed to renew lock {}: {error}", key),
+                }
+            }
+        })
+    }
+
+    async fn renew(
+        s3_client: &S3Client,
+        bucket: &Bucket,
+        key: &ObjectKey,
+        e_tag: &str,
+    ) -> BpResult<Option<String>> {
+        let target = S3::object_target(bucket, key);
+        let token = Self::new_lock_token();
+        let output = match s3_client
+            .put_object()
+            .bucket(bucket.as_str())
+            .key(key.as_str())
+            .if_match(e_tag)
+            .body(ByteStream::from(token.into_bytes()))
+            .send()
+            .await
+        {
+            Ok(output) => output,
+            Err(error) if Self::is_precondition_failed(&error) => return Ok(None),
+            Err(error) => return Err(BpError::s3("renew lock", target, error)),
+        };
+        match Self::resolve_e_tag(s3_client, bucket, key, output.e_tag()).await? {
+            Some(e_tag) => Ok(Some(e_tag)),
+            None => Err(BpError::Data(DataError::MissingLockETag {
+                key: key.as_str().to_string(),
+            })),
+        }
     }
 
     async fn resolve_e_tag(
@@ -243,12 +340,40 @@ impl LockGuard {
     }
 
     pub async fn release(&mut self) -> BpResult<()> {
-        if self.released {
+        self.stop_heartbeat().await;
+        let (released, lost, e_tag) = {
+            let state = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            (state.released, state.lost, state.e_tag.clone())
+        };
+        if released {
             return Ok(());
         }
-        let result = Self::delete_lock(&self.s3_client, &self.bucket, &self.key, &self.e_tag).await;
-        self.released = result.is_ok();
+        if lost {
+            self.state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .released = true;
+            warn!("lock {} was taken over and cannot be released", self.key);
+            return Ok(());
+        }
+        let result = Self::delete_lock(&self.s3_client, &self.bucket, &self.key, &e_tag).await;
+        if result.is_ok() {
+            self.state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .released = true;
+        }
         result
+    }
+
+    async fn stop_heartbeat(&mut self) {
+        if let Some(heartbeat) = self.heartbeat.take() {
+            heartbeat.abort();
+            let _ = heartbeat.await;
+        }
     }
 
     async fn delete_lock(
@@ -304,17 +429,43 @@ impl LockGuard {
 
 impl Drop for LockGuard {
     fn drop(&mut self) {
-        if self.released {
+        let lost = {
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if state.released || state.lost {
+                return;
+            }
+            state.released = true;
+            state.lost
+        };
+        if lost {
             return;
         }
-        self.released = true;
         let s3_client = self.s3_client.clone();
         let bucket = self.bucket.clone();
         let key = self.key.clone();
-        let e_tag = self.e_tag.clone();
+        let state = Arc::clone(&self.state);
+        let heartbeat = self.heartbeat.take();
+        if let Some(heartbeat) = heartbeat.as_ref() {
+            heartbeat.abort();
+        }
         match tokio::runtime::Handle::try_current() {
             Ok(handle) => {
                 drop(handle.spawn(async move {
+                    if let Some(heartbeat) = heartbeat {
+                        let _ = heartbeat.await;
+                    }
+                    let (lost, e_tag) = {
+                        let state = state
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        (state.lost, state.e_tag.clone())
+                    };
+                    if lost {
+                        return;
+                    }
                     if let Err(error) =
                         LockGuard::delete_lock(&s3_client, &bucket, &key, &e_tag).await
                     {
