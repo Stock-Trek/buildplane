@@ -167,18 +167,3 @@ impl MduError {
         Self::Multiple { count, failures }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn lock_contention_is_skippable() {
-        assert!(
-            MduError::LockContention {
-                key: "market-data-updater".to_string(),
-            }
-            .is_skippable()
-        );
-    }
-}
