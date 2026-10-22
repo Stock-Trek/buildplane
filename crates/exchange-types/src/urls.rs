@@ -3,7 +3,6 @@ use buildplane_shared::errors::{BpError, BpResult};
 use buildplane_shared::errors::{ConfigError, ExchangeError};
 pub use buildplane_shared::protocol::Protocol;
 use serde::{Deserialize, Serialize};
-use std::env::VarError;
 use strum::Display;
 
 pub trait Urls {
@@ -34,22 +33,12 @@ pub trait Urls {
         let value = config
             .required(&env_var_name)
             .or_else(|error| match error {
-                BpError::Config(ConfigError::EnvVar(VarError::NotPresent)) => {
-                    Ok(default.to_owned())
-                }
-                error => {
-                    let value = match &error {
-                        BpError::Config(ConfigError::EnvVar(VarError::NotUnicode(value))) => {
-                            value.to_string_lossy().into_owned()
-                        }
-                        _ => default.to_owned(),
-                    };
-                    Err(BpError::Exchange(ExchangeError::BadValue {
-                        name: env_var_name.clone(),
-                        value,
-                        reason: error.to_string(),
-                    }))
-                }
+                BpError::Config(ConfigError::Missing { .. }) => Ok(default.to_owned()),
+                error => Err(BpError::Exchange(ExchangeError::BadValue {
+                    name: env_var_name.clone(),
+                    value: default.to_owned(),
+                    reason: error.to_string(),
+                })),
             })?;
         protocol.validate_url(&env_var_name, &value)?;
         Ok(value)

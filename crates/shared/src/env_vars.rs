@@ -1,4 +1,3 @@
-use crate::errors::ConfigError;
 use crate::{
     errors::{BpError, BpResult},
     git_ops::github::installation::DirectoryLimits,
@@ -6,7 +5,6 @@ use crate::{
 use chrono::{DateTime, NaiveDate, Utc};
 use std::{
     collections::HashMap,
-    env::VarError,
     ffi::{OsStr, OsString},
     num::{NonZeroU64, NonZeroUsize},
     time::Duration,
@@ -347,10 +345,10 @@ impl EnvVarConfig {
     ///
     /// This is for values whose names are only known at runtime, such as the
     /// per-exchange URL overrides. Missing and empty values are reported as
-    /// [`VarError::NotPresent`].
+    /// [`ConfigError::Missing`](crate::errors::ConfigError::Missing).
     pub fn required(&self, name: &str) -> BpResult<String> {
-        self.optional(name)?
-            .ok_or_else(|| BpError::Config(ConfigError::EnvVar(VarError::NotPresent)))
+        self.optional(name)
+            .and_then(|value| value.ok_or_else(|| BpError::config_missing(name)))
     }
 
     fn optional(&self, name: &str) -> BpResult<Option<String>> {
@@ -359,11 +357,11 @@ impl EnvVarConfig {
 
     fn raw(&self, name: &str) -> BpResult<Option<String>> {
         match self.vars.get(OsStr::new(name)) {
-            Some(value) => {
-                value.clone().into_string().map(Some).map_err(|value| {
-                    BpError::Config(ConfigError::EnvVar(VarError::NotUnicode(value)))
-                })
-            }
+            Some(value) => value
+                .clone()
+                .into_string()
+                .map(Some)
+                .map_err(|_| BpError::config_not_unicode(name)),
             None => Ok(None),
         }
     }
@@ -381,9 +379,10 @@ impl EnvVarConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::errors::ConfigError;
 
     #[test]
-    fn required_reports_missing_variable() {
+    fn required_reports_missing_variable_name() {
         let config = EnvVarConfig::from_map(Vec::<(String, String)>::new());
 
         let error = config
@@ -391,9 +390,15 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(
-            error,
-            BpError::Config(ConfigError::EnvVar(VarError::NotPresent))
+            &error,
+            BpError::Config(ConfigError::Missing { name })
+                if name == "BUILDPLANE_TEST_MISSING_ENV_VAR"
         ));
+        assert!(
+            error
+                .to_string()
+                .contains("BUILDPLANE_TEST_MISSING_ENV_VAR")
+        );
     }
 
     #[test]
@@ -405,9 +410,31 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(
-            error,
-            BpError::Config(ConfigError::EnvVar(VarError::NotPresent))
+            &error,
+            BpError::Config(ConfigError::Missing { name })
+                if name == "BUILDPLANE_TEST_EMPTY_ENV_VAR"
         ));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn required_reports_not_unicode_without_value() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let name = "BUILDPLANE_TEST_NOT_UNICODE_ENV_VAR";
+        let value = OsString::from_vec(b"super-secret-\xff".to_vec());
+        let config = EnvVarConfig::from_map([(OsString::from(name), value)]);
+
+        let error = config.required(name).unwrap_err();
+
+        assert!(matches!(
+            &error,
+            BpError::Config(ConfigError::NotUnicode { name: error_name })
+                if error_name == name
+        ));
+        let message = error.to_string();
+        assert!(message.contains(name));
+        assert!(!message.contains("super-secret"));
     }
 
     #[test]
