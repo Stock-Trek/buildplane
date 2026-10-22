@@ -103,21 +103,11 @@ impl Artifacts {
     }
 
     fn validate_user_generated(sources: &[PathBuf]) -> BpResult<()> {
-        let rust_sources: Vec<&Path> = sources
+        let sources: Vec<&Path> = sources
             .iter()
             .filter(|path| path.extension().is_some_and(|extension| extension == "rs"))
             .map(PathBuf::as_path)
             .collect();
-        let algorithm_sources: Vec<&Path> = rust_sources
-            .iter()
-            .copied()
-            .filter(|path| path.file_name().is_none_or(|name| name != "mod.rs"))
-            .collect();
-        let sources = if algorithm_sources.is_empty() {
-            rust_sources
-        } else {
-            algorithm_sources
-        };
 
         for path in &sources {
             stock_trek_check::verify::verify(path.display().to_string()).map_err(|error| {
@@ -493,9 +483,26 @@ mod tests {
         )
         .unwrap();
         let modules = root.path().join("mod.rs");
-        std_fs::write(&modules, b"pub mod algorithm;\n").unwrap();
+        std_fs::write(&modules, b"// module declarations\n").unwrap();
 
         Artifacts::validate_user_generated(&[modules, algorithm]).unwrap();
+    }
+
+    #[test]
+    fn checks_mod_rs_alongside_algorithm_sources() {
+        let root = tempfile::tempdir().unwrap();
+        let algorithm = root.path().join("algorithm.rs");
+        std_fs::write(
+            &algorithm,
+            b"use stock_trek::prelude::Algorithm;\n\npub struct Example;\n",
+        )
+        .unwrap();
+        let modules = root.path().join("mod.rs");
+        std_fs::write(&modules, b"pub mod algorithm;\n").unwrap();
+
+        let error = Artifacts::validate_user_generated(&[algorithm, modules]).unwrap_err();
+
+        assert!(matches!(error, BpError::Validation(_)));
     }
 
     #[test]
