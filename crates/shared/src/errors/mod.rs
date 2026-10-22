@@ -1,3 +1,4 @@
+pub mod binance;
 pub mod bp;
 pub mod config;
 pub mod connector;
@@ -16,6 +17,7 @@ pub mod system;
 pub mod timeout;
 pub mod validation;
 
+pub use binance::{BinanceError, BinanceErrorData};
 pub use bp::{BpError, BpResult};
 pub use config::ConfigError;
 pub use connector::{ConnectorError, SendFailure};

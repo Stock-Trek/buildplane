@@ -1,16 +1,12 @@
 use crate::{
-    binance::{
-        error::BinanceError,
-        rate_limits::{BinanceRateLimit, BinanceRateLimitInterval, BinanceRateLimitType},
-    },
+    binance::rate_limits::{BinanceRateLimit, BinanceRateLimitInterval, BinanceRateLimitType},
     http::HttpResponse,
     new_types::{Nanoseconds, Seconds, UsageCount},
     rate_limited::{RateLimit, RateLimitRestriction, RateUsage},
     response::{ETHttpResponse, ETResponse, ETWebsocketResponse},
     websocket_id::ETWebsocketId,
 };
-use buildplane_shared::errors::ExchangeError;
-use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_shared::errors::{BinanceError, BpError, BpResult, ExchangeError};
 use serde::{Deserialize, de::DeserializeOwned};
 use std::{collections::HashMap, fmt::Debug};
 

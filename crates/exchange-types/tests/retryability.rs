@@ -1,13 +1,14 @@
 use buildplane_exchange_types::{
     binance::{
-        error::{BinanceError, BinanceErrorData},
         klines::{BinanceKlineResponse, BinanceKlinesResponse},
         response::{BinanceMetadata, BinanceResponse, BinanceResponsePayload},
     },
     klines::KlinesResponse,
     new_types::Seconds,
 };
-use buildplane_shared::errors::{BpError, ExchangeError, Retryability};
+use buildplane_shared::errors::{
+    BinanceError, BinanceErrorData, BpError, ExchangeError, Retryability,
+};
 
 fn response(
     status: u16,
@@ -98,6 +99,14 @@ fn exchange_failure_computes_retry_after_from_error_data() {
         panic!("expected exchange response failure");
     };
     assert_eq!(retry_after, Some(Seconds(3)));
+}
+
+#[test]
+fn binance_error_can_be_wrapped_by_bp_error() {
+    let error = BpError::from(error(-1003, None));
+    assert!(matches!(error, BpError::Binance(_)));
+    assert_eq!(error.retryability(), Retryability::Retryable);
+    assert_eq!(error.error_type(), "binance");
 }
 
 #[test]

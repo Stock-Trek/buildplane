@@ -1,8 +1,9 @@
 use crate::errors::{
-    config::ConfigError, connector::ConnectorError, data::DataError, exchange::ExchangeError,
-    github::GitHubError, http::HttpError, io::IoError, lambda::LambdaError,
-    rate_limit::RateLimitError, retryability::Retryability, secrets::SecretsError, sqs::SqsError,
-    storage::StorageError, system::SystemError, timeout::TimeoutError, validation::ValidationError,
+    binance::BinanceError, config::ConfigError, connector::ConnectorError, data::DataError,
+    exchange::ExchangeError, github::GitHubError, http::HttpError, io::IoError,
+    lambda::LambdaError, rate_limit::RateLimitError, retryability::Retryability,
+    secrets::SecretsError, sqs::SqsError, storage::StorageError, system::SystemError,
+    timeout::TimeoutError, validation::ValidationError,
 };
 use lambda_runtime::Diagnostic;
 use std::{path::PathBuf, process::ExitStatus, time::Duration};
@@ -11,6 +12,8 @@ pub type BpResult<T> = Result<T, BpError>;
 
 #[derive(Debug, thiserror::Error)]
 pub enum BpError {
+    #[error(transparent)]
+    Binance(#[from] BinanceError),
     #[error(transparent)]
     Config(#[from] ConfigError),
     #[error(transparent)]
@@ -234,6 +237,7 @@ impl BpError {
 
     pub fn error_type(&self) -> &'static str {
         match self {
+            Self::Binance(error) => error.error_type(),
             Self::Config(error) => error.error_type(),
             Self::Validation(error) => error.error_type(),
             Self::Io(error) => error.error_type(),
@@ -258,6 +262,7 @@ impl BpError {
 
     pub fn retryability(&self) -> Retryability {
         match self {
+            Self::Binance(error) => error.retryability(),
             Self::Config(error) => error.retryability(),
             Self::Validation(error) => error.retryability(),
             Self::Io(error) => error.retryability(),
