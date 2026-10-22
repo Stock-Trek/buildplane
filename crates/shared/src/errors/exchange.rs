@@ -1,4 +1,8 @@
-use crate::{errors::retryability::Retryability, protocol::Protocol};
+use crate::{
+    errors::{bp::BpError, retryability::Retryability},
+    new_types::Seconds,
+    protocol::Protocol,
+};
 use std::error::Error as StdError;
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
@@ -6,6 +10,14 @@ use std::error::Error as StdError;
 pub enum ExchangeError {
     #[error("Bad response from exchange. {0}")]
     BadResponse(String),
+    #[error("Exchange response failed with status {status} and code {code}: {message}")]
+    Response {
+        code: i64,
+        message: String,
+        status: u16,
+        retry_after: Option<Seconds>,
+        retryability: Retryability,
+    },
     #[error("Exchange request failed while trying to {operation}: {source}")]
     Exchange {
         operation: &'static str,
@@ -50,7 +62,10 @@ impl ExchangeError {
 
     pub fn retryability(&self) -> Retryability {
         match self {
-            Self::Exchange { .. } => Retryability::Retryable,
+            Self::Response { retryability, .. } => *retryability,
+            Self::Exchange { source, .. } => source
+                .downcast_ref::<BpError>()
+                .map_or(Retryability::Retryable, BpError::retryability),
             _ => Retryability::Permanent,
         }
     }

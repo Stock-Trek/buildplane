@@ -162,7 +162,7 @@ where
     R: Clone + Debug + DeserializeOwned,
 {
     fn try_from_http(response: HttpResponse) -> BpResult<Self> {
-        let retry_after: Option<Seconds> = match response
+        let mut retry_after: Option<Seconds> = match response
             .headers
             .iter()
             .find(|tuple| tuple.0.eq_ignore_ascii_case("Retry-After"))
@@ -189,7 +189,12 @@ where
                     }
                 }
                 match BinanceError::deserialize(&response_value) {
-                    Ok(error) => BinanceResponsePayload::Failure(error),
+                    Ok(error) => {
+                        if retry_after.is_none() {
+                            retry_after = error.retry_after();
+                        }
+                        BinanceResponsePayload::Failure(error)
+                    }
                     Err(_) => match R::deserialize(&response_value) {
                         Ok(result) => BinanceResponsePayload::Success(result),
                         Err(error) => Self::failure_from_unexpected_body(
@@ -222,17 +227,10 @@ where
         let websocket_response: BinanceWebsocketResponse = serde_json::from_value(response)
             .map_err(|error| BpError::Exchange(ExchangeError::DeserializeResponse(error)))?;
         let usage = Self::parse_usage(&websocket_response.rateLimits);
-        let retry_after = websocket_response.error.as_ref().and_then(|error| {
-            let data = error.data.as_ref()?;
-            // In WebSocket API 429/418 errors `retryAfter` is the absolute
-            // epoch-ms timestamp at which the request may be retried (or the
-            // IP ban lifts), not a duration, hence `retryAfter - serverTime`
-            // produces the http semantics used for the unified error data.
-            let retry_at_ms = data.retryAfter?;
-            let now_ms = data.serverTime?;
-            let backoff_ms = retry_at_ms.saturating_sub(now_ms).max(0) as u64;
-            Some(Seconds(backoff_ms.div_ceil(1000) as i64))
-        });
+        let retry_after = websocket_response
+            .error
+            .as_ref()
+            .and_then(BinanceError::retry_after);
         let metadata = BinanceMetadata {
             usage,
             retry_after,

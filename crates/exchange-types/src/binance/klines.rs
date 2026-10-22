@@ -108,9 +108,12 @@ impl KlinesWebsocketRequest<BinanceResponse<BinanceKlinesResponse>> for BinanceK
 impl KlinesResponse for BinanceResponse<BinanceKlinesResponse> {
     fn klines(&self) -> BpResult<Vec<Kline>> {
         match &self.payload {
-            BinanceResponsePayload::Failure(_) => Err(BpError::Exchange(
-                ExchangeError::BadResponse("Failure in klines response".into()),
-            )),
+            BinanceResponsePayload::Failure(error) => {
+                let retry_after = self.metadata.retry_after.or_else(|| error.retry_after());
+                Err(BpError::Exchange(
+                    error.exchange_error(self.metadata.status, retry_after),
+                ))
+            }
             BinanceResponsePayload::Success(payload) => {
                 let mut result = Vec::new();
                 for binance_kline in payload {

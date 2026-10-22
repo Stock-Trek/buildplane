@@ -22,6 +22,7 @@ pub trait KlinesResponse {
     fn klines(&self) -> BpResult<Vec<Kline>>;
 }
 
+#[derive(Debug, Clone)]
 pub struct Kline {
     pub open_time: Milliseconds,
     pub close_time: Milliseconds,

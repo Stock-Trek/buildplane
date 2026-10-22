@@ -32,6 +32,21 @@ impl Retryability {
         }
     }
 
+    pub fn from_binance_code(code: i64) -> Retryability {
+        match code {
+            -1001 | -1003 | -1006 | -1007 | -1015 | -1016 | -1021 => Retryability::Retryable,
+            _ => Retryability::Permanent,
+        }
+    }
+
+    pub fn from_binance_code_and_status(code: i64, status: u16) -> Retryability {
+        match code {
+            -1 => Self::from_http_status(status),
+            code if (100..=599).contains(&code) => Self::from_http_status(code as u16),
+            code => Self::from_binance_code(code),
+        }
+    }
+
     pub fn from_credentials(error: &CredentialsError) -> Retryability {
         match error {
             CredentialsError::ProviderTimedOut(_) | CredentialsError::ProviderError(_) => {
