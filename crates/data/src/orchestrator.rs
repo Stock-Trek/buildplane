@@ -31,7 +31,14 @@ impl Orchestrator {
         let (s3_client, transfer_client) = S3::clients().await;
         let bucket = &env_config.s3_bucket;
         let lock_key = ObjectKey::new(LOCK_KEY);
-        let mut lock = LockGuard::acquire(&s3_client, bucket, &lock_key).await?;
+        let mut lock = match LockGuard::acquire(&s3_client, bucket, &lock_key).await {
+            Ok(lock) => lock,
+            Err(error) if matches!(job, Job::Update) && error.is_skippable() => {
+                warn!("skipping update because another invocation holds the lock: {error}");
+                return Ok(JobOutcome::default());
+            }
+            Err(error) => return Err(error),
+        };
         let result = Self::process_job(
             &s3_client,
             &transfer_client,
