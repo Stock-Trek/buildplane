@@ -1,7 +1,5 @@
-use crate::{
-    env_var_config::EnvVarConfig, handler::Handler, request::BuildRequest,
-    tracing_setup::TracingSetup,
-};
+use crate::{env_var_config::EnvVarConfig, handler::Handler, tracing_setup::TracingSetup};
+use buildplane_shared::build_request::BuildRequest;
 use buildplane_shared::errors::BpResult;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use serde_json::{Value, json};
@@ -9,7 +7,6 @@ use serde_json::{Value, json};
 mod artifacts;
 mod env_var_config;
 mod handler;
-mod request;
 mod s3;
 mod source;
 mod tracing_setup;

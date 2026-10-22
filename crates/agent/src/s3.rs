@@ -2,16 +2,17 @@
 //!
 //! The orchestrator sends a short-lived pre-signed POST in the build request
 //! so the agent can write its artifacts without any long-lived AWS credentials.
-//! The url and form fields are the `SIGNED_POST_URL` and `SIGNED_POST_FIELDS`
-//! properties of the Lambda invocation payload. `SIGNED_POST_FIELDS` is a JSON
-//! object holding the policy fields that must be sent alongside the file (for
-//! example `key`, `policy`, `x-amz-signature`, ...).
+//! The url and form fields are the `signed_post.url` and `signed_post.fields`
+//! properties of the Lambda invocation payload. The fields hold the policy
+//! values that must be sent alongside the file (for example `key`, `policy`,
+//! `x-amz-signature`, ...).
 //!
 //! A single pre-signed POST can upload more than one artifact when the `key`
 //! field contains the `${filename}` variable, which S3 replaces with the name
 //! of the uploaded file.
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use buildplane_shared::build_request::BuildRequestSignedPost;
 use buildplane_shared::errors::ConfigError;
 use buildplane_shared::errors::{BpError, BpResult, StorageError};
 use std::{
@@ -43,15 +44,26 @@ pub struct SignedPost {
 }
 
 impl SignedPost {
+    pub fn from_build_request(
+        payload: &BuildRequestSignedPost,
+        timeout: Duration,
+    ) -> BpResult<Self> {
+        let signed_post = Self::new(payload.url.clone(), payload.fields.clone(), timeout)?;
+        Ok(match payload.max_artifact_size_bytes {
+            Some(max_bytes) => signed_post.with_max_artifact_size(max_bytes),
+            None => signed_post,
+        })
+    }
+
     pub fn new(url: String, fields: BTreeMap<String, String>, timeout: Duration) -> BpResult<Self> {
         let key = fields.get(KEY_FIELD).ok_or_else(|| {
             BpError::Config(ConfigError::Build(format!(
-                "SIGNED_POST_FIELDS must include a {KEY_FIELD} field containing {FILENAME_VARIABLE}"
+                "signed_post.fields must include a {KEY_FIELD} field containing {FILENAME_VARIABLE}"
             )))
         })?;
         if !key.contains(FILENAME_VARIABLE) {
             return Err(BpError::Config(ConfigError::Build(format!(
-                "SIGNED_POST_FIELDS.{KEY_FIELD} must contain {FILENAME_VARIABLE} so artifacts do not overwrite each other"
+                "signed_post.fields.{KEY_FIELD} must contain {FILENAME_VARIABLE} so artifacts do not overwrite each other"
             ))));
         }
 
