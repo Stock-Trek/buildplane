@@ -23,7 +23,7 @@ pub trait Urls {
         let default = self.default(protocol, trading_mode);
         let value =
             EnvVarConfig::from_env()
-                .env_var(&env_var_name)
+                .required(&env_var_name)
                 .or_else(|error| match error {
                     BpError::Config(ConfigError::EnvVar(VarError::NotPresent)) => {
                         Ok(default.to_owned())

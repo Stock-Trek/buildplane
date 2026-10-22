@@ -107,12 +107,10 @@ impl EnvVarConfig {
     /// Read an environment variable by name without applying any parsing.
     ///
     /// This is for values whose names are only known at runtime, such as the
-    /// per-exchange URL overrides. A missing variable is reported as
-    /// [`VarError::NotPresent`], while an empty value is returned as-is so
-    /// callers can decide whether it is valid; typed accessors treat empty
-    /// values as absent.
-    pub fn env_var(&self, name: &str) -> BpResult<String> {
-        self.raw(name)?
+    /// per-exchange URL overrides. Missing and empty values are reported as
+    /// [`VarError::NotPresent`].
+    pub fn required(&self, name: &str) -> BpResult<String> {
+        self.optional(name)?
             .ok_or_else(|| BpError::Config(ConfigError::EnvVar(VarError::NotPresent)))
     }
 
@@ -379,20 +377,8 @@ impl EnvVarConfig {
         Ok(None)
     }
 
-    fn required(&self, name: &str) -> BpResult<String> {
-        match self.raw(name)? {
-            Some(value) if value.is_empty() => Err(BpError::config_empty(name)),
-            Some(value) => Ok(value),
-            None => Err(BpError::config_missing(name)),
-        }
-    }
-
     fn optional(&self, name: &str) -> BpResult<Option<String>> {
-        match self.env_var(name) {
-            Ok(value) => Ok(Some(value).filter(|value| !value.is_empty())),
-            Err(BpError::Config(ConfigError::EnvVar(VarError::NotPresent))) => Ok(None),
-            Err(error) => Err(error),
-        }
+        Ok(self.raw(name)?.filter(|value| !value.is_empty()))
     }
 
     fn raw(&self, name: &str) -> BpResult<Option<String>> {
@@ -421,11 +407,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn env_var_reports_missing_variable() {
+    fn required_reports_missing_variable() {
         let config = EnvVarConfig::from_map(Vec::<(String, String)>::new());
 
         let error = config
-            .env_var("BUILDPLANE_TEST_MISSING_ENV_VAR")
+            .required("BUILDPLANE_TEST_MISSING_ENV_VAR")
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            BpError::Config(ConfigError::EnvVar(VarError::NotPresent))
+        ));
+    }
+
+    #[test]
+    fn required_treats_empty_variable_as_missing() {
+        let config = EnvVarConfig::from_map([("BUILDPLANE_TEST_EMPTY_ENV_VAR", "")]);
+
+        let error = config
+            .required("BUILDPLANE_TEST_EMPTY_ENV_VAR")
             .unwrap_err();
 
         assert!(matches!(
