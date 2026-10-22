@@ -4,18 +4,18 @@ use std::error::Error as StdError;
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum SystemError {
-    #[error("failed to install tracing subscriber")]
-    Tracing(#[from] tracing::subscriber::SetGlobalDefaultError),
+    #[error(transparent)]
+    External(#[from] Box<dyn StdError + Send + Sync + 'static>),
     #[error("Poisoned Lock")]
     PoisonedLock,
+    #[error("Concurrency semaphore was closed while waiting for a permit")]
+    SemaphoreClosed,
     #[error("System Time was before epoch")]
     SystemTimeBeforeEpoch,
     #[error("Background task failed: {0}")]
     Task(#[from] tokio::task::JoinError),
-    #[error("Concurrency semaphore was closed while waiting for a permit")]
-    SemaphoreClosed,
-    #[error(transparent)]
-    External(#[from] Box<dyn StdError + Send + Sync + 'static>),
+    #[error("failed to install tracing subscriber")]
+    Tracing(#[from] tracing::subscriber::SetGlobalDefaultError),
 }
 
 impl SystemError {

@@ -8,35 +8,13 @@ use std::error::Error as StdError;
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum ExchangeError {
-    #[error("Bad response from exchange. {0}")]
-    BadResponse(String),
-    #[error("Exchange response failed with status {status} and code {code}: {message}")]
-    Response {
-        code: i64,
-        message: String,
-        status: u16,
-        retry_after: Option<Seconds>,
-        retryability: Retryability,
-    },
-    #[error("Exchange request failed while trying to {operation}: {source}")]
-    Exchange {
-        operation: &'static str,
-        #[source]
-        source: Box<dyn StdError + Send + Sync>,
-    },
-    #[error("Unsupported exchange: {exchange}")]
-    UnsupportedExchange { exchange: String },
-    #[error("Unsupported trading mode: {trading_mode}")]
-    UnsupportedTradingMode { trading_mode: String },
-    #[error("Cannot find a symbol for trading pair {trading_pair}")]
-    MissingSymbol { trading_pair: String },
-    #[error("Unknown {exchange} submission outcome while fetching klines")]
-    UnknownSubmissionOutcome { exchange: &'static str },
     #[error("Cannot send request {request_type} on protocol {protocol}")]
     BadProtocol {
         request_type: String,
         protocol: Protocol,
     },
+    #[error("Bad response from exchange. {0}")]
+    BadResponse(String),
     #[error("Cannot use {name}={value}. {reason}")]
     BadValue {
         name: String,
@@ -47,12 +25,34 @@ pub enum ExchangeError {
     CryptoKey(String),
     #[error("Deserialize response error: {0}")]
     DeserializeResponse(serde_json::Error),
+    #[error("Exchange request failed while trying to {operation}: {source}")]
+    Exchange {
+        operation: &'static str,
+        #[source]
+        source: Box<dyn StdError + Send + Sync>,
+    },
+    #[error("Cannot find a symbol for trading pair {trading_pair}")]
+    MissingSymbol { trading_pair: String },
     #[error("Parsing error: {0}")]
     ParseError(String),
+    #[error("Exchange response failed with status {status} and code {code}: {message}")]
+    Response {
+        code: i64,
+        message: String,
+        status: u16,
+        retry_after: Option<Seconds>,
+        retryability: Retryability,
+    },
     #[error("Serialize request error: {0}")]
     SerializeRequest(serde_json::Error),
+    #[error("Unknown {exchange} submission outcome while fetching klines")]
+    UnknownSubmissionOutcome { exchange: &'static str },
     #[error("Value for {0} deserialized as Unknown")]
     UnknownValue(String),
+    #[error("Unsupported exchange: {exchange}")]
+    UnsupportedExchange { exchange: String },
+    #[error("Unsupported trading mode: {trading_mode}")]
+    UnsupportedTradingMode { trading_mode: String },
 }
 
 impl ExchangeError {

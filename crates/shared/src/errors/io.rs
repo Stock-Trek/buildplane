@@ -6,8 +6,12 @@ use std::{error::Error as StdError, path::PathBuf, process::ExitStatus};
 pub enum IoError {
     #[error("Arrow error: {0}")]
     Arrow(#[from] arrow_schema::ArrowError),
-    #[error("Parquet error: {0}")]
-    Parquet(#[from] parquet::errors::ParquetError),
+    #[error("{operation} failed for {path} with {status}")]
+    CommandFailed {
+        operation: &'static str,
+        path: PathBuf,
+        status: ExitStatus,
+    },
     #[error("I/O error while {operation} at {path}: {source}")]
     Io {
         operation: &'static str,
@@ -17,14 +21,10 @@ pub enum IoError {
     },
     #[error("I/O error: {0}")]
     IoError(#[from] std::io::Error),
+    #[error("Parquet error: {0}")]
+    Parquet(#[from] parquet::errors::ParquetError),
     #[error("Zip error: {0}")]
     Zip(#[from] zip::result::ZipError),
-    #[error("{operation} failed for {path} with {status}")]
-    CommandFailed {
-        operation: &'static str,
-        path: PathBuf,
-        status: ExitStatus,
-    },
 }
 
 impl IoError {

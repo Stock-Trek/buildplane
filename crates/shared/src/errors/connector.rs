@@ -31,11 +31,6 @@ pub enum ConnectorError {
         #[source]
         source: Box<BpError>,
     },
-    #[error("Failed to parse websocket response: {source}")]
-    WebsocketParseError {
-        #[source]
-        source: Box<BpError>,
-    },
     #[error("Clock sync frequency must be at least 1 minute")]
     InvalidSyncFrequency,
     #[error("Server time response did not contain a server time")]
@@ -50,6 +45,11 @@ pub enum ConnectorError {
     },
     #[error("Connector was not initialised with a websocket listener")]
     WebsocketListenerMissing,
+    #[error("Failed to parse websocket response: {source}")]
+    WebsocketParseError {
+        #[source]
+        source: Box<BpError>,
+    },
 }
 
 impl ConnectorError {

@@ -6,10 +6,10 @@ use std::time::Duration;
 pub enum TimeoutError {
     #[error("build timed out after {0:?}")]
     BuildTimeout(Duration),
-    #[error("{operation} timed out")]
-    Operation { operation: &'static str },
     #[error("deadline reached before operation could start")]
     DeadlineExceeded,
+    #[error("{operation} timed out")]
+    Operation { operation: &'static str },
     #[error("Request timed out waiting for a response")]
     TimedOut,
 }
