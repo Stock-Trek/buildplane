@@ -29,6 +29,8 @@ pub struct BuildRequest {
     pub commit_hash: Option<String>,
     #[serde(rename = "SIGNED_GET_URL")]
     pub signed_get_url: String,
+    #[serde(rename = "MAX_ARTIFACT_SIZE_BYTES", default)]
+    pub max_artifact_size_bytes: Option<u64>,
     #[serde(rename = "SIGNED_POST_URL")]
     pub signed_post_url: String,
     #[serde(rename = "SIGNED_POST_FIELDS")]
@@ -37,11 +39,12 @@ pub struct BuildRequest {
 
 impl BuildRequest {
     pub fn signed_post(&self, timeout: Duration) -> BpResult<SignedPost> {
-        SignedPost::new(
-            self.signed_post_url.clone(),
-            Self::parse_signed_post_fields(&self.signed_post_fields)?,
-            timeout,
-        )
+        let fields = Self::parse_signed_post_fields(&self.signed_post_fields)?;
+        let signed_post = SignedPost::new(self.signed_post_url.clone(), fields, timeout)?;
+        Ok(match self.max_artifact_size_bytes {
+            Some(max_bytes) => signed_post.with_max_artifact_size(max_bytes),
+            None => signed_post,
+        })
     }
 
     fn parse_signed_post_fields(json: &str) -> BpResult<BTreeMap<String, String>> {
@@ -105,6 +108,7 @@ mod tests {
         assert_eq!(request.commit_hash.as_deref(), Some("0123456789abcdef"));
         assert_eq!(request.signed_get_url, "https://example.com/source.zip");
         assert_eq!(request.signed_post_url, "https://example.com/upload");
+        assert_eq!(request.max_artifact_size_bytes, None);
     }
 
     #[test]

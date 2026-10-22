@@ -34,6 +34,14 @@ pub enum StorageError {
         size: usize,
         max_bytes: u64,
     },
+    #[error(
+        "artifact {artifact:?} is {size} bytes, exceeding the maximum artifact size of {max_bytes} bytes"
+    )]
+    ArtifactTooLarge {
+        artifact: String,
+        size: usize,
+        max_bytes: u64,
+    },
 }
 
 impl StorageError {
@@ -53,7 +61,8 @@ impl StorageError {
             | Self::InvalidEndpoint { .. }
             | Self::InvalidEndpointHost { .. }
             | Self::MissingCredentials
-            | Self::ObjectTooLarge { .. } => Retryability::Permanent,
+            | Self::ObjectTooLarge { .. }
+            | Self::ArtifactTooLarge { .. } => Retryability::Permanent,
             Self::Credentials(error) => Retryability::from_credentials(error),
         }
     }
