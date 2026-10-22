@@ -983,7 +983,7 @@ dependencies = [
 
 [[package]]
 name = "buildplane-agent"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "buildplane-shared",
@@ -1002,7 +1002,7 @@ dependencies = [
 
 [[package]]
 name = "buildplane-data"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "arrow-array",
  "arrow-schema",
@@ -1028,7 +1028,7 @@ dependencies = [
 
 [[package]]
 name = "buildplane-exchange-gateway"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "buildplane-exchange-types",
@@ -1047,7 +1047,7 @@ dependencies = [
 
 [[package]]
 name = "buildplane-exchange-types"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "bs58",
  "buildplane-shared",
@@ -1072,11 +1072,11 @@ dependencies = [
 
 [[package]]
 name = "buildplane-exit-codes"
-version = "0.1.1"
+version = "0.2.0"
 
 [[package]]
 name = "buildplane-orchestrator"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "aws-config",
  "aws-credential-types",
@@ -1104,7 +1104,7 @@ dependencies = [
 
 [[package]]
 name = "buildplane-proto-gen"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "prost-build",
  "protoc-bin-vendored",
@@ -1112,7 +1112,7 @@ dependencies = [
 
 [[package]]
 name = "buildplane-runner"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "buildplane-exit-codes",
  "prost",
@@ -1124,7 +1124,7 @@ dependencies = [
 
 [[package]]
 name = "buildplane-shared"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "arrow-schema",
  "aws-config",
@@ -1157,7 +1157,7 @@ dependencies = [
 
 [[package]]
 name = "buildplane-type-bridge"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "bimap",
  "buildplane-exchange-types",
@@ -1171,7 +1171,7 @@ dependencies = [
 
 [[package]]
 name = "buildplane-webhook"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "aws-config",
  "aws-credential-types",
@@ -4530,9 +4530,9 @@ dependencies = [
 
 [[package]]
 name = "stock-trek-check"
-version = "0.1.3"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5194bfa95b2e595949b027bfbdaa3c58fe85dea7321ac7aeb435d7ad15a4128a"
+checksum = "932365fbbaf2a726d52f4e4fe6a53a4a92901c4bcea117a5f607a9c1cd0ac04d"
 dependencies = [
  "hashbrown 0.17.1",
  "larpa",
