@@ -12,7 +12,6 @@ use crate::{
     signer::Signer,
     websocket_id::ETWebsocketId,
 };
-use buildplane_shared::errors::ExchangeError;
 use buildplane_shared::errors::{BpError, BpResult};
 use query_params::QueryParams;
 use serde::{Deserialize, Serialize};
@@ -39,9 +38,12 @@ impl ServerTimeWebsocketRequest<BinanceResponse<BinanceTimeResponse>> for Binanc
 impl ServerTimeResponse for BinanceResponse<BinanceTimeResponse> {
     fn server_time(&self) -> BpResult<Milliseconds> {
         match &self.payload {
-            BinanceResponsePayload::Failure(_) => Err(BpError::Exchange(
-                ExchangeError::BadResponse("Failure in server time".into()),
-            )),
+            BinanceResponsePayload::Failure(error) => {
+                let retry_after = self.metadata.retry_after.or_else(|| error.retry_after());
+                Err(BpError::Exchange(
+                    error.exchange_error(self.metadata.status, retry_after),
+                ))
+            }
             BinanceResponsePayload::Success(payload) => Ok(Milliseconds(payload.serverTime)),
         }
     }

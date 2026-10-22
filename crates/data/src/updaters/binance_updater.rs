@@ -62,9 +62,7 @@ impl ExchangeUpdater for BinanceUpdater {
             .await
             .map_err(|error| BpError::exchange("await Binance klines response", error))?
         {
-            SubmissionOutcome::Submitted(response) => response
-                .klines()
-                .map_err(|error| BpError::exchange("decode Binance klines response", error)),
+            SubmissionOutcome::Submitted(response) => response.klines(),
             SubmissionOutcome::Unknown { .. } => {
                 Err(BpError::Exchange(ExchangeError::UnknownSubmissionOutcome {
                     exchange: "Binance",
