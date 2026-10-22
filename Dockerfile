@@ -25,11 +25,13 @@ RUN case "${TARGETARCH}" in \
  && tar -xf "wasmtime-v43.0.1-${wasmtime_arch}-linux.tar.xz" \
  && mv "wasmtime-v43.0.1-${wasmtime_arch}-linux/wasmtime" /usr/local/bin/ \
  && rm -rf "wasmtime-v43.0.1-${wasmtime_arch}-linux"*
-RUN rustup default stable
-RUN rustup target add wasm32-wasip1
-
 # cargo lambda
-RUN curl -fL "https://github.com/cargo-lambda/cargo-lambda/releases/download/${CARGO_LAMBDA_VERSION}/cargo-lambda-${CARGO_LAMBDA_VERSION}.x86_64-unknown-linux-musl.tar.gz" -o /tmp/cargo-lambda.tar.gz \
+RUN case "${TARGETARCH}" in \
+      amd64) cargo_lambda_arch="x86_64-unknown-linux-musl" ;; \
+      arm64) cargo_lambda_arch="aarch64-unknown-linux-musl" ;; \
+      *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+ && curl -fL "https://github.com/cargo-lambda/cargo-lambda/releases/download/${CARGO_LAMBDA_VERSION}/cargo-lambda-${CARGO_LAMBDA_VERSION}.${cargo_lambda_arch}.tar.gz" -o /tmp/cargo-lambda.tar.gz \
  && tar -xzf /tmp/cargo-lambda.tar.gz -C /tmp \
  && mv /tmp/cargo-lambda /cargo/bin/ \
  && rm /tmp/cargo-lambda.tar.gz
@@ -55,6 +57,7 @@ COPY ./crates ./crates
 COPY ./proto ./proto
 COPY ./Cargo.lock ./Cargo.lock
 COPY ./Cargo.toml ./Cargo.toml
+COPY ./rust-toolchain.toml ./rust-toolchain.toml
 
 RUN cargo lambda build --manifest-path ./crates/agent/Cargo.toml --release
 
@@ -68,6 +71,7 @@ COPY ./crates/exit_codes ./crates/exit_codes
 COPY ./crates/runner ./crates/runner
 COPY ./Cargo.lock ./Cargo.lock
 COPY ./Cargo.toml ./Cargo.toml
+COPY ./rust-toolchain.toml ./rust-toolchain.toml
 COPY ./.cargo ./.cargo
 
 # Vendor the dependencies needed by the runner-only workspace. The agent uses
