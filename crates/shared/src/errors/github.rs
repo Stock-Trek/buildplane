@@ -23,7 +23,7 @@ pub enum GitHubError {
         path: String,
         ref_name: String,
         #[source]
-        source: Box<octocrab::Error>,
+        source: octocrab::Error,
     },
     #[error("directory {path:?} was not found in repository {repo_id} at {ref_name:?}")]
     DirectoryNotFound {
@@ -58,7 +58,7 @@ pub enum GitHubError {
         repo_id: u64,
         sha: String,
         #[source]
-        source: Box<octocrab::Error>,
+        source: octocrab::Error,
     },
     #[error("failed to get commit for {ref_name:?} in repository {repo_id}: {source}")]
     GetCommit {
@@ -72,14 +72,14 @@ pub enum GitHubError {
         repo_id: u64,
         path: String,
         #[source]
-        source: Box<octocrab::Error>,
+        source: octocrab::Error,
     },
     #[error("failed to get tree for {ref_name:?} in repository {repo_id}: {source}")]
     GetTree {
         repo_id: u64,
         ref_name: String,
         #[source]
-        source: Box<octocrab::Error>,
+        source: octocrab::Error,
     },
     #[error("failed to get repository {repo_id}: {source}")]
     GetRepository {

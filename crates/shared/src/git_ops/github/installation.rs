@@ -389,7 +389,7 @@ impl GitHubInstallation {
                 BpError::GitHub(GitHubError::GetTree {
                     repo_id,
                     ref_name: ref_name.to_owned(),
-                    source: Box::new(source),
+                    source,
                 })
             })
     }
@@ -406,7 +406,7 @@ impl GitHubInstallation {
                 BpError::GitHub(GitHubError::GetBlob {
                     repo_id,
                     sha: sha.to_owned(),
-                    source: Box::new(source),
+                    source,
                 })
             })?;
         Self::decode_content(

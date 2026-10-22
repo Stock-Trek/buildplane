@@ -68,7 +68,7 @@ impl Lambda {
                 operation: "Lambda invoke",
             })
         })?
-        .map_err(|error| Box::new(error.into_service_error()))?;
+        .map_err(|error| error.into_service_error())?;
         Ok(())
     }
 }

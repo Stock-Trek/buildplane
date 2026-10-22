@@ -346,8 +346,8 @@ impl From<Box<dyn std::error::Error + Send + Sync>> for BpError {
     }
 }
 
-impl From<Box<aws_sdk_lambda::operation::invoke::InvokeError>> for BpError {
-    fn from(error: Box<aws_sdk_lambda::operation::invoke::InvokeError>) -> Self {
+impl From<aws_sdk_lambda::operation::invoke::InvokeError> for BpError {
+    fn from(error: aws_sdk_lambda::operation::invoke::InvokeError) -> Self {
         Self::Lambda(LambdaError::from(error))
     }
 }
