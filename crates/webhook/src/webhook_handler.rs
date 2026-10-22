@@ -165,7 +165,7 @@ impl WebhookHandler {
                         .await;
                     match send_result {
                         Ok(()) => return Ok(EventResponse::Accept(messages)),
-                        Err(error) if error.any_sent(messages.len()) => {
+                        Err(error) if error.any_sent() => {
                             tracing::warn!(
                                 "SQS queued part of the delivery; accepting it and reporting the remainder: {error}"
                             );

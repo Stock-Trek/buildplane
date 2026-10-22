@@ -101,9 +101,15 @@ impl Sqs {
             SqsMetrics::record_messages_sent(messages.len());
             Ok(())
         } else {
-            SqsMetrics::record_messages_sent(messages.len() - failures.len());
-            SqsMetrics::record_messages_failed(failures.len());
-            Err(BpError::Sqs(SqsError::PartialBatch { failures }))
+            let unsent = failures.len();
+            let sent = messages.len() - unsent;
+            SqsMetrics::record_messages_sent(sent);
+            SqsMetrics::record_messages_failed(unsent);
+            Err(BpError::Sqs(SqsError::PartialBatch {
+                sent,
+                unsent,
+                failures,
+            }))
         }
     }
 

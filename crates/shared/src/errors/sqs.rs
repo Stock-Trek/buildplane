@@ -7,8 +7,15 @@ pub enum SqsError {
     MissingMessageId,
     #[error("SQS record is missing a body")]
     MissingMessageBody,
-    #[error("SQS PartialBatch failed to send {} message(s): {}", .failures.len(), Self::format_batch_failures(.failures))]
-    PartialBatch { failures: Vec<SqsBatchFailure> },
+    #[error(
+        "SQS PartialBatch sent {sent} message(s) and failed to send {unsent} message(s): {}",
+        Self::format_batch_failures(.failures)
+    )]
+    PartialBatch {
+        sent: usize,
+        unsent: usize,
+        failures: Vec<SqsBatchFailure>,
+    },
     #[error(
         "SQS message body is {size} bytes, which exceeds the maximum batch payload of {limit} bytes"
     )]
@@ -16,8 +23,8 @@ pub enum SqsError {
 }
 
 impl SqsError {
-    pub fn any_sent(&self, total: usize) -> bool {
-        matches!(self, Self::PartialBatch { failures } if failures.len() < total)
+    pub fn any_sent(&self) -> bool {
+        matches!(self, Self::PartialBatch { sent, .. } if *sent > 0)
     }
 
     pub fn error_type(&self) -> &'static str {
@@ -26,7 +33,7 @@ impl SqsError {
 
     pub fn retryability(&self) -> Retryability {
         match self {
-            Self::PartialBatch { failures }
+            Self::PartialBatch { failures, .. }
                 if !failures.is_empty() && failures.iter().all(SqsBatchFailure::is_permanent) =>
             {
                 Retryability::Permanent
