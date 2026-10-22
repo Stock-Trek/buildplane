@@ -1,4 +1,5 @@
 use crate::api_key_credential::ApiKeyCredentials;
+use buildplane_shared::errors::ExchangeError;
 use buildplane_shared::errors::{BpError, BpResult};
 use hmac::{Hmac, KeyInit, Mac};
 use p256::ecdsa::signature::Signer as SignerTrait;
@@ -52,23 +53,33 @@ impl EncryptionAlgorithm {
         match self {
             Self::Null => Ok(Encryptor::Null),
             Self::EcdsaP256 => {
-                let signing_key = p256::ecdsa::SigningKey::from_slice(secret_key_bytes)
-                    .map_err(|e| BpError::CryptoKey(format!("ECDSA P-256 key error: {e}")))?;
+                let signing_key =
+                    p256::ecdsa::SigningKey::from_slice(secret_key_bytes).map_err(|e| {
+                        BpError::Exchange(ExchangeError::CryptoKey(format!(
+                            "ECDSA P-256 key error: {e}"
+                        )))
+                    })?;
                 Ok(Encryptor::EcdsaP256(signing_key))
             }
             Self::EcdsaP384 => {
-                let signing_key = p384::ecdsa::SigningKey::from_slice(secret_key_bytes)
-                    .map_err(|e| BpError::CryptoKey(format!("ECDSA P-384 key error: {e}")))?;
+                let signing_key =
+                    p384::ecdsa::SigningKey::from_slice(secret_key_bytes).map_err(|e| {
+                        BpError::Exchange(ExchangeError::CryptoKey(format!(
+                            "ECDSA P-384 key error: {e}"
+                        )))
+                    })?;
                 Ok(Encryptor::EcdsaP384(signing_key))
             }
             Self::Ed25519 => {
                 let seed = ed25519_compact::Seed::from_slice(secret_key_bytes).map_err(|_| {
-                    BpError::CryptoKey("Ed25519 key must be exactly 32 bytes".to_string())
+                    BpError::Exchange(ExchangeError::CryptoKey(
+                        "Ed25519 key must be exactly 32 bytes".to_string(),
+                    ))
                 })?;
                 if seed.iter().all(|byte| *byte == 0) {
-                    return Err(BpError::CryptoKey(
+                    return Err(BpError::Exchange(ExchangeError::CryptoKey(
                         "Ed25519 key must not be all zeros".to_string(),
-                    ));
+                    )));
                 }
                 let signing_key = ed25519_compact::KeyPair::from_seed(seed).sk;
                 Ok(Encryptor::Ed25519(signing_key))
@@ -83,7 +94,9 @@ impl EncryptionAlgorithm {
             }
             Self::RsaSha256 => {
                 let signing_key = rsa_signing_key(api_key_credentials.secret.expose_secret())
-                    .map_err(|e| BpError::CryptoKey(format!("RSA key error: {e}")))?;
+                    .map_err(|e| {
+                        BpError::Exchange(ExchangeError::CryptoKey(format!("RSA key error: {e}")))
+                    })?;
                 Ok(Encryptor::RsaSha256(Box::new(signing_key)))
             }
         }
@@ -107,15 +120,22 @@ impl Encryptor {
                 Ok(signature.to_vec())
             }
             Self::HmacSha256(signing_slice) => {
-                let mut mac =
-                    Hmac::<sha2::Sha256>::new_from_slice(signing_slice.expose_secret())
-                        .map_err(|e| BpError::CryptoKey(format!("HMAC-SHA256 key error: {e}")))?;
+                let mut mac = Hmac::<sha2::Sha256>::new_from_slice(signing_slice.expose_secret())
+                    .map_err(|e| {
+                    BpError::Exchange(ExchangeError::CryptoKey(format!(
+                        "HMAC-SHA256 key error: {e}"
+                    )))
+                })?;
                 mac.update(bytes);
                 Ok(mac.finalize().into_bytes().to_vec())
             }
             Self::HmacSha512(signing_slice) => {
                 let mut mac = Hmac::<Sha512>::new_from_slice(signing_slice.expose_secret())
-                    .map_err(|e| BpError::CryptoKey(format!("HMAC-SHA512 key error: {e}")))?;
+                    .map_err(|e| {
+                        BpError::Exchange(ExchangeError::CryptoKey(format!(
+                            "HMAC-SHA512 key error: {e}"
+                        )))
+                    })?;
                 mac.update(bytes);
                 Ok(mac.finalize().into_bytes().to_vec())
             }

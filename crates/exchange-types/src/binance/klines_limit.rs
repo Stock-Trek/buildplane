@@ -1,3 +1,4 @@
+use buildplane_shared::errors::ExchangeError;
 use buildplane_shared::errors::{BpError, BpResult};
 use serde::Serialize;
 use std::fmt;
@@ -14,11 +15,11 @@ impl BinanceKlinesLimit {
         if Self::is_valid(klines_limit) {
             Ok(Self(klines_limit))
         } else {
-            Err(BpError::BadValue {
+            Err(BpError::Exchange(ExchangeError::BadValue {
                 name: "klines_limit".into(),
                 value: klines_limit.to_string(),
                 reason: format!("Out of bounds >={} <={}", Self::MINIMUM, Self::MAXIMUM),
-            })
+            }))
         }
     }
 

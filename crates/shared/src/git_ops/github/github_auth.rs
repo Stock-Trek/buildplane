@@ -1,3 +1,4 @@
+use crate::errors::GitHubError;
 use crate::{
     env_vars::EnvVarConfig,
     errors::{BpError, BpResult},
@@ -131,7 +132,7 @@ impl GitHubAuth {
                 .set_connect_timeout(self.timeouts.connect.into())
                 .set_read_timeout(self.timeouts.operation.into())
                 .build()
-                .map_err(BpError::GitHubBuildClient)?,
+                .map_err(|error| BpError::GitHub(GitHubError::BuildClient(error)))?,
         );
         apps.insert(host.to_owned(), Arc::clone(&app));
         Ok(app)

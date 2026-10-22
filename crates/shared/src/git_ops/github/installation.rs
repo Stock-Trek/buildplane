@@ -1,3 +1,4 @@
+use crate::errors::{GitHubError, TimeoutError};
 use crate::{
     deadline::Deadline,
     errors::{BpError, BpResult},
@@ -122,20 +123,22 @@ impl GitHost<u64, u64> for GitHubInstallation {
     }
 
     fn parse_repo_id(&self, repo_id: &str) -> BpResult<u64> {
-        repo_id
-            .parse()
-            .map_err(|error| BpError::InvalidRepositoryId {
+        repo_id.parse().map_err(|error| {
+            BpError::GitHub(GitHubError::InvalidRepositoryId {
                 repo_id: repo_id.to_owned(),
                 source: error,
             })
+        })
     }
 
     async fn repo_ids(&self, deadline: Deadline) -> BpResult<Vec<u64>> {
         let timeout = self.timeouts.operation_timeout(deadline)?;
         let repos = tokio::time::timeout(timeout, self.repos())
             .await
-            .map_err(|_| BpError::TimeoutOperation {
-                operation: "GitHub list repositories",
+            .map_err(|_| {
+                BpError::Timeout(TimeoutError::Operation {
+                    operation: "GitHub list repositories",
+                })
             })??;
         Ok(repos.into_iter().map(|repo| repo.id).collect())
     }
@@ -144,8 +147,10 @@ impl GitHost<u64, u64> for GitHubInstallation {
         let timeout = self.timeouts.operation_timeout(deadline)?;
         let repo = tokio::time::timeout(timeout, self.repo(repo_id))
             .await
-            .map_err(|_| BpError::TimeoutOperation {
-                operation: "GitHub get repository",
+            .map_err(|_| {
+                BpError::Timeout(TimeoutError::Operation {
+                    operation: "GitHub get repository",
+                })
             })?;
         repo.map(|r| r.default_branch)
     }
@@ -169,21 +174,27 @@ impl GitHost<u64, u64> for GitHubInstallation {
             ),
         )
         .await
-        .map_err(|_| BpError::TimeoutOperation {
-            operation: "GitHub get commit",
+        .map_err(|_| {
+            BpError::Timeout(TimeoutError::Operation {
+                operation: "GitHub get commit",
+            })
         })?
-        .map_err(|error| BpError::GitHubGetCommit {
-            repo_id,
-            ref_name: ref_name.to_owned(),
-            source: error,
+        .map_err(|error| {
+            BpError::GitHub(GitHubError::GetCommit {
+                repo_id,
+                ref_name: ref_name.to_owned(),
+                source: error,
+            })
         })?;
         commits
             .into_iter()
             .next()
             .map(|commit| commit.sha)
-            .ok_or_else(|| BpError::GitHubCommitNotFound {
-                repo_id,
-                ref_name: ref_name.to_owned(),
+            .ok_or_else(|| {
+                BpError::GitHub(GitHubError::CommitNotFound {
+                    repo_id,
+                    ref_name: ref_name.to_owned(),
+                })
             })
     }
 
@@ -200,8 +211,10 @@ impl GitHost<u64, u64> for GitHubInstallation {
             self.collect_directory_files(repo_id, ref_name, directory),
         )
         .await
-        .map_err(|_| BpError::TimeoutOperation {
-            operation: "GitHub get repository contents",
+        .map_err(|_| {
+            BpError::Timeout(TimeoutError::Operation {
+                operation: "GitHub get repository contents",
+            })
         })?
     }
 }
@@ -231,9 +244,11 @@ impl GitHubInstallation {
     ) -> BpResult<Self> {
         let client = app
             .installation(InstallationId::from(installation_id))
-            .map_err(|error| BpError::GitHubInstallation {
-                installation_id,
-                source: error,
+            .map_err(|error| {
+                BpError::GitHub(GitHubError::Installation {
+                    installation_id,
+                    source: error,
+                })
             })?;
         Ok(Self {
             client: Arc::new(client),
@@ -263,10 +278,10 @@ impl GitHubInstallation {
         // had to truncate it), so use that for directory discovery instead.
         let tree = self.tree(repo_id, ref_name).await?;
         if tree.truncated {
-            return Err(BpError::GitHubTreeTruncated {
+            return Err(BpError::GitHub(GitHubError::TreeTruncated {
                 repo_id,
                 ref_name: ref_name.to_owned(),
-            });
+            }));
         }
 
         if !directory.is_empty()
@@ -275,11 +290,11 @@ impl GitHubInstallation {
                 .iter()
                 .any(|entry| entry.path == directory && entry.kind == "tree")
         {
-            return Err(BpError::GitHubDirectoryNotFound {
+            return Err(BpError::GitHub(GitHubError::DirectoryNotFound {
                 repo_id,
                 path: directory.to_owned(),
                 ref_name: ref_name.to_owned(),
-            });
+            }));
         }
 
         let prefix = if directory.is_empty() {
@@ -299,11 +314,11 @@ impl GitHubInstallation {
 
             let depth = relative.matches('/').count();
             if depth > self.directory_limits.max_depth {
-                return Err(BpError::GitHubDirectoryDepthExceeded {
+                return Err(BpError::GitHub(GitHubError::DirectoryDepthExceeded {
                     repo_id,
                     path: entry.path,
                     max_depth: self.directory_limits.max_depth,
-                });
+                }));
             }
             Self::validate_relative_path(repo_id, relative, directory)?;
 
@@ -316,29 +331,29 @@ impl GitHubInstallation {
                         continue;
                     }
                     if files.len() >= self.directory_limits.max_files {
-                        return Err(BpError::GitHubTooManyFiles {
+                        return Err(BpError::GitHub(GitHubError::TooManyFiles {
                             repo_id,
                             directory: directory.to_owned(),
                             max_files: self.directory_limits.max_files,
-                        });
+                        }));
                     }
                     if let Some(size) = entry.size
                         && total_bytes.saturating_add(size) > self.directory_limits.max_total_bytes
                     {
-                        return Err(BpError::GitHubDirectoryTooLarge {
+                        return Err(BpError::GitHub(GitHubError::DirectoryTooLarge {
                             repo_id,
                             directory: directory.to_owned(),
                             max_bytes: self.directory_limits.max_total_bytes,
-                        });
+                        }));
                     }
                     let contents = self.blob(repo_id, &entry.sha).await?;
                     total_bytes = total_bytes.saturating_add(contents.len() as u64);
                     if total_bytes > self.directory_limits.max_total_bytes {
-                        return Err(BpError::GitHubDirectoryTooLarge {
+                        return Err(BpError::GitHub(GitHubError::DirectoryTooLarge {
                             repo_id,
                             directory: directory.to_owned(),
                             max_bytes: self.directory_limits.max_total_bytes,
-                        });
+                        }));
                     }
                     files.push(GitFile {
                         path: relative.to_owned(),
@@ -347,11 +362,11 @@ impl GitHubInstallation {
                 }
                 "commit" => {}
                 kind => {
-                    return Err(BpError::GitHubUnsupportedContentType {
+                    return Err(BpError::GitHub(GitHubError::UnsupportedContentType {
                         repo_id,
                         path: entry.path,
                         content_type: kind.to_owned(),
-                    });
+                    }));
                 }
             }
         }
@@ -370,10 +385,12 @@ impl GitHubInstallation {
                 Some(&params),
             )
             .await
-            .map_err(|source| BpError::GitHubGetTree {
-                repo_id,
-                ref_name: ref_name.to_owned(),
-                source: Box::new(source),
+            .map_err(|source| {
+                BpError::GitHub(GitHubError::GetTree {
+                    repo_id,
+                    ref_name: ref_name.to_owned(),
+                    source: Box::new(source),
+                })
             })
     }
 
@@ -385,10 +402,12 @@ impl GitHubInstallation {
                 None::<&()>,
             )
             .await
-            .map_err(|source| BpError::GitHubGetBlob {
-                repo_id,
-                sha: sha.to_owned(),
-                source: Box::new(source),
+            .map_err(|source| {
+                BpError::GitHub(GitHubError::GetBlob {
+                    repo_id,
+                    sha: sha.to_owned(),
+                    source: Box::new(source),
+                })
             })?;
         Self::decode_content(
             repo_id,
@@ -396,9 +415,11 @@ impl GitHubInstallation {
             blob.content.as_deref(),
             blob.encoding.as_deref(),
         )?
-        .ok_or_else(|| BpError::GitHubMissingContent {
-            repo_id,
-            path: sha.to_owned(),
+        .ok_or_else(|| {
+            BpError::GitHub(GitHubError::MissingContent {
+                repo_id,
+                path: sha.to_owned(),
+            })
         })
     }
 
@@ -417,23 +438,22 @@ impl GitHubInstallation {
                     .chars()
                     .filter(|character| !character.is_ascii_whitespace())
                     .collect::<String>();
-                BASE64
-                    .decode(compact)
-                    .map(Some)
-                    .map_err(|source| BpError::GitHubDecodeContent {
+                BASE64.decode(compact).map(Some).map_err(|source| {
+                    BpError::GitHub(GitHubError::DecodeContent {
                         repo_id,
                         path: path.to_owned(),
                         encoding: "base64",
                         source,
                     })
+                })
             }
             Some("utf8") => Ok(Some(content.as_bytes().to_vec())),
             Some("none") | None if content.is_empty() => Ok(None),
-            Some(encoding) => Err(BpError::GitHubUnsupportedContentEncoding {
+            Some(encoding) => Err(BpError::GitHub(GitHubError::UnsupportedContentEncoding {
                 repo_id,
                 path: path.to_owned(),
                 encoding: encoding.to_owned(),
-            }),
+            })),
             None => Ok(Some(content.as_bytes().to_vec())),
         }
     }
@@ -464,11 +484,11 @@ impl GitHubInstallation {
                 .components()
                 .any(|component| !matches!(component, std::path::Component::Normal(_)))
         {
-            return Err(BpError::GitHubInvalidContentPath {
+            return Err(BpError::GitHub(GitHubError::InvalidContentPath {
                 repo_id,
                 path: path.display().to_string(),
                 directory: directory.to_owned(),
-            });
+            }));
         }
         Ok(())
     }
@@ -488,7 +508,7 @@ impl GitHubInstallation {
                     Some(&params),
                 )
                 .await
-                .map_err(BpError::GitHubListRepositories)?;
+                .map_err(|error| BpError::GitHub(GitHubError::ListRepositories(error)))?;
             let received = response.repositories.len();
             repos.extend(response.repositories);
             if received < REPOS_PER_PAGE as usize {
@@ -505,15 +525,15 @@ impl GitHubInstallation {
             .await
             .map_err(|error| {
                 if Self::is_not_found(&error) {
-                    BpError::GitHubRepositoryNotFound {
+                    BpError::GitHub(GitHubError::RepositoryNotFound {
                         repo_id,
                         source: error,
-                    }
+                    })
                 } else {
-                    BpError::GitHubGetRepository {
+                    BpError::GitHub(GitHubError::GetRepository {
                         repo_id,
                         source: error,
-                    }
+                    })
                 }
             })
     }

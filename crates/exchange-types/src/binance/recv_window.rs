@@ -1,4 +1,5 @@
 use crate::new_types::Milliseconds;
+use buildplane_shared::errors::ExchangeError;
 use buildplane_shared::errors::{BpError, BpResult};
 use serde::Serialize;
 use std::fmt;
@@ -15,11 +16,11 @@ impl BinanceRecvWindow {
         if Self::is_valid(recv_window) {
             Ok(Self(recv_window))
         } else {
-            Err(BpError::BadValue {
+            Err(BpError::Exchange(ExchangeError::BadValue {
                 name: "recv_window".into(),
                 value: recv_window.to_string(),
                 reason: format!("Out of bounds >{} <={}", Milliseconds::ZERO, Self::MAXIMUM),
-            })
+            }))
         }
     }
 

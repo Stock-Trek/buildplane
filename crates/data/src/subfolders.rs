@@ -1,4 +1,5 @@
 use crate::{constants::UPDATE_QUANTIZATION, quantized_time::Quantization};
+use buildplane_shared::errors::DataError;
 use buildplane_shared::errors::{BpError, BpResult};
 use chrono::{Datelike, NaiveDate};
 
@@ -50,9 +51,9 @@ impl SubFolders {
                 Ok(Self::subfolders(&Self::minutes_in_hour(quantization)))
             }
             9 => Ok(Vec::new()),
-            _ => Err(BpError::TooManyPathSegments {
+            _ => Err(BpError::Data(DataError::TooManyPathSegments {
                 path: path.to_string(),
-            }),
+            })),
         }
     }
 
@@ -133,19 +134,19 @@ impl SubFolders {
     }
 
     fn parse_year(segment: &str, path: &str) -> BpResult<i32> {
-        segment
-            .parse::<i32>()
-            .map_err(|_| BpError::InvalidYearMonth {
+        segment.parse::<i32>().map_err(|_| {
+            BpError::Data(DataError::InvalidYearMonth {
                 path: path.to_string(),
             })
+        })
     }
 
     fn parse_number(segment: &str, path: &str) -> BpResult<u32> {
-        segment
-            .parse::<u32>()
-            .map_err(|_| BpError::InvalidYearMonth {
+        segment.parse::<u32>().map_err(|_| {
+            BpError::Data(DataError::InvalidYearMonth {
                 path: path.to_string(),
             })
+        })
     }
 
     fn parse_month(segment: &str, path: &str) -> BpResult<u32> {
@@ -153,7 +154,7 @@ impl SubFolders {
         if (1..=12).contains(&month) {
             Ok(month)
         } else {
-            Err(BpError::InvalidMonth { month })
+            Err(BpError::Data(DataError::InvalidMonth { month }))
         }
     }
 
@@ -162,7 +163,7 @@ impl SubFolders {
         if (1..=days_in_month).contains(&day) {
             Ok(day)
         } else {
-            Err(BpError::InvalidDay { day })
+            Err(BpError::Data(DataError::InvalidDay { day }))
         }
     }
 
@@ -171,7 +172,7 @@ impl SubFolders {
         if hour < 24 {
             Ok(hour)
         } else {
-            Err(BpError::InvalidHour { hour })
+            Err(BpError::Data(DataError::InvalidHour { hour }))
         }
     }
 
@@ -186,7 +187,7 @@ impl SubFolders {
                     Ok(28)
                 }
             }
-            _ => Err(BpError::InvalidMonth { month }),
+            _ => Err(BpError::Data(DataError::InvalidMonth { month })),
         }
     }
 }

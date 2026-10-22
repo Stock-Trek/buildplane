@@ -1,3 +1,4 @@
+use crate::errors::SqsError;
 use crate::{
     deadline::Deadline,
     env_vars::EnvVarConfig,
@@ -102,7 +103,7 @@ impl Sqs {
         } else {
             SqsMetrics::record_messages_sent(messages.len() - failures.len());
             SqsMetrics::record_messages_failed(failures.len());
-            Err(BpError::SqsPartialBatch { failures })
+            Err(BpError::Sqs(SqsError::PartialBatch { failures }))
         }
     }
 
@@ -189,10 +190,10 @@ impl Sqs {
         for (index, body) in bodies.iter().enumerate() {
             let size = body.len();
             if size > SQS_MAX_BATCH_BYTES {
-                return Err(BpError::SqsMessageTooLarge {
+                return Err(BpError::Sqs(SqsError::MessageTooLarge {
                     size,
                     limit: SQS_MAX_BATCH_BYTES,
-                });
+                }));
             }
             if !current.is_empty()
                 && (current.len() == SQS_MAX_BATCH_ENTRIES

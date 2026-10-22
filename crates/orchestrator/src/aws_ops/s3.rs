@@ -9,6 +9,7 @@ use aws_sdk_s3::{
     error::{ProvideErrorMetadata, SdkError},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use buildplane_shared::errors::{StorageError, TimeoutError};
 use buildplane_shared::{
     deadline::Deadline,
     env_vars::{EnvVarConfig, S3_SIGNED_URL_EXPIRY},
@@ -114,7 +115,7 @@ impl S3 {
     ) -> BpResult<Self> {
         let credentials_provider = sdk_config
             .credentials_provider()
-            .ok_or(BpError::MissingCredentials)?;
+            .ok_or(BpError::Storage(StorageError::MissingCredentials))?;
         let region = sdk_config
             .region()
             .map(|region| region.as_ref().to_string())
@@ -155,11 +156,11 @@ impl S3 {
     ) -> BpResult<UploadedObject> {
         let max_object_size_bytes = self.config.max_object_size_bytes;
         if max_object_size_bytes > 0 && contents.len() as u64 > max_object_size_bytes {
-            return Err(BpError::ObjectTooLarge {
+            return Err(BpError::Storage(StorageError::ObjectTooLarge {
                 key: key.to_owned(),
                 size: contents.len(),
                 max_bytes: max_object_size_bytes,
-            });
+            }));
         }
         let credentials = self.credentials(deadline).await?;
         let url = self.presigned_url(
@@ -179,8 +180,10 @@ impl S3 {
                 .send(),
         )
         .await
-        .map_err(|_| BpError::TimeoutOperation {
-            operation: "S3 upload object",
+        .map_err(|_| {
+            BpError::Timeout(TimeoutError::Operation {
+                operation: "S3 upload object",
+            })
         })?
         .map_err(|source| BpError::http_request("upload object", key, source))?;
         let status = response.status();
@@ -218,8 +221,10 @@ impl S3 {
         loop {
             let page = tokio::time::timeout(timeout, paginator.next())
                 .await
-                .map_err(|_| BpError::TimeoutOperation {
-                    operation: "S3 list objects",
+                .map_err(|_| {
+                    BpError::Timeout(TimeoutError::Operation {
+                        operation: "S3 list objects",
+                    })
                 })?;
             let Some(page) = page else {
                 break;
@@ -256,8 +261,10 @@ impl S3 {
                 .send(),
         )
         .await
-        .map_err(|_| BpError::TimeoutOperation {
-            operation: "S3 copy object",
+        .map_err(|_| {
+            BpError::Timeout(TimeoutError::Operation {
+                operation: "S3 copy object",
+            })
         })?
         .map_err(|error| {
             Self::operation_error(
@@ -278,8 +285,10 @@ impl S3 {
             self.client.delete_object().bucket(bucket).key(key).send(),
         )
         .await
-        .map_err(|_| BpError::TimeoutOperation {
-            operation: "S3 delete object",
+        .map_err(|_| {
+            BpError::Timeout(TimeoutError::Operation {
+                operation: "S3 delete object",
+            })
         })?
         .map_err(|error| {
             Self::operation_error("delete object", format!("s3://{bucket}/{key}"), error)
@@ -291,10 +300,12 @@ impl S3 {
         let timeout = self.timeouts.operation_timeout(deadline)?;
         tokio::time::timeout(timeout, self.credentials_provider.provide_credentials())
             .await
-            .map_err(|_| BpError::TimeoutOperation {
-                operation: "S3 provide_credentials",
+            .map_err(|_| {
+                BpError::Timeout(TimeoutError::Operation {
+                    operation: "S3 provide_credentials",
+                })
             })?
-            .map_err(BpError::Credentials)
+            .map_err(|error| BpError::Storage(StorageError::Credentials(error)))
     }
 }
 
@@ -413,10 +424,12 @@ impl S3 {
         let key = Self::encode_path(key);
         match &self.endpoint_url {
             Some(endpoint) => {
-                let url =
-                    Url::parse(endpoint).map_err(|source| BpError::InvalidEndpoint { source })?;
-                let host = url.host_str().ok_or_else(|| BpError::InvalidEndpointHost {
-                    endpoint: endpoint.clone(),
+                let url = Url::parse(endpoint)
+                    .map_err(|source| BpError::Storage(StorageError::InvalidEndpoint { source }))?;
+                let host = url.host_str().ok_or_else(|| {
+                    BpError::Storage(StorageError::InvalidEndpointHost {
+                        endpoint: endpoint.clone(),
+                    })
                 })?;
                 let host = match url.port() {
                     Some(port) => format!("{host}:{port}"),

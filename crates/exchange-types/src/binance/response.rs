@@ -9,6 +9,7 @@ use crate::{
     response::{ETHttpResponse, ETResponse, ETWebsocketResponse},
     websocket_id::ETWebsocketId,
 };
+use buildplane_shared::errors::ExchangeError;
 use buildplane_shared::errors::{BpError, BpResult};
 use serde::{Deserialize, de::DeserializeOwned};
 use std::{collections::HashMap, fmt::Debug};
@@ -168,7 +169,11 @@ where
         {
             None => None,
             Some(tuple) => match tuple.1.parse::<u64>() {
-                Err(_) => return Err(BpError::ParseError("Retry-After".into())),
+                Err(_) => {
+                    return Err(BpError::Exchange(ExchangeError::ParseError(
+                        "Retry-After".into(),
+                    )));
+                }
                 Ok(parsed) => Some(Seconds(parsed as i64)),
             },
         };
@@ -214,8 +219,8 @@ where
     R: Clone + Debug + DeserializeOwned,
 {
     fn try_from_websocket(response: serde_json::Value) -> BpResult<Self> {
-        let websocket_response: BinanceWebsocketResponse =
-            serde_json::from_value(response).map_err(BpError::DeserializeResponse)?;
+        let websocket_response: BinanceWebsocketResponse = serde_json::from_value(response)
+            .map_err(|error| BpError::Exchange(ExchangeError::DeserializeResponse(error)))?;
         let usage = Self::parse_usage(&websocket_response.rateLimits);
         let retry_after = websocket_response.error.as_ref().and_then(|error| {
             let data = error.data.as_ref()?;

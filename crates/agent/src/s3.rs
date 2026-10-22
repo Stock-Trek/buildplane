@@ -11,6 +11,7 @@
 //! field contains the `${filename}` variable, which S3 replaces with the name
 //! of the uploaded file.
 
+use buildplane_shared::errors::ConfigError;
 use buildplane_shared::errors::{BpError, BpResult};
 use std::{
     collections::BTreeMap,
@@ -39,21 +40,23 @@ pub struct SignedPost {
 impl SignedPost {
     pub fn new(url: String, fields: BTreeMap<String, String>, timeout: Duration) -> BpResult<Self> {
         let key = fields.get(KEY_FIELD).ok_or_else(|| {
-            BpError::BuildConfig(format!(
+            BpError::Config(ConfigError::Build(format!(
                 "SIGNED_POST_FIELDS must include a {KEY_FIELD} field containing {FILENAME_VARIABLE}"
-            ))
+            )))
         })?;
         if !key.contains(FILENAME_VARIABLE) {
-            return Err(BpError::BuildConfig(format!(
+            return Err(BpError::Config(ConfigError::Build(format!(
                 "SIGNED_POST_FIELDS.{KEY_FIELD} must contain {FILENAME_VARIABLE} so artifacts do not overwrite each other"
-            )));
+            ))));
         }
 
         let client = reqwest::Client::builder()
             .timeout(timeout)
             .build()
             .map_err(|source| {
-                BpError::BuildConfig(format!("failed to build HTTP client: {source}"))
+                BpError::Config(ConfigError::Build(format!(
+                    "failed to build HTTP client: {source}"
+                )))
             })?;
 
         Ok(Self {
@@ -123,7 +126,11 @@ impl SignedPost {
         path.file_name()
             .and_then(|name| name.to_str())
             .map(str::to_string)
-            .ok_or_else(|| BpError::BuildConfig(format!("artifact path {path:?} has no file name")))
+            .ok_or_else(|| {
+                BpError::Config(ConfigError::Build(format!(
+                    "artifact path {path:?} has no file name"
+                )))
+            })
     }
 
     fn upload_name(path: &Path) -> BpResult<String> {
@@ -132,22 +139,24 @@ impl SignedPost {
             match component {
                 Component::Normal(part) => {
                     let part = part.to_str().ok_or_else(|| {
-                        BpError::BuildConfig(format!("artifact name {path:?} is not valid UTF-8"))
+                        BpError::Config(ConfigError::Build(format!(
+                            "artifact name {path:?} is not valid UTF-8"
+                        )))
                     })?;
                     parts.push(part);
                 }
                 _ => {
-                    return Err(BpError::BuildConfig(format!(
+                    return Err(BpError::Config(ConfigError::Build(format!(
                         "artifact name {path:?} must be relative"
-                    )));
+                    ))));
                 }
             }
         }
 
         if parts.is_empty() {
-            return Err(BpError::BuildConfig(format!(
+            return Err(BpError::Config(ConfigError::Build(format!(
                 "artifact name {path:?} is empty"
-            )));
+            ))));
         }
         Ok(parts.join("/"))
     }

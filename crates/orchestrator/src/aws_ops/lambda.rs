@@ -2,6 +2,7 @@ use crate::aws_ops::build_request::BuildRequest;
 use aws_config::SdkConfig;
 use aws_sdk_lambda::{Client as LambdaClient, primitives::Blob, types::InvocationType};
 use buildplane_shared::errors::BpResult;
+use buildplane_shared::errors::TimeoutError;
 use buildplane_shared::{
     deadline::Deadline, env_vars::EnvVarConfig, errors::BpError, timeouts::Timeouts,
 };
@@ -62,8 +63,10 @@ impl Lambda {
                 .send(),
         )
         .await
-        .map_err(|_| BpError::TimeoutOperation {
-            operation: "Lambda invoke",
+        .map_err(|_| {
+            BpError::Timeout(TimeoutError::Operation {
+                operation: "Lambda invoke",
+            })
         })?
         .map_err(|error| Box::new(error.into_service_error()))?;
         Ok(())

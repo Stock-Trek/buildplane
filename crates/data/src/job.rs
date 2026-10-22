@@ -3,6 +3,7 @@ use crate::{
     s3::ObjectKey,
 };
 use buildplane_exchange_types::urls::TradingMode;
+use buildplane_shared::errors::DataError;
 use buildplane_shared::errors::{BpError, BpResult};
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Deserializer, Serialize, de};
@@ -63,25 +64,25 @@ impl Job {
                     .into_iter()
                     .filter(|key| object.contains_key(*key));
                 let Some(tag_key) = tag_keys.next() else {
-                    return Err(BpError::InvalidJob {
+                    return Err(BpError::Data(DataError::InvalidJob {
                         message: "job payload must include one of mode, job, or action".to_string(),
-                    });
+                    }));
                 };
                 if tag_keys.next().is_some() {
-                    return Err(BpError::InvalidJob {
+                    return Err(BpError::Data(DataError::InvalidJob {
                         message: "job payload must include only one of mode, job, or action"
                             .to_string(),
-                    });
+                    }));
                 }
                 let tag = object.remove(tag_key).unwrap_or(Value::Null);
                 match tag {
                     Value::String(mode) => Self::from_mode(&mode, object),
                     Value::Object(nested) => {
                         if nested.len() != 1 {
-                            return Err(BpError::InvalidJob {
+                            return Err(BpError::Data(DataError::InvalidJob {
                                 message: "a nested job mode must contain exactly one entry"
                                     .to_string(),
-                            });
+                            }));
                         }
                         let (mode, payload) = nested.into_iter().next().unwrap();
                         match payload {
@@ -90,21 +91,21 @@ impl Job {
                                 Self::from_mode(&mode, object)
                             }
                             Value::Null => Self::from_mode(&mode, object),
-                            _ => Err(BpError::InvalidJob {
+                            _ => Err(BpError::Data(DataError::InvalidJob {
                                 message: format!(
                                     "nested mode {mode} must contain an object payload"
                                 ),
-                            }),
+                            })),
                         }
                     }
-                    other => Err(BpError::InvalidJob {
+                    other => Err(BpError::Data(DataError::InvalidJob {
                         message: format!("job mode must be a string, got {other}"),
-                    }),
+                    })),
                 }
             }
-            other => Err(BpError::InvalidJob {
+            other => Err(BpError::Data(DataError::InvalidJob {
                 message: format!("job payload must be an object, got {other}"),
-            }),
+            })),
         }
     }
 
@@ -132,27 +133,31 @@ impl Job {
                 if object.is_empty() {
                     Ok(Self::Update)
                 } else {
-                    Err(BpError::InvalidJob {
+                    Err(BpError::Data(DataError::InvalidJob {
                         message: format!(
                             "update job does not accept fields: {}",
                             object.keys().cloned().collect::<Vec<_>>().join(", ")
                         ),
-                    })
+                    }))
                 }
             }
             "backfill" => serde_json::from_value(Value::Object(object))
                 .map(Self::Backfill)
-                .map_err(|error| BpError::InvalidJob {
-                    message: format!("invalid backfill job: {error}"),
+                .map_err(|error| {
+                    BpError::Data(DataError::InvalidJob {
+                        message: format!("invalid backfill job: {error}"),
+                    })
                 }),
             "compact" => serde_json::from_value(Value::Object(object))
                 .map(Self::Compact)
-                .map_err(|error| BpError::InvalidJob {
-                    message: format!("invalid compact job: {error}"),
+                .map_err(|error| {
+                    BpError::Data(DataError::InvalidJob {
+                        message: format!("invalid compact job: {error}"),
+                    })
                 }),
-            other => Err(BpError::InvalidJob {
+            other => Err(BpError::Data(DataError::InvalidJob {
                 message: format!("unknown job mode {other}; expected update, backfill, or compact"),
-            }),
+            })),
         }
     }
 }
@@ -192,10 +197,10 @@ impl BackfillJob {
 
     pub fn validate(&self) -> BpResult<()> {
         if self.start >= self.end {
-            return Err(BpError::InvalidBackfillRange {
+            return Err(BpError::Data(DataError::InvalidBackfillRange {
                 start: self.start,
                 end: self.end,
-            });
+            }));
         }
         self.pair.resolve().map(|_| ())
     }
@@ -224,15 +229,17 @@ impl CompactJob {
     pub fn prefix(&self) -> BpResult<ObjectKey> {
         let target = self.target.trim();
         if target.is_empty() {
-            return Err(BpError::InvalidJob {
+            return Err(BpError::Data(DataError::InvalidJob {
                 message: "compact target cannot be empty".to_string(),
-            });
+            }));
         }
         let prefix = if target.ends_with('/') {
             target.to_string()
         } else if target.ends_with(PARQUET_SUFFIX) {
-            let (prefix, _) = target.rsplit_once('/').ok_or_else(|| BpError::InvalidJob {
-                message: format!("compact file target {target} has no parent prefix"),
+            let (prefix, _) = target.rsplit_once('/').ok_or_else(|| {
+                BpError::Data(DataError::InvalidJob {
+                    message: format!("compact file target {target} has no parent prefix"),
+                })
             })?;
             format!("{prefix}/")
         } else {
@@ -261,9 +268,9 @@ impl TradingPairPath {
     pub fn resolve(&self) -> BpResult<ResolvedTradingPair> {
         let normalized = self.0.trim().trim_matches('/').replace([':', '\\'], "/");
         if normalized.is_empty() {
-            return Err(BpError::InvalidTradingPairPath {
+            return Err(BpError::Data(DataError::InvalidTradingPairPath {
                 pair: self.0.clone(),
-            });
+            }));
         }
         for (cex_id, trading_mode, trading_pairs) in common_trading_pairs() {
             for trading_pair in trading_pairs {
@@ -280,9 +287,9 @@ impl TradingPairPath {
                 }
             }
         }
-        Err(BpError::UnsupportedTradingPair {
+        Err(BpError::Data(DataError::UnsupportedTradingPair {
             pair: self.0.clone(),
-        })
+        }))
     }
 }
 

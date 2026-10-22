@@ -4,6 +4,7 @@ use crate::{
 };
 use async_trait::async_trait;
 use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_shared::errors::{ConnectorError, TimeoutError};
 use futures_timer::Delay;
 use iris::{Client as IrisClient, Config as IrisConfig, ConnectionError, Listener as IrisListener};
 use std::{
@@ -36,7 +37,9 @@ impl IrisWebsocketClient {
         poll_fn(move |cx| match send.as_mut().poll(cx) {
             Poll::Ready(result) => Poll::Ready(result.map_err(Self::map_send_error)),
             Poll::Pending => match delay.as_mut().poll(cx) {
-                Poll::Ready(()) => Poll::Ready(Err(BpError::send_unknown(BpError::TimedOut))),
+                Poll::Ready(()) => Poll::Ready(Err(BpError::send_unknown(BpError::Timeout(
+                    TimeoutError::TimedOut,
+                )))),
                 Poll::Pending => Poll::Pending,
             },
         })
@@ -88,7 +91,9 @@ impl IrisListener<serde_json::Value> for IrisListenerAdapter {
         let _ = match PanicUtils::catch_panic_async(future).await {
             Ok(result) => result,
             Err(payload) => {
-                let error = BpError::CallbackPanicked(PanicUtils::panic_message(payload.as_ref()));
+                let error = BpError::Connector(ConnectorError::CallbackPanicked(
+                    PanicUtils::panic_message(payload.as_ref()),
+                ));
                 error!(error = %error, "websocket on_message callback panicked");
                 Ok(())
             }

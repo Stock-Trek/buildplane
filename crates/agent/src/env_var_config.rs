@@ -1,3 +1,4 @@
+use buildplane_shared::errors::ConfigError;
 use buildplane_shared::errors::{BpError, BpResult};
 use std::{
     env::{self, VarError},
@@ -59,7 +60,9 @@ impl EnvVarConfig {
                 .parse::<u64>()
                 .map(Duration::from_secs)
                 .map_err(|error| {
-                    BpError::BuildConfig(format!("{BUILD_TIMEOUT_ENV} is invalid: {error}"))
+                    BpError::Config(ConfigError::Build(format!(
+                        "{BUILD_TIMEOUT_ENV} is invalid: {error}"
+                    )))
                 }),
             None => Ok(Duration::from_secs(DEFAULT_BUILD_TIMEOUT_SECS)),
         }
@@ -68,7 +71,10 @@ impl EnvVarConfig {
     fn log_filter_from_env() -> BpResult<EnvFilter> {
         match Self::optional(EnvFilter::DEFAULT_ENV)? {
             Some(directives) => EnvFilter::try_new(&directives).map_err(|error| {
-                BpError::BuildConfig(format!("{} is invalid: {error}", EnvFilter::DEFAULT_ENV))
+                BpError::Config(ConfigError::Build(format!(
+                    "{} is invalid: {error}",
+                    EnvFilter::DEFAULT_ENV
+                )))
             }),
             None => Ok(EnvFilter::new(DEFAULT_LOG_FILTER)),
         }
@@ -86,9 +92,9 @@ impl EnvVarConfig {
         match env::var(name) {
             Ok(value) => Ok(Some(value)),
             Err(VarError::NotPresent) => Ok(None),
-            Err(VarError::NotUnicode(_)) => {
-                Err(BpError::BuildConfig(format!("{name} is not valid UTF-8")))
-            }
+            Err(VarError::NotUnicode(_)) => Err(BpError::Config(ConfigError::Build(format!(
+                "{name} is not valid UTF-8"
+            )))),
         }
     }
 }

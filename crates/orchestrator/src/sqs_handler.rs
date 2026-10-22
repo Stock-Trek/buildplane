@@ -1,5 +1,6 @@
 use crate::{context::RsOrchestratorContext, tasks::task::Task};
 use aws_lambda_events::event::sqs::{SqsBatchResponse, SqsEvent, SqsMessage as SqsRecord};
+use buildplane_shared::errors::SqsError;
 use buildplane_shared::{
     deadline::Deadline,
     errors::{BpError, BpResult},
@@ -46,7 +47,9 @@ impl SqsHandler {
                     );
                     continue;
                 }
-                let message_id = record.message_id.ok_or_else(|| BpError::MissingMessageId)?;
+                let message_id = record
+                    .message_id
+                    .ok_or_else(|| BpError::Sqs(SqsError::MissingMessageId))?;
                 tracing::error!(
                     message_id = %message_id,
                     %error,
@@ -68,7 +71,7 @@ impl SqsHandler {
         let body = record
             .body
             .as_deref()
-            .ok_or_else(|| BpError::MissingMessageBody)?;
+            .ok_or_else(|| BpError::Sqs(SqsError::MissingMessageBody))?;
         let message: SqsMessage = serde_json::from_str(body)?;
         let dedup = request_context.context.dedup.clone();
         if dedup.is_duplicate(&message) {

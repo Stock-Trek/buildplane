@@ -5,6 +5,7 @@ use crate::{
     signer::Signer,
     websocket_id::ETWebsocketId,
 };
+use buildplane_shared::errors::ExchangeError;
 use buildplane_shared::errors::{BpError, BpResult};
 use serde::Serialize;
 use serde_with::skip_serializing_none;
@@ -90,8 +91,8 @@ impl BinanceRequestFactory {
             method,
             params,
         };
-        let message =
-            serde_json::to_string(&websocket_request).map_err(BpError::SerializeRequest)?;
+        let message = serde_json::to_string(&websocket_request)
+            .map_err(|error| BpError::Exchange(ExchangeError::SerializeRequest(error)))?;
         let response_matcher: WebsocketResponseMatcher =
             Arc::new(move |value| match value.get("id") {
                 None => false,

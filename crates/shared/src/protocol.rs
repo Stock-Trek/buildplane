@@ -1,4 +1,5 @@
 use crate::errors::BpError;
+use crate::errors::ExchangeError;
 use serde::{Deserialize, Serialize};
 use strum::Display;
 use url::Url;
@@ -18,14 +19,16 @@ impl Protocol {
     }
 
     pub fn validate_url(self, name: &str, value: &str) -> Result<(), BpError> {
-        let url = Url::parse(value).map_err(|error| BpError::BadValue {
-            name: name.into(),
-            value: value.into(),
-            reason: error.to_string(),
+        let url = Url::parse(value).map_err(|error| {
+            BpError::Exchange(ExchangeError::BadValue {
+                name: name.into(),
+                value: value.into(),
+                reason: error.to_string(),
+            })
         })?;
         let allowed_schemes = self.allowed_schemes();
         if !allowed_schemes.contains(&url.scheme()) {
-            return Err(BpError::BadValue {
+            return Err(BpError::Exchange(ExchangeError::BadValue {
                 name: name.into(),
                 value: value.into(),
                 reason: format!(
@@ -33,7 +36,7 @@ impl Protocol {
                     allowed_schemes.join(", "),
                     url.scheme()
                 ),
-            });
+            }));
         }
         Ok(())
     }

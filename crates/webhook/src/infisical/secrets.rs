@@ -1,5 +1,6 @@
 use crate::infisical::auth_flow::InfisicalAwsAuth;
 use aws_config::SdkConfig;
+use buildplane_shared::errors::HttpError;
 use buildplane_shared::errors::{BpError, BpResult};
 use buildplane_shared::{
     deadline::Deadline,
@@ -42,7 +43,9 @@ impl Secrets {
         if let Timeout::Bounded(request_timeout) = timeouts.operation {
             builder = builder.timeout(request_timeout.get());
         }
-        builder.build().map_err(BpError::Reqwest)
+        builder
+            .build()
+            .map_err(|error| BpError::Http(HttpError::Reqwest(error)))
     }
 
     pub(crate) fn get(&self, name: &str) -> BpResult<String> {

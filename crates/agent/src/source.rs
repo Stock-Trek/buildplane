@@ -7,6 +7,7 @@
 //! working directory replaces the checked in algorithm stub with the user's
 //! source.
 
+use buildplane_shared::errors::IoError;
 use buildplane_shared::errors::{BpError, BpResult};
 use std::{
     io::{Cursor, Write},
@@ -50,20 +51,27 @@ impl Source {
     }
 
     pub fn extract(&self, destination: &Path) -> BpResult<()> {
-        let mut archive = ZipArchive::new(Cursor::new(&self.bytes)).map_err(BpError::Zip)?;
+        let mut archive = ZipArchive::new(Cursor::new(&self.bytes))
+            .map_err(|error| BpError::Io(IoError::Zip(error)))?;
 
         // Validate every path before writing anything, so a malformed archive
         // cannot leave a partially extracted source tree behind.
         let entry_count = archive.len();
         let mut entries = Vec::with_capacity(entry_count);
         for index in 0..entry_count {
-            let entry = archive.by_index(index).map_err(BpError::Zip)?;
-            let name = entry.name().map_err(BpError::Zip)?;
+            let entry = archive
+                .by_index(index)
+                .map_err(|error| BpError::Io(IoError::Zip(error)))?;
+            let name = entry
+                .name()
+                .map_err(|error| BpError::Io(IoError::Zip(error)))?;
             entries.push(Self::entry_path(&name)?);
         }
 
         for (index, relative) in entries.into_iter().enumerate() {
-            let mut entry = archive.by_index(index).map_err(BpError::Zip)?;
+            let mut entry = archive
+                .by_index(index)
+                .map_err(|error| BpError::Io(IoError::Zip(error)))?;
             let path = destination.join(relative);
             if entry.is_dir() {
                 std::fs::create_dir_all(&path).map_err(|source| {

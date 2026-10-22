@@ -4,6 +4,7 @@ use buildplane_exchange_types::{
     rate_limited::{RateLimit, RateLimitRestriction, RateUsage},
 };
 use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_shared::errors::{RateLimitError, SystemError};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -49,11 +50,11 @@ impl RateLimiters {
         let _guard = self
             .acquisition_lock
             .lock()
-            .map_err(|_| BpError::PoisonedLock)?;
+            .map_err(|_| BpError::System(SystemError::PoisonedLock))?;
         for limiter in self.limiters.values() {
             if limiter.is_throttled()? {
                 debug!("rate limiter is throttled, rejecting request");
-                return Err(BpError::RateLimited);
+                return Err(BpError::RateLimit(RateLimitError::RateLimited));
             }
         }
         let mut acquired = Vec::with_capacity(costs.len());
@@ -78,7 +79,7 @@ impl RateLimiters {
         let _guard = self
             .acquisition_lock
             .lock()
-            .map_err(|_| BpError::PoisonedLock)?;
+            .map_err(|_| BpError::System(SystemError::PoisonedLock))?;
         self.refund_unlocked(restriction, cost)
     }
     fn refund_unlocked(&self, restriction: RateLimitRestriction, cost: UsageCount) -> BpResult<()> {
@@ -165,7 +166,7 @@ mod tests {
             .expect("set retry after");
         assert!(matches!(
             rate_limiters.did_acquire(&[]),
-            Err(BpError::RateLimited)
+            Err(BpError::RateLimit(RateLimitError::RateLimited))
         ));
     }
 
@@ -219,7 +220,9 @@ mod tests {
         ];
         assert!(matches!(
             rate_limiters.did_acquire(&costs),
-            Err(BpError::RequestExceedsRateLimit { .. })
+            Err(BpError::RateLimit(
+                RateLimitError::RequestExceedsRateLimit { .. }
+            ))
         ));
 
         // RawRequests was acquired before Weight failed and must be rolled back.

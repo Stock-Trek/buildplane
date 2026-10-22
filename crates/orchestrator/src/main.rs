@@ -37,5 +37,5 @@ async fn main() -> BpResult<()> {
     };
     run(recorder, service_fn(handler))
         .await
-        .map_err(BpError::External)
+        .map_err(BpError::external)
 }

@@ -12,6 +12,7 @@ use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
 use buildplane_exchange_types::urls::TradingMode;
 use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_shared::errors::{ExchangeError, SystemError};
 use chrono::{DateTime, Utc};
 use std::{
     collections::{HashMap, HashSet},
@@ -194,17 +195,16 @@ impl KlinesUpdater {
         trading_mode: TradingMode,
     ) -> BpResult<Arc<dyn ExchangeUpdater>> {
         match cex_id {
-            CexId::Binance => {
-                self.binance
-                    .get(&trading_mode)
-                    .cloned()
-                    .ok_or(BpError::UnsupportedTradingMode {
-                        trading_mode: format!("{trading_mode:?}"),
-                    })
-            }
-            other => Err(BpError::UnsupportedExchange {
+            CexId::Binance => self
+                .binance
+                .get(&trading_mode)
+                .cloned()
+                .ok_or(BpError::Exchange(ExchangeError::UnsupportedTradingMode {
+                    trading_mode: format!("{trading_mode:?}"),
+                })),
+            other => Err(BpError::Exchange(ExchangeError::UnsupportedExchange {
                 exchange: format!("{other:?}"),
-            }),
+            })),
         }
     }
 
@@ -306,7 +306,7 @@ impl KlinesUpdater {
         let _permit = semaphore
             .acquire()
             .await
-            .map_err(|_| BpError::SemaphoreClosed)?;
+            .map_err(|_| BpError::System(SystemError::SemaphoreClosed))?;
         let candles_base_path = format!(
             "{}/{}/{}/{}",
             trading_mode, cex_id, trading_pair.base, trading_pair.quote

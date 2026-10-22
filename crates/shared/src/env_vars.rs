@@ -1,3 +1,4 @@
+use crate::errors::ConfigError;
 use crate::{
     errors::{BpError, BpResult},
     git_ops::github::installation::DirectoryLimits,
@@ -389,11 +390,9 @@ impl EnvVarConfig {
 
     fn raw(&self, name: &str) -> BpResult<Option<String>> {
         match self.vars.get(OsStr::new(name)) {
-            Some(value) => value
-                .clone()
-                .into_string()
-                .map(Some)
-                .map_err(|value| BpError::EnvVar(std::env::VarError::NotUnicode(value))),
+            Some(value) => value.clone().into_string().map(Some).map_err(|value| {
+                BpError::Config(ConfigError::EnvVar(std::env::VarError::NotUnicode(value)))
+            }),
             None => Ok(None),
         }
     }

@@ -7,6 +7,7 @@
 //! rather than requiring them as process environment variables.
 
 use crate::s3::SignedPost;
+use buildplane_shared::errors::ConfigError;
 use buildplane_shared::errors::{BpError, BpResult};
 use serde::Deserialize;
 use serde_json::Value;
@@ -45,10 +46,14 @@ impl BuildRequest {
 
     fn parse_signed_post_fields(json: &str) -> BpResult<BTreeMap<String, String>> {
         let value: Value = serde_json::from_str(json).map_err(|source| {
-            BpError::BuildConfig(format!("SIGNED_POST_FIELDS is not valid JSON: {source}"))
+            BpError::Config(ConfigError::Build(format!(
+                "SIGNED_POST_FIELDS is not valid JSON: {source}"
+            )))
         })?;
         let object = value.as_object().ok_or_else(|| {
-            BpError::BuildConfig("SIGNED_POST_FIELDS must be a JSON object".to_string())
+            BpError::Config(ConfigError::Build(
+                "SIGNED_POST_FIELDS must be a JSON object".to_string(),
+            ))
         })?;
 
         let mut fields = BTreeMap::new();
@@ -58,9 +63,9 @@ impl BuildRequest {
                 Value::Number(number) => number.to_string(),
                 Value::Bool(boolean) => boolean.to_string(),
                 _ => {
-                    return Err(BpError::BuildConfig(format!(
+                    return Err(BpError::Config(ConfigError::Build(format!(
                         "SIGNED_POST_FIELDS.{name} must be a string"
-                    )));
+                    ))));
                 }
             };
             fields.insert(name.clone(), text);

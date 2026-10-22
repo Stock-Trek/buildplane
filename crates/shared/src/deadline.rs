@@ -1,3 +1,4 @@
+use crate::errors::TimeoutError;
 use crate::errors::{BpError, BpResult};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -24,7 +25,7 @@ impl Deadline {
             .saturating_duration_since(Instant::now())
             .saturating_sub(self.buffer);
         if remaining.is_zero() {
-            return Err(BpError::TimeoutDeadlineExceeded);
+            return Err(BpError::Timeout(TimeoutError::DeadlineExceeded));
         }
         Ok(remaining)
     }

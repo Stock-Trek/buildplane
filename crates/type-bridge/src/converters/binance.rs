@@ -25,6 +25,7 @@ use buildplane_exchange_types::{
     },
     new_types::Milliseconds,
 };
+use buildplane_shared::errors::{ExchangeError, SystemError, ValidationError};
 use std::{collections::HashMap, sync::OnceLock};
 use stock_trek_types::cex::{
     activation::Activation, asset_id::AssetId, capability::CexCapability,
@@ -67,7 +68,7 @@ impl Converter for BinanceConverter {
     fn set_trading_precision(&self, trading_precision: TradingPrecision) -> BpResult<()> {
         self.trading_precision
             .set(trading_precision)
-            .map_err(|_| BpError::PoisonedLock)
+            .map_err(|_| BpError::System(SystemError::PoisonedLock))
     }
     fn asset_limits_request(
         &self,
@@ -76,10 +77,10 @@ impl Converter for BinanceConverter {
     ) -> BpResult<Self::AssetLimitsRequest> {
         let symbol = match self.ticker_mapping().symbol(trading_pair) {
             None => {
-                return Err(BpError::MissingValue(format!(
+                return Err(BpError::Validation(ValidationError::MissingValue(format!(
                     "Symbol for trading pair: {:?}",
                     trading_pair
-                )));
+                ))));
             }
             Some(symbol) => symbol,
         };
@@ -104,7 +105,9 @@ impl Converter for BinanceConverter {
         cex_preferences: &CexPreferences,
     ) -> BpResult<Self::OrderRequest> {
         let Some(trading_precision) = self.trading_precision.get() else {
-            return Err(BpError::MissingValue("Trading Precision".into()));
+            return Err(BpError::Validation(ValidationError::MissingValue(
+                "Trading Precision".into(),
+            )));
         };
         let precise =
             self.try_convert_precise(order_request, cex_preferences, *trading_precision)?;
@@ -255,7 +258,10 @@ impl Converter for BinanceConverter {
             }
             Ok(TBAssetLimits { asset_limits })
         } else {
-            Err(BpError::BadResponse(format!("{:?}", response)))
+            Err(BpError::Exchange(ExchangeError::BadResponse(format!(
+                "{:?}",
+                response
+            ))))
         }
     }
     fn exchange_info_response(
@@ -287,7 +293,10 @@ impl Converter for BinanceConverter {
             }
             Ok(TBExchangeInfo { trading_precisions })
         } else {
-            Err(BpError::BadResponse(format!("{:?}", response)))
+            Err(BpError::Exchange(ExchangeError::BadResponse(format!(
+                "{:?}",
+                response
+            ))))
         }
     }
     fn order_response(&self, response: Self::OrderResponse) -> BpResult<OrderResponse> {
@@ -320,7 +329,10 @@ impl Converter for BinanceConverter {
                 status,
             })
         } else {
-            Err(BpError::BadResponse(format!("{:?}", response)))
+            Err(BpError::Exchange(ExchangeError::BadResponse(format!(
+                "{:?}",
+                response
+            ))))
         }
     }
 }
@@ -376,9 +388,9 @@ impl BinanceConverter {
                 });
             }
         }
-        Err(BpError::MissingValue(
+        Err(BpError::Validation(ValidationError::MissingValue(
             "LOT_SIZE filter in symbol filters".into(),
-        ))
+        )))
     }
     fn binance_base_market(
         filters: &Vec<BinanceSymbolFilter>,
@@ -416,8 +428,8 @@ impl BinanceConverter {
                 });
             }
         }
-        Err(BpError::MissingValue(
+        Err(BpError::Validation(ValidationError::MissingValue(
             "PRICE_FILTER in symbol filters".into(),
-        ))
+        )))
     }
 }

@@ -1,5 +1,6 @@
 use crate::{new_types::Nanoseconds, rate_limited::RateLimitRestriction};
 use buildplane_shared::errors::BpError;
+use buildplane_shared::errors::ExchangeError;
 use serde::Deserialize;
 use strum::Display;
 
@@ -48,7 +49,7 @@ impl TryFrom<char> for BinanceRateLimitInterval {
             'm' => Ok(Self::MINUTE),
             'h' => Ok(Self::HOUR),
             'd' => Ok(Self::DAY),
-            other => Err(BpError::ParseError(other.into())),
+            other => Err(BpError::Exchange(ExchangeError::ParseError(other.into()))),
         }
     }
 }
@@ -62,9 +63,9 @@ impl TryFrom<BinanceRateLimitInterval> for Nanoseconds {
             BinanceRateLimitInterval::HOUR => Ok(Nanoseconds(60 * 60 * 1_000_000_000)),
             BinanceRateLimitInterval::MINUTE => Ok(Nanoseconds(60 * 1_000_000_000)),
             BinanceRateLimitInterval::SECOND => Ok(Nanoseconds(1_000_000_000)),
-            BinanceRateLimitInterval::Unknown => {
-                Err(BpError::UnknownValue("BinanceRateLimitInterval".into()))
-            }
+            BinanceRateLimitInterval::Unknown => Err(BpError::Exchange(
+                ExchangeError::UnknownValue("BinanceRateLimitInterval".into()),
+            )),
         }
     }
 }
@@ -78,9 +79,9 @@ impl TryFrom<BinanceRateLimitType> for RateLimitRestriction {
             BinanceRateLimitType::ORDERS => Ok(RateLimitRestriction::OrderCount),
             BinanceRateLimitType::RAW_REQUESTS => Ok(RateLimitRestriction::RawRequests),
             BinanceRateLimitType::REQUEST_WEIGHT => Ok(RateLimitRestriction::Weight),
-            BinanceRateLimitType::Unknown => {
-                Err(BpError::UnknownValue("BinanceRateLimitType".into()))
-            }
+            BinanceRateLimitType::Unknown => Err(BpError::Exchange(ExchangeError::UnknownValue(
+                "BinanceRateLimitType".into(),
+            ))),
         }
     }
 }

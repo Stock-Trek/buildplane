@@ -15,6 +15,7 @@ use buildplane_exchange_types::{
     signer::Signer,
     urls::TradingMode,
 };
+use buildplane_shared::errors::ExchangeError;
 use buildplane_shared::errors::{BpError, BpResult};
 use buildplane_type_bridge::{BinanceConverter, Converter};
 use chrono::{DateTime, Utc};
@@ -38,9 +39,9 @@ impl ExchangeUpdater for BinanceUpdater {
         end_time: DateTime<Utc>,
     ) -> BpResult<Vec<Kline>> {
         let Some(symbol) = self.converter.ticker_mapping().symbol(trading_pair) else {
-            return Err(BpError::MissingSymbol {
+            return Err(BpError::Exchange(ExchangeError::MissingSymbol {
                 trading_pair: format!("{trading_pair:?}"),
-            });
+            }));
         };
         let mut request = BinanceKlinesRequest::new(symbol, BinanceKlinesInterval::ONE_MINUTE);
         let (start_millis, end_millis) = Self::kline_time_bounds(start_time, end_time);
@@ -64,9 +65,11 @@ impl ExchangeUpdater for BinanceUpdater {
             SubmissionOutcome::Submitted(response) => response
                 .klines()
                 .map_err(|error| BpError::exchange("decode Binance klines response", error)),
-            SubmissionOutcome::Unknown { .. } => Err(BpError::UnknownSubmissionOutcome {
-                exchange: "Binance",
-            }),
+            SubmissionOutcome::Unknown { .. } => {
+                Err(BpError::Exchange(ExchangeError::UnknownSubmissionOutcome {
+                    exchange: "Binance",
+                }))
+            }
         }
     }
 }

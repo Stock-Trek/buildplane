@@ -11,6 +11,7 @@ use aws_sigv4::http_request::{
 use aws_smithy_runtime_api::client::identity::Identity;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_shared::errors::{HttpError, StorageError, TimeoutError};
 use buildplane_shared::{deadline::Deadline, timeouts::Timeouts};
 use http::{HeaderMap, HeaderName, HeaderValue, Method};
 use std::{
@@ -94,12 +95,12 @@ impl InfisicalAwsAuth {
     async fn credentials(&self, config: &SdkConfig, deadline: Deadline) -> BpResult<Credentials> {
         let provider = config
             .credentials_provider()
-            .ok_or_else(|| BpError::MissingCredentials)?;
+            .ok_or_else(|| BpError::Storage(StorageError::MissingCredentials))?;
         self.within_deadline(deadline, "InfisicalAwsAuth provide_credentials", async {
             provider
                 .provide_credentials()
                 .await
-                .map_err(BpError::Credentials)
+                .map_err(|error| BpError::Storage(StorageError::Credentials(error)))
         })
         .await
     }
@@ -113,7 +114,7 @@ impl InfisicalAwsAuth {
         let timeout = self.timeouts.operation_timeout(deadline)?;
         tokio::time::timeout(timeout, future)
             .await
-            .map_err(|_| BpError::TimeoutOperation { operation })?
+            .map_err(|_| BpError::Timeout(TimeoutError::Operation { operation }))?
     }
 
     fn endpoint(region: &Region) -> String {
@@ -169,7 +170,7 @@ impl InfisicalAwsAuth {
             headers.iter().map(|(k, v)| (k.as_str(), v.as_str())),
             SignableBody::Bytes(body.as_bytes()),
         )
-        .map_err(BpError::Signing)?;
+        .map_err(|error| BpError::Http(HttpError::Signing(error)))?;
         let mut signing_settings = SigningSettings::default();
         signing_settings.payload_checksum_kind = PayloadChecksumKind::XAmzSha256;
         let signing_params = SigningParams::V4(
@@ -180,10 +181,10 @@ impl InfisicalAwsAuth {
                 .time(SystemTime::now())
                 .settings(signing_settings)
                 .build()
-                .map_err(BpError::SigningParams)?,
+                .map_err(|error| BpError::Http(HttpError::SigningParams(error)))?,
         );
         let (instructions, _signature) = sign(signable_request, &signing_params)
-            .map_err(BpError::Signing)?
+            .map_err(|error| BpError::Http(HttpError::Signing(error)))?
             .into_parts();
         Ok(instructions)
     }
@@ -199,8 +200,10 @@ impl InfisicalAwsAuth {
     ) -> BpResult<BTreeMap<String, String>> {
         let mut header_map = HeaderMap::new();
         for (key, value) in unsigned_headers {
-            let name = HeaderName::from_str(key).map_err(BpError::InvalidHeaderName)?;
-            let value = HeaderValue::from_str(value).map_err(BpError::InvalidHeaderValue)?;
+            let name = HeaderName::from_str(key)
+                .map_err(|error| BpError::Http(HttpError::InvalidHeaderName(error)))?;
+            let value = HeaderValue::from_str(value)
+                .map_err(|error| BpError::Http(HttpError::InvalidHeaderValue(error)))?;
             header_map.insert(name, value);
         }
         // Signing container. Never sent, built purely to allow aws-sigv4 to create signed headers
@@ -208,7 +211,7 @@ impl InfisicalAwsAuth {
             .method(http::Method::POST)
             .uri(endpoint)
             .body(())
-            .map_err(BpError::Http)?;
+            .map_err(|error| BpError::Http(HttpError::Http(error)))?;
         *temp_signing_request.headers_mut() = header_map;
         instructions.apply_to_request_http1x(&mut temp_signing_request);
         // read headers back out
@@ -218,7 +221,7 @@ impl InfisicalAwsAuth {
             .map(|(k, v)| {
                 let value = v
                     .to_str()
-                    .map_err(BpError::InvalidHeaderValueStr)?
+                    .map_err(|error| BpError::Http(HttpError::InvalidHeaderValueStr(error)))?
                     .to_string();
                 Ok((k.as_str().to_string(), value))
             })
@@ -236,8 +239,9 @@ impl InfisicalAwsAuth {
         deadline: Deadline,
     ) -> BpResult<InfisicalTokenResponse> {
         let iam_http_request_method = Method::POST.to_string();
-        let iam_request_headers =
-            BASE64.encode(serde_json::to_vec(&headers).map_err(BpError::Serde)?);
+        let iam_request_headers = BASE64.encode(
+            serde_json::to_vec(&headers).map_err(|error| BpError::Http(HttpError::Serde(error)))?,
+        );
         let iam_request_body = BASE64.encode(body.as_bytes());
         let params = InfisicalAwsAuthRequest {
             identity_id: identity_id.into(),
@@ -256,12 +260,12 @@ impl InfisicalAwsAuth {
                 .json(&params)
                 .send()
                 .await
-                .map_err(BpError::Reqwest)?
+                .map_err(|error| BpError::Http(HttpError::Reqwest(error)))?
                 .error_for_status()
-                .map_err(BpError::Reqwest)?
+                .map_err(|error| BpError::Http(HttpError::Reqwest(error)))?
                 .json::<InfisicalTokenResponse>()
                 .await
-                .map_err(BpError::Reqwest)
+                .map_err(|error| BpError::Http(HttpError::Reqwest(error)))
         })
         .await
     }
@@ -287,12 +291,12 @@ impl InfisicalAwsAuth {
                 .bearer_auth(access_token)
                 .send()
                 .await
-                .map_err(BpError::Reqwest)?
+                .map_err(|error| BpError::Http(HttpError::Reqwest(error)))?
                 .error_for_status()
-                .map_err(BpError::Reqwest)?
+                .map_err(|error| BpError::Http(HttpError::Reqwest(error)))?
                 .json::<InfisicalSecretsResponse>()
                 .await
-                .map_err(BpError::Reqwest)
+                .map_err(|error| BpError::Http(HttpError::Reqwest(error)))
         })
         .await
     }

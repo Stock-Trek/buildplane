@@ -1,5 +1,6 @@
 use buildplane_exchange_types::new_types::Milliseconds;
 use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_shared::errors::{ConnectorError, SystemError};
 use std::{
     sync::{
         Mutex,
@@ -30,13 +31,16 @@ impl Clock {
 
     pub fn duration_since_last_sync(&self) -> BpResult<Option<Duration>> {
         let result = self.last_sync.lock();
-        let mutex = result.map_err(|_| BpError::PoisonedLock)?;
+        let mutex = result.map_err(|_| BpError::System(SystemError::PoisonedLock))?;
         let last_sync = *mutex;
         Ok(last_sync.map(|i| i.elapsed()))
     }
 
     pub fn is_synced(&self) -> BpResult<bool> {
-        let last_sync = self.last_sync.lock().map_err(|_| BpError::PoisonedLock)?;
+        let last_sync = self
+            .last_sync
+            .lock()
+            .map_err(|_| BpError::System(SystemError::PoisonedLock))?;
         Ok(last_sync.is_some())
     }
     pub fn sync(&self, server_time: Milliseconds, round_trip_duration: Duration) -> BpResult<()> {
@@ -46,13 +50,16 @@ impl Clock {
         let offset_estimate = system_time_estimate - server_time;
         self.server_offset_millis
             .store(offset_estimate.0, Ordering::Relaxed);
-        let mut last_sync = self.last_sync.lock().map_err(|_| BpError::PoisonedLock)?;
+        let mut last_sync = self
+            .last_sync
+            .lock()
+            .map_err(|_| BpError::System(SystemError::PoisonedLock))?;
         *last_sync = Some(Instant::now());
         Ok(())
     }
     pub fn server_time_estimate(&self) -> BpResult<Milliseconds> {
         if !self.is_synced()? {
-            return Err(BpError::ClockNotSynced);
+            return Err(BpError::Connector(ConnectorError::ClockNotSynced));
         }
         self.server_time_estimate_unchecked()
     }
@@ -63,7 +70,7 @@ impl Clock {
     fn system_time() -> BpResult<Milliseconds> {
         let system_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|_| BpError::SystemTimeBeforeEpoch)?;
+            .map_err(|_| BpError::System(SystemError::SystemTimeBeforeEpoch))?;
         Ok(Milliseconds(system_time.as_millis() as i64))
     }
     fn server_offset(&self) -> Milliseconds {
@@ -81,7 +88,7 @@ mod tests {
         assert!(!clock.is_synced().unwrap());
         assert!(matches!(
             clock.server_time_estimate(),
-            Err(BpError::ClockNotSynced)
+            Err(BpError::Connector(ConnectorError::ClockNotSynced))
         ));
     }
 

@@ -1,3 +1,4 @@
+use buildplane_shared::errors::ValidationError;
 use buildplane_shared::errors::{BpError, BpResult};
 use rust_decimal::Decimal;
 use stock_trek_types::cex::{
@@ -27,10 +28,10 @@ impl SemanticChecker {
         required_capability: &CexCapability,
     ) -> BpResult<()> {
         if !capabilities.contains(required_capability) {
-            Err(BpError::Unsupported {
+            Err(BpError::Validation(ValidationError::Unsupported {
                 name: "CexCapability".into(),
                 value: (*required_capability).to_string(),
-            })
+            }))
         } else {
             Ok(())
         }

@@ -1,3 +1,4 @@
+use crate::errors::GitHubError;
 use crate::{
     env_vars::EnvVarConfig,
     errors::{BpError, BpResult},
@@ -84,8 +85,10 @@ impl HostAllowlist {
     }
 
     pub fn validate(&self, host: &str) -> Result<String, BpError> {
-        let (name, port) = Self::parse(host.trim()).ok_or_else(|| BpError::HostInvalid {
-            host: host.to_owned(),
+        let (name, port) = Self::parse(host.trim()).ok_or_else(|| {
+            BpError::GitHub(GitHubError::HostInvalid {
+                host: host.to_owned(),
+            })
         })?;
         self.check(&name, port, host)
     }
@@ -105,21 +108,25 @@ impl HostAllowlist {
     /// policy, so callers must use it rather than any part of the original
     /// string.
     pub fn validate_url(&self, url: &str) -> Result<String, BpError> {
-        let parsed = Url::parse(url).map_err(|_| BpError::HostInvalid {
-            host: url.to_owned(),
+        let parsed = Url::parse(url).map_err(|_| {
+            BpError::GitHub(GitHubError::HostInvalid {
+                host: url.to_owned(),
+            })
         })?;
         if parsed.scheme() != "https" {
-            return Err(BpError::HostInvalid {
+            return Err(BpError::GitHub(GitHubError::HostInvalid {
                 host: url.to_owned(),
-            });
+            }));
         }
         if !parsed.username().is_empty() || parsed.password().is_some() {
-            return Err(BpError::HostInvalid {
+            return Err(BpError::GitHub(GitHubError::HostInvalid {
                 host: url.to_owned(),
-            });
+            }));
         }
-        let (name, port) = Self::host_from_url(&parsed).ok_or_else(|| BpError::HostInvalid {
-            host: url.to_owned(),
+        let (name, port) = Self::host_from_url(&parsed).ok_or_else(|| {
+            BpError::GitHub(GitHubError::HostInvalid {
+                host: url.to_owned(),
+            })
         })?;
         self.check(&name, port, url)
     }
@@ -130,14 +137,14 @@ impl HostAllowlist {
     /// from the port owned by the allowlist entry.
     fn check(&self, name: &str, port: Option<u16>, input: &str) -> Result<String, BpError> {
         let Some(policy) = self.hosts.get(name) else {
-            return Err(BpError::HostNotAllowed {
+            return Err(BpError::GitHub(GitHubError::HostNotAllowed {
                 host: input.to_owned(),
-            });
+            }));
         };
         if !policy.allows(port) {
-            return Err(BpError::HostNotAllowed {
+            return Err(BpError::GitHub(GitHubError::HostNotAllowed {
                 host: input.to_owned(),
-            });
+            }));
         }
         Ok(Self::render(name, policy.effective()))
     }
@@ -339,7 +346,7 @@ mod tests {
     fn rejects_non_allowlisted_host() {
         assert!(matches!(
             allowlist().validate_url("https://evil.com/"),
-            Err(BpError::HostNotAllowed { .. })
+            Err(BpError::GitHub(GitHubError::HostNotAllowed { .. }))
         ));
     }
 

@@ -1,5 +1,6 @@
 use crate::ticker_mapping::TickerMapping;
 use buildplane_exchange_types::ticker::Ticker;
+use buildplane_shared::errors::ValidationError;
 use buildplane_shared::errors::{BpError, BpResult};
 use stock_trek_types::cex::{asset_id::AssetId, order_request::OrderRequest};
 
@@ -18,17 +19,17 @@ impl AssetIdsToTickers {
         };
         let base = ticker_mapping
             .ticker(&base)
-            .ok_or(BpError::Unsupported {
+            .ok_or(BpError::Validation(ValidationError::Unsupported {
                 name: "AssetId".into(),
                 value: base.to_string(),
-            })?
+            }))?
             .clone();
         let quote = ticker_mapping
             .ticker(&quote)
-            .ok_or(BpError::Unsupported {
+            .ok_or(BpError::Validation(ValidationError::Unsupported {
                 name: "AssetId".into(),
                 value: quote.to_string(),
-            })?
+            }))?
             .clone();
         let order_request = match order_request {
             OrderRequest::Limit {

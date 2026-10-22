@@ -13,6 +13,7 @@ use crate::{
     signer::Signer,
     websocket_id::ETWebsocketId,
 };
+use buildplane_shared::errors::ExchangeError;
 use buildplane_shared::errors::{BpError, BpResult};
 use query_params::QueryParams;
 use rust_decimal::Decimal;
@@ -107,9 +108,9 @@ impl KlinesWebsocketRequest<BinanceResponse<BinanceKlinesResponse>> for BinanceK
 impl KlinesResponse for BinanceResponse<BinanceKlinesResponse> {
     fn klines(&self) -> BpResult<Vec<Kline>> {
         match &self.payload {
-            BinanceResponsePayload::Failure(_) => {
-                Err(BpError::BadResponse("Failure in klines response".into()))
-            }
+            BinanceResponsePayload::Failure(_) => Err(BpError::Exchange(
+                ExchangeError::BadResponse("Failure in klines response".into()),
+            )),
             BinanceResponsePayload::Success(payload) => {
                 let mut result = Vec::new();
                 for binance_kline in payload {
@@ -148,10 +149,12 @@ impl TryFrom<&BinanceKlineResponse> for Kline {
 
 impl BinanceKlineResponse {
     fn str_to_decimal(name: &str, value: &str) -> BpResult<Decimal> {
-        Decimal::from_str_exact(value).map_err(|e| BpError::BadValue {
-            name: name.into(),
-            value: value.into(),
-            reason: e.to_string(),
+        Decimal::from_str_exact(value).map_err(|e| {
+            BpError::Exchange(ExchangeError::BadValue {
+                name: name.into(),
+                value: value.into(),
+                reason: e.to_string(),
+            })
         })
     }
 }

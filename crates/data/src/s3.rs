@@ -5,6 +5,7 @@ use aws_sdk_s3::{
     types::{Delete, ObjectIdentifier},
 };
 use aws_sdk_s3_transfer_manager::{Client as TransferClient, io::InputStream};
+use buildplane_shared::errors::StorageError;
 use buildplane_shared::errors::{BpError, BpResult};
 use bytes::Bytes;
 use std::{fmt, path::Path};
@@ -259,7 +260,10 @@ impl S3 {
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                errors.push(BpError::S3DeleteObjects { target, failures });
+                errors.push(BpError::Storage(StorageError::S3DeleteObjects {
+                    target,
+                    failures,
+                }));
             }
         }
         if errors.is_empty() {

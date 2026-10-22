@@ -1,3 +1,4 @@
+use crate::errors::SqsError;
 use crate::{
     errors::{BpError, BpResult},
     sqs::SQS_MAX_BATCH_BYTES,
@@ -105,10 +106,10 @@ impl SqsMessage {
         })?
         .len();
         if envelope > SQS_MAX_BATCH_BYTES {
-            return Err(BpError::SqsMessageTooLarge {
+            return Err(BpError::Sqs(SqsError::MessageTooLarge {
                 size: envelope,
                 limit: SQS_MAX_BATCH_BYTES,
-            });
+            }));
         }
         let mut messages = Vec::new();
         let mut current: Vec<String> = Vec::new();
@@ -130,10 +131,10 @@ impl SqsMessage {
                 encoded + 1
             };
             if envelope + extra + addition > SQS_MAX_BATCH_BYTES {
-                return Err(BpError::SqsMessageTooLarge {
+                return Err(BpError::Sqs(SqsError::MessageTooLarge {
                     size: envelope + addition,
                     limit: SQS_MAX_BATCH_BYTES,
-                });
+                }));
             }
             extra += addition;
             current.push(repo_id.clone());

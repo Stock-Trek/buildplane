@@ -1,5 +1,6 @@
 use buildplane_shared::env_vars::EnvVarConfig;
 use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_shared::errors::{ConfigError, ExchangeError};
 pub use buildplane_shared::protocol::Protocol;
 use serde::{Deserialize, Serialize};
 use std::env::VarError;
@@ -24,17 +25,17 @@ pub trait Urls {
             .env_var(&env_var_name)
             .map_err(|error| {
                 let value = match &error {
-                    BpError::EnvVar(error) => match error {
+                    BpError::Config(ConfigError::EnvVar(error)) => match error {
                         VarError::NotUnicode(value) => value.to_string_lossy().into_owned(),
                         VarError::NotPresent => default.to_owned(),
                     },
                     _ => default.to_owned(),
                 };
-                BpError::BadValue {
+                BpError::Exchange(ExchangeError::BadValue {
                     name: env_var_name.clone(),
                     value,
                     reason: error.to_string(),
-                }
+                })
             })?
             .unwrap_or_else(|| default.to_owned());
         protocol.validate_url(&env_var_name, &value)?;

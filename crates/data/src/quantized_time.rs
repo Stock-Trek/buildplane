@@ -1,3 +1,4 @@
+use buildplane_shared::errors::DataError;
 use buildplane_shared::errors::{BpError, BpResult};
 use chrono::{DateTime, Datelike, Duration, TimeZone, Utc, Weekday};
 
@@ -158,9 +159,9 @@ impl QuantizedTime {
         let day_start = timestamp
             .date_naive()
             .and_hms_opt(0, 0, 0)
-            .ok_or(BpError::DateTimeOutOfRange {
+            .ok_or(BpError::Data(DataError::DateTimeOutOfRange {
                 operation: "find start of week",
-            })?
+            }))?
             .and_utc();
         Self::checked_sub(day_start, time_delta_to_subtract)
     }
@@ -169,26 +170,26 @@ impl QuantizedTime {
         let month = timestamp.month0() / top_of_month as u32 * top_of_month as u32 + 1;
         Utc.with_ymd_and_hms(year, month, 1, 0, 0, 0)
             .single()
-            .ok_or(BpError::DateTimeOutOfRange {
+            .ok_or(BpError::Data(DataError::DateTimeOutOfRange {
                 operation: "find start of month",
-            })
+            }))
     }
     fn year(timestamp: DateTime<Utc>) -> BpResult<DateTime<Utc>> {
         let year = timestamp.year();
         Utc.with_ymd_and_hms(year, 1, 1, 0, 0, 0)
             .single()
-            .ok_or(BpError::DateTimeOutOfRange {
+            .ok_or(BpError::Data(DataError::DateTimeOutOfRange {
                 operation: "find start of year",
-            })
+            }))
     }
     fn modulo_seconds(timestamp: DateTime<Utc>, modulo: i64) -> BpResult<DateTime<Utc>> {
         let timestamp_secs = timestamp.timestamp();
         let quantized_secs = timestamp_secs - timestamp_secs.rem_euclid(modulo);
         Utc.timestamp_opt(quantized_secs, 0)
             .single()
-            .ok_or(BpError::DateTimeOutOfRange {
+            .ok_or(BpError::Data(DataError::DateTimeOutOfRange {
                 operation: "quantize seconds",
-            })
+            }))
     }
     fn with_year_and_month(
         timestamp: DateTime<Utc>,
@@ -198,23 +199,23 @@ impl QuantizedTime {
         timestamp
             .with_year(year)
             .and_then(|date_time| date_time.with_month(month))
-            .ok_or(BpError::DateTimeOutOfRange {
+            .ok_or(BpError::Data(DataError::DateTimeOutOfRange {
                 operation: "shift year and month",
-            })
+            }))
     }
     fn checked_add(timestamp: DateTime<Utc>, duration: Duration) -> BpResult<DateTime<Utc>> {
         timestamp
             .checked_add_signed(duration)
-            .ok_or(BpError::DateTimeOutOfRange {
+            .ok_or(BpError::Data(DataError::DateTimeOutOfRange {
                 operation: "add duration",
-            })
+            }))
     }
     fn checked_sub(timestamp: DateTime<Utc>, duration: Duration) -> BpResult<DateTime<Utc>> {
         timestamp
             .checked_sub_signed(duration)
-            .ok_or(BpError::DateTimeOutOfRange {
+            .ok_or(BpError::Data(DataError::DateTimeOutOfRange {
                 operation: "subtract duration",
-            })
+            }))
     }
 }
 

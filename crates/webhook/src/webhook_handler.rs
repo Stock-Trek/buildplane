@@ -4,6 +4,7 @@ use crate::{
     responses::Responses,
 };
 use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_shared::errors::{GitHubError, HttpError, SecretsError};
 use buildplane_shared::{
     deadline::Deadline, metrics::event::EventMetrics, metrics::route::RouteMetrics,
     request_context::RequestContext,
@@ -60,7 +61,7 @@ impl WebhookHandler {
                 }
                 Ok(response)
             }
-            Err(BpError::SecretsUnavailable { retry_after }) => {
+            Err(BpError::Secrets(SecretsError::Unavailable { retry_after })) => {
                 let status = StatusCode::SERVICE_UNAVAILABLE;
                 metrics.record_error_status("secrets_unavailable", status.as_u16());
                 Responses::service_unavailable(retry_after)
@@ -191,15 +192,15 @@ impl WebhookHandler {
                 Ok(EventResponse::Unauthorized) => unauthorized = true,
                 Ok(EventResponse::WrongGitProvider) => continue,
                 Ok(EventResponse::Rejected) => return Ok(EventResponse::Rejected),
-                Err(BpError::Serde(error)) => {
+                Err(BpError::Http(HttpError::Serde(error))) => {
                     tracing::warn!("rejecting malformed payload: {error}");
                     return Ok(EventResponse::Rejected);
                 }
-                Err(BpError::HostInvalid { host: url }) => {
+                Err(BpError::GitHub(GitHubError::HostInvalid { host: url })) => {
                     tracing::warn!("rejecting payload with unparseable host URL: {url:?}");
                     return Ok(EventResponse::Rejected);
                 }
-                Err(BpError::HostNotAllowed { host: url }) => {
+                Err(BpError::GitHub(GitHubError::HostNotAllowed { host: url })) => {
                     tracing::warn!("rejecting payload from disallowed host: {url:?}");
                     return Ok(EventResponse::Rejected);
                 }

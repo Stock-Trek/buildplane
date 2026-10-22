@@ -5,6 +5,7 @@ use crate::{
     infisical::secrets::Secrets,
 };
 use aws_config::SdkConfig;
+use buildplane_shared::errors::SecretsError;
 use buildplane_shared::errors::{BpError, BpResult};
 use buildplane_shared::{
     deadline::Deadline, env_vars::EnvVarConfig, metrics::secret::SecretMetrics, timeouts::Timeouts,
@@ -114,7 +115,7 @@ impl RsWebhookContext {
             .await
         {
             Ok(converters) => Ok(Some(converters)),
-            Err(BpError::RefreshThrottled) => Ok(None),
+            Err(BpError::Secrets(SecretsError::RefreshThrottled)) => Ok(None),
             Err(error) => Err(error),
         }
     }
@@ -131,12 +132,12 @@ impl RsWebhookContext {
                 return Ok(converters);
             }
         } else if self.refreshed_recently().await {
-            return Err(BpError::RefreshThrottled);
+            return Err(BpError::Secrets(SecretsError::RefreshThrottled));
         }
 
         if let Some(retry_after) = self.remaining_backoff().await {
             SecretMetrics::record_secret_load_backoff_hit();
-            return Err(BpError::SecretsUnavailable { retry_after });
+            return Err(BpError::Secrets(SecretsError::Unavailable { retry_after }));
         }
 
         SecretMetrics::record_secret_load_attempt();
@@ -156,7 +157,7 @@ impl RsWebhookContext {
                 }
                 let retry_after = self.jittered_backoff();
                 *self.backoff_until.lock().await = Some(Instant::now() + retry_after);
-                Err(BpError::SecretsUnavailable { retry_after })
+                Err(BpError::Secrets(SecretsError::Unavailable { retry_after }))
             }
         }
     }

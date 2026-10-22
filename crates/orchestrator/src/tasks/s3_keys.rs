@@ -1,4 +1,5 @@
 use buildplane_shared::errors::BpResult;
+use buildplane_shared::errors::ValidationError;
 use buildplane_shared::{errors::BpError, git_ops::git_remote::GitHost, sqs_message::SqsRefType};
 use std::fmt::Display;
 
@@ -148,9 +149,9 @@ impl S3Keys {
         if Self::is_valid_ref_name(value) {
             Ok(value.to_string())
         } else {
-            Err(BpError::InvalidPath {
+            Err(BpError::Validation(ValidationError::InvalidPath {
                 value: value.to_string(),
-            })?
+            }))?
         }
     }
 

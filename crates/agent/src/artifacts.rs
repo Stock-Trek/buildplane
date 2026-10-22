@@ -1,5 +1,6 @@
 use crate::{s3::SignedPost, source::Source};
 use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_shared::errors::{ConfigError, IoError};
 use std::{
     fs as std_fs,
     io::{self, Cursor, Write},
@@ -65,10 +66,10 @@ impl Artifacts {
     fn prepare_workspace(&self) -> BpResult<()> {
         let workspace = self.build_dir.path();
         if !self.source_dir.join("Cargo.toml").is_file() {
-            return Err(BpError::BuildConfig(format!(
+            return Err(BpError::Config(ConfigError::Build(format!(
                 "build workspace source {} does not contain Cargo.toml",
                 self.source_dir.display()
-            )));
+            ))));
         }
 
         std_fs::create_dir_all(workspace).map_err(|source| {
@@ -171,7 +172,9 @@ impl Artifacts {
             tokio::task::spawn_blocking(move || copy_path(&from, &to))
                 .await
                 .map_err(|source| {
-                    BpError::BuildConfig(format!("failed to prepare build cache: {source}"))
+                    BpError::Config(ConfigError::Build(format!(
+                        "failed to prepare build cache: {source}"
+                    )))
                 })?
                 .map_err(|source| {
                     BpError::io(
@@ -237,21 +240,23 @@ impl Artifacts {
         let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
         for file in files {
             let relative = file.strip_prefix(root).map_err(|_| {
-                BpError::BuildConfig(format!(
+                BpError::Config(ConfigError::Build(format!(
                     "artifact path {} is outside {USER_GENERATED_DIR}",
                     file.display()
-                ))
+                )))
             })?;
             let name = relative
                 .to_str()
                 .ok_or_else(|| {
-                    BpError::BuildConfig(format!(
+                    BpError::Config(ConfigError::Build(format!(
                         "artifact path {} is not valid UTF-8",
                         file.display()
-                    ))
+                    )))
                 })?
                 .replace('\\', "/");
-            archive.start_file(name, options).map_err(BpError::Zip)?;
+            archive
+                .start_file(name, options)
+                .map_err(|error| BpError::Io(IoError::Zip(error)))?;
             let contents = std_fs::read(file).map_err(|source| {
                 BpError::io("read artifact", file.display().to_string(), source)
             })?;
@@ -259,7 +264,10 @@ impl Artifacts {
                 BpError::io("write source archive", file.display().to_string(), source)
             })?;
         }
-        Ok(archive.finish().map_err(BpError::Zip)?.into_inner())
+        Ok(archive
+            .finish()
+            .map_err(|error| BpError::Io(IoError::Zip(error)))?
+            .into_inner())
     }
 
     async fn user_generated_files(root: &Path) -> BpResult<Vec<PathBuf>> {
@@ -299,10 +307,10 @@ impl Artifacts {
                     BpError::io("read artifact", path.display().to_string(), source)
                 })?;
                 if !resolved.starts_with(&root) {
-                    return Err(BpError::BuildConfig(format!(
+                    return Err(BpError::Config(ConfigError::Build(format!(
                         "artifact path {} resolves outside {USER_GENERATED_DIR}",
                         path.display()
-                    )));
+                    ))));
                 }
 
                 let target = fs::metadata(&resolved).await.map_err(|source| {
@@ -310,19 +318,19 @@ impl Artifacts {
                 })?;
                 if target.is_dir() {
                     if file_type.is_symlink() {
-                        return Err(BpError::BuildConfig(format!(
+                        return Err(BpError::Config(ConfigError::Build(format!(
                             "artifact path {} is a symlinked directory",
                             path.display()
-                        )));
+                        ))));
                     }
                     pending.push(path);
                 } else if target.is_file() {
                     files.push(path);
                 } else {
-                    return Err(BpError::BuildConfig(format!(
+                    return Err(BpError::Config(ConfigError::Build(format!(
                         "artifact path {} is not a regular file or directory",
                         path.display()
-                    )));
+                    ))));
                 }
             }
         }

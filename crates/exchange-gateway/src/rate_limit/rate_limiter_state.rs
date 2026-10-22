@@ -1,4 +1,5 @@
 use buildplane_exchange_types::new_types::{Nanoseconds, UsageCount};
+use buildplane_shared::errors::RateLimitError;
 use buildplane_shared::errors::{BpError, BpResult};
 use std::{
     sync::Arc,
@@ -35,10 +36,10 @@ impl RateLimiterState {
         now: Arc<dyn Fn() -> Instant + Send + Sync>,
     ) -> BpResult<Self> {
         if interval_nanos <= Nanoseconds::ZERO {
-            return Err(BpError::InvalidRateLimitInterval);
+            return Err(BpError::RateLimit(RateLimitError::InvalidRateLimitInterval));
         }
         if capacity_per_interval <= UsageCount::ZERO {
-            return Err(BpError::InvalidRateLimitCapacity);
+            return Err(BpError::RateLimit(RateLimitError::InvalidRateLimitCapacity));
         }
         Ok(Self {
             interval_nanos,
@@ -65,14 +66,16 @@ impl RateLimiterState {
     }
     pub fn did_consume(&mut self, cost: UsageCount) -> BpResult<()> {
         if self.cost_exceeds_capacity(cost) {
-            return Err(BpError::RequestExceedsRateLimit {
-                cost,
-                capacity: self.capacity_per_interval,
-                interval_nanos: self.interval_nanos,
-            });
+            return Err(BpError::RateLimit(
+                RateLimitError::RequestExceedsRateLimit {
+                    cost,
+                    capacity: self.capacity_per_interval,
+                    interval_nanos: self.interval_nanos,
+                },
+            ));
         }
         if self.is_throttled() {
-            return Err(BpError::RateLimited);
+            return Err(BpError::RateLimit(RateLimitError::RateLimited));
         }
         if self.did_quick_consume(cost) {
             Ok(())
@@ -81,7 +84,7 @@ impl RateLimiterState {
             if self.did_quick_consume(cost) {
                 Ok(())
             } else {
-                Err(BpError::RateLimited)
+                Err(BpError::RateLimit(RateLimitError::RateLimited))
             }
         }
     }

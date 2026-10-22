@@ -3,6 +3,7 @@ use aws_sdk_s3::{
     error::{ProvideErrorMetadata, SdkError},
     primitives::ByteStream,
 };
+use buildplane_shared::errors::DataError;
 use buildplane_shared::errors::{BpError, BpResult};
 use chrono::{DateTime, Utc};
 use std::{
@@ -39,9 +40,9 @@ impl LockGuard {
             }
             if Instant::now() >= deadline {
                 warn!("timed out waiting for lock {}", key);
-                return Err(BpError::LockContention {
+                return Err(BpError::Data(DataError::LockContention {
                     key: key.as_str().to_string(),
-                });
+                }));
             }
             sleep(RETRY_INTERVAL).await;
         }
@@ -69,9 +70,9 @@ impl LockGuard {
         };
         let Some(e_tag) = Self::resolve_e_tag(s3_client, bucket, key, output.e_tag()).await? else {
             Self::remove_unreleasable_lock(s3_client, bucket, key, &token).await;
-            return Err(BpError::MissingLockETag {
+            return Err(BpError::Data(DataError::MissingLockETag {
                 key: key.as_str().to_string(),
-            });
+            }));
         };
         info!("acquired lock {} ({})", key, e_tag);
         Ok(Some(Self {
@@ -213,10 +214,11 @@ impl LockGuard {
         else {
             return Ok(false);
         };
-        let stale_after =
-            chrono::Duration::from_std(STALE_AFTER).map_err(|_| BpError::DateTimeOutOfRange {
+        let stale_after = chrono::Duration::from_std(STALE_AFTER).map_err(|_| {
+            BpError::Data(DataError::DateTimeOutOfRange {
                 operation: "convert lock staleness duration",
-            })?;
+            })
+        })?;
         if Utc::now().signed_duration_since(last_modified) < stale_after {
             return Ok(false);
         }
@@ -257,9 +259,9 @@ impl LockGuard {
     ) -> BpResult<()> {
         let target = S3::object_target(bucket, key);
         if e_tag.is_empty() {
-            return Err(BpError::MissingLockETag {
+            return Err(BpError::Data(DataError::MissingLockETag {
                 key: key.as_str().to_string(),
-            });
+            }));
         }
         match s3_client
             .delete_object()

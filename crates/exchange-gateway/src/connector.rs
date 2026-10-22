@@ -26,6 +26,7 @@ use buildplane_exchange_types::{
     websocket_id::ETWebsocketId,
 };
 use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_shared::errors::{ConnectorError, RateLimitError, TimeoutError};
 use futures_timer::Delay;
 use iris::{Config as IrisConfig, DisconnectedBehavior, ServerCloseBehavior};
 use std::{
@@ -280,7 +281,7 @@ where
             self.handle_http_response::<Exchange::ServerTimeResponseHttp>(http_response)?;
         let server_time = response
             .server_time()
-            .map_err(|_| BpError::MissingServerTime)?;
+            .map_err(|_| BpError::Connector(ConnectorError::MissingServerTime))?;
         self.clock.sync(server_time, round_trip_time)?;
         debug!(
             exchange = self.exchange.name(),
@@ -392,7 +393,9 @@ where
                 exchange = self.exchange.name(),
                 status, "exchange rate limited the request"
             );
-            return Err(BpError::send_failed(BpError::RateLimited));
+            return Err(BpError::send_failed(BpError::RateLimit(
+                RateLimitError::RateLimited,
+            )));
         }
         if !(200..300).contains(&status) {
             warn!(
@@ -405,9 +408,11 @@ where
                     .map_err(BpError::send_unknown)?;
                 // The exchange responded but is throttling us. The request reached
                 // the exchange, so it cannot be reported as not sent.
-                return Err(BpError::send_unknown(BpError::RateLimited));
+                return Err(BpError::send_unknown(BpError::RateLimit(
+                    RateLimitError::RateLimited,
+                )));
             }
-            let error = BpError::GatewayHttpStatus { status };
+            let error = BpError::Connector(ConnectorError::GatewayHttpStatus { status });
             return Err(if status >= 500 {
                 BpError::send_unknown(error)
             } else {
@@ -420,9 +425,9 @@ where
                 .map_err(BpError::send_unknown)?;
         }
         let response = Response::try_from_http(http_response).map_err(|source| {
-            BpError::send_unknown(BpError::HttpParseError {
+            BpError::send_unknown(BpError::Connector(ConnectorError::HttpParseError {
                 source: Box::new(source),
-            })
+            }))
         })?;
         self.set_rate_limits(&response)
             .map_err(BpError::send_unknown)?;
@@ -497,7 +502,7 @@ where
         let round_trip_time = start.elapsed();
         let server_time = response
             .server_time()
-            .map_err(|_| BpError::MissingServerTime)?;
+            .map_err(|_| BpError::Connector(ConnectorError::MissingServerTime))?;
         self.clock.sync(server_time, round_trip_time)?;
         debug!(
             exchange = self.exchange.name(),
@@ -602,7 +607,9 @@ where
         let listener = match self.websocket_listener.as_ref() {
             Some(listener) => listener,
             None => {
-                return Err(BpError::send_not_sent(BpError::WebsocketListenerMissing));
+                return Err(BpError::send_not_sent(BpError::Connector(
+                    ConnectorError::WebsocketListenerMissing,
+                )));
             }
         };
         let waiter = match listener.waiter_for_filtered_response(response_matcher) {
@@ -623,16 +630,18 @@ where
             Poll::Pending => match delay.as_mut().poll(cx) {
                 Poll::Ready(()) => {
                     warn!(exchange, "websocket request timed out");
-                    Poll::Ready(Err(BpError::send_unknown(BpError::TimedOut)))
+                    Poll::Ready(Err(BpError::send_unknown(BpError::Timeout(
+                        TimeoutError::TimedOut,
+                    ))))
                 }
                 Poll::Pending => Poll::Pending,
             },
         })
         .await?;
         let response = Response::try_from_websocket(response_value).map_err(|source| {
-            BpError::send_unknown(BpError::WebsocketParseError {
+            BpError::send_unknown(BpError::Connector(ConnectorError::WebsocketParseError {
                 source: Box::new(source),
-            })
+            }))
         })?;
         self.set_rate_limits(&response)
             .map_err(BpError::send_unknown)?;

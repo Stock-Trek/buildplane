@@ -19,6 +19,7 @@ use crate::{
     infisical::secrets::Secrets,
 };
 use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_shared::errors::{GitHubError, HttpError};
 use buildplane_shared::{
     env_vars::EnvVarConfig,
     git_ops::github::host_allow_list::HostAllowlist,
@@ -92,8 +93,8 @@ impl GitHubEventConverter {
         request: &lambda_http::Request,
         delivery_id: Option<String>,
     ) -> BpResult<EventResponse> {
-        let event: GitHubEventInstallation =
-            serde_json::from_slice(request.body()).map_err(BpError::Serde)?;
+        let event: GitHubEventInstallation = serde_json::from_slice(request.body())
+            .map_err(|error| BpError::Http(HttpError::Serde(error)))?;
         let installation_id = event.installation.id;
         let action = event.action;
         match action {
@@ -131,8 +132,8 @@ impl GitHubEventConverter {
         request: &lambda_http::Request,
         delivery_id: Option<String>,
     ) -> BpResult<EventResponse> {
-        let event: GitHubEventInstallationRepositories =
-            serde_json::from_slice(request.body()).map_err(BpError::Serde)?;
+        let event: GitHubEventInstallationRepositories = serde_json::from_slice(request.body())
+            .map_err(|error| BpError::Http(HttpError::Serde(error)))?;
         let action = event.action;
         match action {
             GitHubEventInstallationRepositoriesAction::Added => {}
@@ -161,8 +162,8 @@ impl GitHubEventConverter {
         request: &lambda_http::Request,
         delivery_id: Option<String>,
     ) -> BpResult<EventResponse> {
-        let event: GitHubEventRepository =
-            serde_json::from_slice(request.body()).map_err(BpError::Serde)?;
+        let event: GitHubEventRepository = serde_json::from_slice(request.body())
+            .map_err(|error| BpError::Http(HttpError::Serde(error)))?;
         let installation_id = event.installation.id;
         let repo_id = Self::repo_id(event.repository);
         let action = event.action;
@@ -197,8 +198,8 @@ impl GitHubEventConverter {
         request: &lambda_http::Request,
         delivery_id: Option<String>,
     ) -> BpResult<EventResponse> {
-        let event: GitHubEventRef =
-            serde_json::from_slice(request.body()).map_err(BpError::Serde)?;
+        let event: GitHubEventRef = serde_json::from_slice(request.body())
+            .map_err(|error| BpError::Http(HttpError::Serde(error)))?;
         let Some(ref_type) = Self::ref_type(&event.ref_type) else {
             EventMetrics::record_ignored_event("create", &event.ref_type.to_string());
             return Ok(EventResponse::Ignore);
@@ -221,8 +222,8 @@ impl GitHubEventConverter {
         request: &lambda_http::Request,
         delivery_id: Option<String>,
     ) -> BpResult<EventResponse> {
-        let event: GitHubEventPush =
-            serde_json::from_slice(request.body()).map_err(BpError::Serde)?;
+        let event: GitHubEventPush = serde_json::from_slice(request.body())
+            .map_err(|error| BpError::Http(HttpError::Serde(error)))?;
         let GitHubEventPush {
             after,
             created,
@@ -295,12 +296,16 @@ impl GitHubEventConverter {
         self.allowed_hosts
             .validate_url(&installation.html_url)
             .map_err(|error| match error {
-                BpError::HostInvalid { .. } => BpError::HostInvalid {
-                    host: installation.html_url.clone(),
-                },
-                BpError::HostNotAllowed { .. } => BpError::HostNotAllowed {
-                    host: installation.html_url.clone(),
-                },
+                BpError::GitHub(GitHubError::HostInvalid { .. }) => {
+                    BpError::GitHub(GitHubError::HostInvalid {
+                        host: installation.html_url.clone(),
+                    })
+                }
+                BpError::GitHub(GitHubError::HostNotAllowed { .. }) => {
+                    BpError::GitHub(GitHubError::HostNotAllowed {
+                        host: installation.html_url.clone(),
+                    })
+                }
                 _ => error,
             })
     }
@@ -471,7 +476,7 @@ mod tests {
         let request = signed_request(SECRET, "installation", &body);
         assert!(matches!(
             converter().event_response(&request),
-            Err(BpError::HostNotAllowed { host: url }) if url == "https://evil.com/"
+            Err(BpError::GitHub(GitHubError::HostNotAllowed { host: url })) if url == "https://evil.com/"
         ));
     }
 
@@ -479,7 +484,7 @@ mod tests {
     fn installation_event_rejects_non_https_scheme() {
         assert!(matches!(
             host_from_installation("http://github.com/"),
-            Err(BpError::HostInvalid { host: url }) if url == "http://github.com/"
+            Err(BpError::GitHub(GitHubError::HostInvalid { host: url })) if url == "http://github.com/"
         ));
     }
 
@@ -517,7 +522,7 @@ mod tests {
     fn installation_event_rejects_userinfo_trick() {
         assert!(matches!(
             host_from_installation("https://github.com@evil.com/"),
-            Err(BpError::HostInvalid { host: url }) if url == "https://github.com@evil.com/"
+            Err(BpError::GitHub(GitHubError::HostInvalid { host: url })) if url == "https://github.com@evil.com/"
         ));
     }
 }

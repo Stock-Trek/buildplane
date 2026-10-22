@@ -4,6 +4,7 @@ use buildplane_exchange_types::{
     rate_limited::RateUsage,
 };
 use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_shared::errors::{RateLimitError, SystemError};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -25,18 +26,20 @@ impl RateLimiter {
         let mut limiters_guard = self
             .rate_limiters
             .lock()
-            .map_err(|_| BpError::PoisonedLock)?;
+            .map_err(|_| BpError::System(SystemError::PoisonedLock))?;
         let lowest_exceeded_limit = limiters_guard
             .iter()
             .filter(|limiter| limiter.cost_exceeds_capacity(cost))
             .min_by_key(|limiter| limiter.capacity_per_interval())
             .map(|limiter| (limiter.capacity_per_interval(), limiter.interval_nanos()));
         if let Some((capacity, interval_nanos)) = lowest_exceeded_limit {
-            return Err(BpError::RequestExceedsRateLimit {
-                cost,
-                capacity,
-                interval_nanos,
-            });
+            return Err(BpError::RateLimit(
+                RateLimitError::RequestExceedsRateLimit {
+                    cost,
+                    capacity,
+                    interval_nanos,
+                },
+            ));
         }
         for (index, limiter) in limiters_guard.iter_mut().enumerate() {
             if let Err(error) = limiter.did_consume(cost) {
@@ -53,7 +56,7 @@ impl RateLimiter {
         let mut limiters_guard = self
             .rate_limiters
             .lock()
-            .map_err(|_| BpError::PoisonedLock)?;
+            .map_err(|_| BpError::System(SystemError::PoisonedLock))?;
         Ok(limiters_guard
             .iter_mut()
             .map(|limiter| (limiter.interval_nanos(), limiter.remaining_capacity()))
@@ -63,7 +66,7 @@ impl RateLimiter {
         let mut limiters_guard = self
             .rate_limiters
             .lock()
-            .map_err(|_| BpError::PoisonedLock)?;
+            .map_err(|_| BpError::System(SystemError::PoisonedLock))?;
         for limiter in limiters_guard.iter_mut() {
             limiter.refund(cost);
         }
@@ -73,7 +76,7 @@ impl RateLimiter {
         let mut limiters_guard = self
             .rate_limiters
             .lock()
-            .map_err(|_| BpError::PoisonedLock)?;
+            .map_err(|_| BpError::System(SystemError::PoisonedLock))?;
         for (interval_nanos, rate_usage) in interval_usage {
             let mut matched_existing = false;
             for limiter in limiters_guard.iter_mut() {
@@ -99,14 +102,14 @@ impl RateLimiter {
         let limiters_guard = self
             .rate_limiters
             .lock()
-            .map_err(|_| BpError::PoisonedLock)?;
+            .map_err(|_| BpError::System(SystemError::PoisonedLock))?;
         Ok(limiters_guard.iter().any(RateLimiterState::is_throttled))
     }
     pub fn throttle(&self, retry_after: Duration) -> BpResult<()> {
         let mut limiters_guard = self
             .rate_limiters
             .lock()
-            .map_err(|_| BpError::PoisonedLock)?;
+            .map_err(|_| BpError::System(SystemError::PoisonedLock))?;
         for limiter in limiters_guard.iter_mut() {
             limiter.throttle_after(retry_after);
         }

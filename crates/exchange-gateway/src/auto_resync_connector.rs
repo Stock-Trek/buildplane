@@ -11,6 +11,7 @@ use buildplane_exchange_types::{
     request::{ETHttpRequest, ETWebsocketRequest},
 };
 use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_shared::errors::{ConnectorError, SystemError};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -60,7 +61,10 @@ impl<Exchange, Client> AutoResyncConnector<Exchange, Client> {
         .await;
         if let Err(payload) = result {
             // Surface the panic before letting it propagate so the task never dies silently.
-            Self::report_failure(&panic_callback, &BpError::AutoResyncClockPanicked);
+            Self::report_failure(
+                &panic_callback,
+                &BpError::Connector(ConnectorError::AutoResyncClockPanicked),
+            );
             std::panic::resume_unwind(payload);
         }
     }
@@ -147,7 +151,7 @@ where
         let handle = self
             .resync_handle
             .lock()
-            .map_err(|_| BpError::PoisonedLock)?
+            .map_err(|_| BpError::System(SystemError::PoisonedLock))?
             .take();
         let Some(handle) = handle else { return Ok(()) };
         debug!("stopping auto-resync clock sync");
@@ -155,7 +159,9 @@ where
         drop(handle.sender); // let the loop drain
         match handle.join.await {
             Ok(()) => Ok(()),
-            Err(e) if e.is_panic() => Err(BpError::AutoResyncClockPanicked),
+            Err(e) if e.is_panic() => {
+                Err(BpError::Connector(ConnectorError::AutoResyncClockPanicked))
+            }
             Err(_) => Ok(()),
         }
     }
@@ -169,14 +175,14 @@ where
         Fut: Future<Output = BpResult<()>> + Send + 'static,
     {
         if frequency < Duration::from_mins(1) {
-            return Err(BpError::InvalidSyncFrequency);
+            return Err(BpError::Connector(ConnectorError::InvalidSyncFrequency));
         }
         let (first_sync_sender, first_sync_receiver) = tokio::sync::oneshot::channel();
         {
             let mut resync_handle = self
                 .resync_handle
                 .lock()
-                .map_err(|_| BpError::PoisonedLock)?;
+                .map_err(|_| BpError::System(SystemError::PoisonedLock))?;
             if let Some(handle) = resync_handle.as_ref() {
                 if handle.join.is_finished()
                     || handle
@@ -185,7 +191,7 @@ where
                         .is_err()
                 {
                     *resync_handle = None;
-                    return Err(BpError::AutoResyncClockStopped);
+                    return Err(BpError::Connector(ConnectorError::AutoResyncClockStopped));
                 }
                 debug!(?frequency, "updating auto-resync clock sync frequency");
                 return Ok(());
@@ -203,7 +209,7 @@ where
         }
         match first_sync_receiver.await {
             Ok(result) => result,
-            Err(_) => Err(BpError::AutoResyncClockPanicked),
+            Err(_) => Err(BpError::Connector(ConnectorError::AutoResyncClockPanicked)),
         }
     }
 }
@@ -399,17 +405,20 @@ mod tests {
             first_sync_sender,
             command_receiver,
             failure_callback,
-            || std::future::ready(Err(BpError::NotConnected)),
+            || std::future::ready(Err(BpError::Connector(ConnectorError::NotConnected))),
         ));
 
         let first_sync_result = first_sync_receiver.await.unwrap();
-        assert!(matches!(first_sync_result, Err(BpError::NotConnected)));
+        assert!(matches!(
+            first_sync_result,
+            Err(BpError::Connector(ConnectorError::NotConnected))
+        ));
         assert!(failure_receiver.try_recv().is_err());
 
         tokio::time::advance(Duration::from_mins(30)).await;
         assert_eq!(
             failure_receiver.recv().await.unwrap(),
-            BpError::NotConnected.to_string()
+            BpError::Connector(ConnectorError::NotConnected).to_string()
         );
 
         join.abort();
@@ -430,12 +439,12 @@ mod tests {
             first_sync_sender,
             command_receiver,
             failure_callback,
-            || std::future::ready(Err(BpError::NotConnected)),
+            || std::future::ready(Err(BpError::Connector(ConnectorError::NotConnected))),
         ));
 
         assert_eq!(
             failure_receiver.recv().await.unwrap(),
-            BpError::NotConnected.to_string()
+            BpError::Connector(ConnectorError::NotConnected).to_string()
         );
 
         join.abort();
@@ -460,7 +469,7 @@ mod tests {
 
         assert_eq!(
             failure_receiver.recv().await.unwrap(),
-            BpError::AutoResyncClockPanicked.to_string()
+            BpError::Connector(ConnectorError::AutoResyncClockPanicked).to_string()
         );
         assert!(first_sync_receiver.await.is_err());
         assert!(join.await.unwrap_err().is_panic());

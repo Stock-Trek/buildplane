@@ -1,4 +1,5 @@
 use crate::{BpError, BpResult};
+use buildplane_shared::errors::ValidationError;
 use rust_decimal::{Decimal, RoundingStrategy, prelude::FromPrimitive};
 
 #[derive(Debug, Clone, Copy)]
@@ -50,9 +51,11 @@ impl TradingPrecision {
         strategy: RoundingStrategy,
     ) -> BpResult<Decimal> {
         let MinMaxStep { min, max, step } = min_max_step;
-        let value_as_decimal = Decimal::from_f64(value).ok_or_else(|| BpError::InvalidValue {
-            name: "Trading value".into(),
-            value: value.to_string(),
+        let value_as_decimal = Decimal::from_f64(value).ok_or_else(|| {
+            BpError::Validation(ValidationError::InvalidValue {
+                name: "Trading value".into(),
+                value: value.to_string(),
+            })
         })?;
         let rounded_value = if step == Decimal::ZERO {
             value_as_decimal
@@ -81,7 +84,10 @@ mod tests {
     fn non_finite_values_return_an_error() {
         for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
             let result = precision().to_valid_quote(value, RoundingStrategy::MidpointNearestEven);
-            assert!(matches!(result, Err(BpError::InvalidValue { .. })));
+            assert!(matches!(
+                result,
+                Err(BpError::Validation(ValidationError::InvalidValue { .. }))
+            ));
         }
     }
 

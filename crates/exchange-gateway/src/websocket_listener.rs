@@ -1,5 +1,6 @@
 use crate::panic_guard::PanicUtils;
 use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_shared::errors::{ConnectorError, SystemError};
 use std::{
     pin::Pin,
     sync::{Arc, Mutex},
@@ -23,13 +24,13 @@ impl WebsocketListener {
         let handlers = self
             .handlers
             .lock()
-            .map_err(|_| BpError::PoisonedLock)?
+            .map_err(|_| BpError::System(SystemError::PoisonedLock))?
             .clone();
         for handler in handlers {
             if handler.handle(&message)? {
                 self.handlers
                     .lock()
-                    .map_err(|_| BpError::PoisonedLock)?
+                    .map_err(|_| BpError::System(SystemError::PoisonedLock))?
                     .retain(|existing| !Arc::ptr_eq(&existing.state, &handler.state));
                 break;
             }
@@ -47,7 +48,7 @@ impl WebsocketListener {
         };
         self.handlers
             .lock()
-            .map_err(|_| BpError::PoisonedLock)?
+            .map_err(|_| BpError::System(SystemError::PoisonedLock))?
             .push(handler);
         Ok(WaiterForResponse {
             state,
@@ -82,7 +83,7 @@ impl Future for WaiterForResponse {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut state = match self.state.lock() {
             Ok(state) => state,
-            Err(_) => return Poll::Ready(Err(BpError::PoisonedLock)),
+            Err(_) => return Poll::Ready(Err(BpError::System(SystemError::PoisonedLock))),
         };
         if let Some(msg) = state.filtered_response.take() {
             Poll::Ready(Ok(msg))
@@ -116,8 +117,13 @@ impl ResponseHandler {
         let is_handled = match PanicUtils::catch_panic(|| (self.filter)(response)) {
             Ok(is_handled) => is_handled,
             Err(payload) => {
-                let error = BpError::CallbackPanicked(PanicUtils::panic_message(payload.as_ref()));
-                let mut state = self.state.lock().map_err(|_| BpError::PoisonedLock)?;
+                let error = BpError::Connector(ConnectorError::CallbackPanicked(
+                    PanicUtils::panic_message(payload.as_ref()),
+                ));
+                let mut state = self
+                    .state
+                    .lock()
+                    .map_err(|_| BpError::System(SystemError::PoisonedLock))?;
                 state.error = Some(error);
                 if let Some(waker) = state.waker.take() {
                     waker.wake();
@@ -126,7 +132,10 @@ impl ResponseHandler {
             }
         };
         if is_handled {
-            let mut state = self.state.lock().map_err(|_| BpError::PoisonedLock)?;
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| BpError::System(SystemError::PoisonedLock))?;
             state.filtered_response = Some(response.clone());
             if let Some(waker) = state.waker.take() {
                 waker.wake();

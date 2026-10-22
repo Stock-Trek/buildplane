@@ -1,4 +1,5 @@
 use crate::{artifacts::Artifacts, request::BuildRequest};
+use buildplane_shared::errors::TimeoutError;
 use buildplane_shared::errors::{BpError, BpResult};
 use std::{path::PathBuf, time::Duration};
 use tokio::time::timeout;
@@ -41,6 +42,8 @@ impl Handler {
             artifacts.publish(&cwasm).await
         })
         .await
-        .unwrap_or(Err(BpError::BuildTimeout(self.build_timeout)))
+        .unwrap_or(Err(BpError::Timeout(TimeoutError::BuildTimeout(
+            self.build_timeout,
+        ))))
     }
 }
