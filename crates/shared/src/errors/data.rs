@@ -59,6 +59,9 @@ impl DataError {
     }
 
     pub fn retryability(&self) -> Retryability {
-        Retryability::Permanent
+        match self {
+            Self::LockContention { .. } => Retryability::Retryable,
+            _ => Retryability::Permanent,
+        }
     }
 }
