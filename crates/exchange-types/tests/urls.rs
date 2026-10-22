@@ -2,15 +2,15 @@ use buildplane_exchange_types::{
     binance::urls::BinanceUrls,
     urls::{Protocol, TradingMode, Urls},
 };
+use buildplane_shared::env_vars::EnvVarConfig;
 
 #[test]
 fn missing_override_uses_default_url() {
     let prefix = "BP_URL_TEST_MISSING";
-    let env_var = format!("{prefix}_HTTP_REAL").to_uppercase();
-    unsafe { std::env::remove_var(&env_var) };
+    let config = EnvVarConfig::from_map(Vec::<(String, String)>::new());
 
     let url = BinanceUrls
-        .env_var_or_default(prefix, Protocol::Http, TradingMode::Real)
+        .env_var_or_default_with(&config, prefix, Protocol::Http, TradingMode::Real)
         .unwrap();
 
     assert_eq!(url, "https://api.binance.com/api/v3");
@@ -21,10 +21,10 @@ fn valid_override_is_returned_unchanged() {
     let prefix = "BP_URL_TEST_VALID";
     let env_var = format!("{prefix}_WEBSOCKET_PAPER").to_uppercase();
     let expected = "wss://example.test/ws-api/v3";
-    unsafe { std::env::set_var(&env_var, expected) };
+    let config = EnvVarConfig::from_map([(&env_var, expected)]);
 
     let url = BinanceUrls
-        .env_var_or_default(prefix, Protocol::Websocket, TradingMode::Paper)
+        .env_var_or_default_with(&config, prefix, Protocol::Websocket, TradingMode::Paper)
         .unwrap();
 
     assert_eq!(url, expected);
@@ -34,9 +34,10 @@ fn valid_override_is_returned_unchanged() {
 fn invalid_override_is_rejected() {
     let prefix = "BP_URL_TEST_INVALID";
     let env_var = format!("{prefix}_HTTP_REAL").to_uppercase();
-    unsafe { std::env::set_var(&env_var, "not a url") };
+    let config = EnvVarConfig::from_map([(&env_var, "not a url")]);
 
-    let result = BinanceUrls.env_var_or_default(prefix, Protocol::Http, TradingMode::Real);
+    let result =
+        BinanceUrls.env_var_or_default_with(&config, prefix, Protocol::Http, TradingMode::Real);
 
     assert!(result.is_err());
 }
@@ -45,9 +46,14 @@ fn invalid_override_is_rejected() {
 fn override_with_wrong_scheme_is_rejected() {
     let prefix = "BP_URL_TEST_SCHEME";
     let env_var = format!("{prefix}_WEBSOCKET_REAL").to_uppercase();
-    unsafe { std::env::set_var(&env_var, "https://example.test/ws-api/v3") };
+    let config = EnvVarConfig::from_map([(&env_var, "https://example.test/ws-api/v3")]);
 
-    let result = BinanceUrls.env_var_or_default(prefix, Protocol::Websocket, TradingMode::Real);
+    let result = BinanceUrls.env_var_or_default_with(
+        &config,
+        prefix,
+        Protocol::Websocket,
+        TradingMode::Real,
+    );
 
     assert!(result.is_err());
 }
@@ -63,10 +69,14 @@ impl Urls for InvalidDefaultUrls {
 #[test]
 fn invalid_default_url_is_rejected() {
     let prefix = "BP_URL_TEST_BAD_DEFAULT";
-    let env_var = format!("{prefix}_HTTP_REAL").to_uppercase();
-    unsafe { std::env::remove_var(&env_var) };
+    let config = EnvVarConfig::from_map(Vec::<(String, String)>::new());
 
-    let result = InvalidDefaultUrls.env_var_or_default(prefix, Protocol::Http, TradingMode::Real);
+    let result = InvalidDefaultUrls.env_var_or_default_with(
+        &config,
+        prefix,
+        Protocol::Http,
+        TradingMode::Real,
+    );
 
     assert!(result.is_err());
 }

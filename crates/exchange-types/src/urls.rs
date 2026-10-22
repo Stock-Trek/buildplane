@@ -14,6 +14,16 @@ pub trait Urls {
         protocol: Protocol,
         trading_mode: TradingMode,
     ) -> BpResult<String> {
+        self.env_var_or_default_with(&EnvVarConfig::from_env(), prefix, protocol, trading_mode)
+    }
+
+    fn env_var_or_default_with(
+        &self,
+        config: &EnvVarConfig,
+        prefix: &'static str,
+        protocol: Protocol,
+        trading_mode: TradingMode,
+    ) -> BpResult<String> {
         let env_var_name = format!(
             "{}_{}_{}",
             prefix.to_uppercase(),
@@ -21,27 +31,26 @@ pub trait Urls {
             trading_mode.to_string().to_uppercase()
         );
         let default = self.default(protocol, trading_mode);
-        let value =
-            EnvVarConfig::from_env()
-                .required(&env_var_name)
-                .or_else(|error| match error {
-                    BpError::Config(ConfigError::EnvVar(VarError::NotPresent)) => {
-                        Ok(default.to_owned())
-                    }
-                    error => {
-                        let value = match &error {
-                            BpError::Config(ConfigError::EnvVar(VarError::NotUnicode(value))) => {
-                                value.to_string_lossy().into_owned()
-                            }
-                            _ => default.to_owned(),
-                        };
-                        Err(BpError::Exchange(ExchangeError::BadValue {
-                            name: env_var_name.clone(),
-                            value,
-                            reason: error.to_string(),
-                        }))
-                    }
-                })?;
+        let value = config
+            .required(&env_var_name)
+            .or_else(|error| match error {
+                BpError::Config(ConfigError::EnvVar(VarError::NotPresent)) => {
+                    Ok(default.to_owned())
+                }
+                error => {
+                    let value = match &error {
+                        BpError::Config(ConfigError::EnvVar(VarError::NotUnicode(value))) => {
+                            value.to_string_lossy().into_owned()
+                        }
+                        _ => default.to_owned(),
+                    };
+                    Err(BpError::Exchange(ExchangeError::BadValue {
+                        name: env_var_name.clone(),
+                        value,
+                        reason: error.to_string(),
+                    }))
+                }
+            })?;
         protocol.validate_url(&env_var_name, &value)?;
         Ok(value)
     }
