@@ -213,8 +213,8 @@ impl BpError {
         )
     }
 
-    pub fn any_sent(&self, total: usize) -> bool {
-        matches!(self, Self::Sqs(error) if error.any_sent(total))
+    pub fn any_sent(&self) -> bool {
+        matches!(self, Self::Sqs(error) if error.any_sent())
     }
 
     pub fn is_client_error(&self) -> bool {
