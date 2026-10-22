@@ -15,15 +15,6 @@ pub enum HttpError {
     InvalidHeaderValue(#[from] InvalidHeaderValue),
     #[error("Invalid header value string: {0}")]
     InvalidHeaderValueStr(#[from] ToStrError),
-    #[error("Reqwest error: {0}")]
-    Reqwest(#[from] reqwest::Error),
-    #[error("{operation} request failed for {target}: {source}")]
-    Request {
-        operation: &'static str,
-        target: String,
-        #[source]
-        source: reqwest::Error,
-    },
     #[error("{operation} request for {target} was rejected with status {status}: {body}")]
     Rejected {
         operation: &'static str,
@@ -31,12 +22,21 @@ pub enum HttpError {
         status: u16,
         body: String,
     },
+    #[error("{operation} request failed for {target}: {source}")]
+    Request {
+        operation: &'static str,
+        target: String,
+        #[source]
+        source: reqwest::Error,
+    },
+    #[error("Reqwest error: {0}")]
+    Reqwest(#[from] reqwest::Error),
     #[error("Serde error: {0}")]
     Serde(#[from] serde_json::Error),
-    #[error("Signing params error: {0}")]
-    SigningParams(#[from] SigningParamsError),
     #[error("Signing error: {0}")]
     Signing(#[from] SigningError),
+    #[error("Signing params error: {0}")]
+    SigningParams(#[from] SigningParamsError),
 }
 
 impl HttpError {

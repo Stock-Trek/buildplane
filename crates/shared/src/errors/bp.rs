@@ -17,33 +17,33 @@ pub enum BpError {
     #[error(transparent)]
     Config(#[from] ConfigError),
     #[error(transparent)]
-    Validation(#[from] ValidationError),
-    #[error(transparent)]
-    Io(#[from] IoError),
-    #[error(transparent)]
-    Storage(#[from] StorageError),
-    #[error(transparent)]
-    Http(#[from] HttpError),
-    #[error(transparent)]
-    GitHub(#[from] GitHubError),
-    #[error(transparent)]
-    Exchange(#[from] ExchangeError),
-    #[error(transparent)]
     Connector(#[from] ConnectorError),
-    #[error(transparent)]
-    RateLimit(#[from] RateLimitError),
-    #[error(transparent)]
-    Sqs(#[from] SqsError),
-    #[error(transparent)]
-    Lambda(#[from] LambdaError),
     #[error(transparent)]
     Data(#[from] DataError),
     #[error(transparent)]
-    System(#[from] SystemError),
+    Exchange(#[from] ExchangeError),
+    #[error(transparent)]
+    GitHub(#[from] GitHubError),
+    #[error(transparent)]
+    Http(#[from] HttpError),
+    #[error(transparent)]
+    Io(#[from] IoError),
+    #[error(transparent)]
+    Lambda(#[from] LambdaError),
+    #[error(transparent)]
+    RateLimit(#[from] RateLimitError),
     #[error(transparent)]
     Secrets(#[from] SecretsError),
     #[error(transparent)]
+    Sqs(#[from] SqsError),
+    #[error(transparent)]
+    Storage(#[from] StorageError),
+    #[error(transparent)]
+    System(#[from] SystemError),
+    #[error(transparent)]
     Timeout(#[from] TimeoutError),
+    #[error(transparent)]
+    Validation(#[from] ValidationError),
 }
 
 impl BpError {
@@ -239,20 +239,20 @@ impl BpError {
         match self {
             Self::Binance(error) => error.error_type(),
             Self::Config(error) => error.error_type(),
-            Self::Validation(error) => error.error_type(),
-            Self::Io(error) => error.error_type(),
-            Self::Storage(error) => error.error_type(),
-            Self::Http(error) => error.error_type(),
-            Self::GitHub(error) => error.error_type(),
-            Self::Exchange(error) => error.error_type(),
             Self::Connector(error) => error.error_type(),
-            Self::RateLimit(error) => error.error_type(),
-            Self::Sqs(error) => error.error_type(),
-            Self::Lambda(error) => error.error_type(),
             Self::Data(error) => error.error_type(),
-            Self::System(error) => error.error_type(),
+            Self::Exchange(error) => error.error_type(),
+            Self::GitHub(error) => error.error_type(),
+            Self::Http(error) => error.error_type(),
+            Self::Io(error) => error.error_type(),
+            Self::Lambda(error) => error.error_type(),
+            Self::RateLimit(error) => error.error_type(),
             Self::Secrets(error) => error.error_type(),
+            Self::Sqs(error) => error.error_type(),
+            Self::Storage(error) => error.error_type(),
+            Self::System(error) => error.error_type(),
             Self::Timeout(error) => error.error_type(),
+            Self::Validation(error) => error.error_type(),
         }
     }
 
@@ -264,20 +264,20 @@ impl BpError {
         match self {
             Self::Binance(error) => error.retryability(),
             Self::Config(error) => error.retryability(),
-            Self::Validation(error) => error.retryability(),
-            Self::Io(error) => error.retryability(),
-            Self::Storage(error) => error.retryability(),
-            Self::Http(error) => error.retryability(),
-            Self::GitHub(error) => error.retryability(),
-            Self::Exchange(error) => error.retryability(),
             Self::Connector(error) => error.retryability(),
-            Self::RateLimit(error) => error.retryability(),
-            Self::Sqs(error) => error.retryability(),
-            Self::Lambda(error) => error.retryability(),
             Self::Data(error) => error.retryability(),
-            Self::System(error) => error.retryability(),
+            Self::Exchange(error) => error.retryability(),
+            Self::GitHub(error) => error.retryability(),
+            Self::Http(error) => error.retryability(),
+            Self::Io(error) => error.retryability(),
+            Self::Lambda(error) => error.retryability(),
+            Self::RateLimit(error) => error.retryability(),
             Self::Secrets(error) => error.retryability(),
+            Self::Sqs(error) => error.retryability(),
+            Self::Storage(error) => error.retryability(),
+            Self::System(error) => error.retryability(),
             Self::Timeout(error) => error.retryability(),
+            Self::Validation(error) => error.retryability(),
         }
     }
 }

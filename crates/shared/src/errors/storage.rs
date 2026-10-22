@@ -5,16 +5,14 @@ use std::error::Error as StdError;
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum StorageError {
-    #[error("S3 {operation} failed for {target}: {source}")]
-    S3 {
-        operation: &'static str,
-        target: String,
-        retryable: bool,
-        #[source]
-        source: Box<dyn StdError + Send + Sync>,
+    #[error(
+        "artifact {artifact:?} is {size} bytes, exceeding the maximum artifact size of {max_bytes} bytes"
+    )]
+    ArtifactTooLarge {
+        artifact: String,
+        size: usize,
+        max_bytes: u64,
     },
-    #[error("S3 delete objects failed for {target}: {failures}")]
-    S3DeleteObjects { target: String, failures: String },
     #[error("failed to load AWS credentials: {0}")]
     Credentials(#[from] CredentialsError),
     #[error("invalid S3 endpoint URL: {source}")]
@@ -34,14 +32,16 @@ pub enum StorageError {
         size: usize,
         max_bytes: u64,
     },
-    #[error(
-        "artifact {artifact:?} is {size} bytes, exceeding the maximum artifact size of {max_bytes} bytes"
-    )]
-    ArtifactTooLarge {
-        artifact: String,
-        size: usize,
-        max_bytes: u64,
+    #[error("S3 {operation} failed for {target}: {source}")]
+    S3 {
+        operation: &'static str,
+        target: String,
+        retryable: bool,
+        #[source]
+        source: Box<dyn StdError + Send + Sync>,
     },
+    #[error("S3 delete objects failed for {target}: {failures}")]
+    S3DeleteObjects { target: String, failures: String },
 }
 
 impl StorageError {

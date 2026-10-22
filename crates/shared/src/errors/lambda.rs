@@ -9,10 +9,10 @@ pub enum LambdaError {
         function_error: String,
         detail: Option<String>,
     },
-    #[error("Lambda invoke returned unexpected status code {status_code}")]
-    Status { status_code: i32 },
     #[error("Lambda invoke error: {0}")]
     SdkInvoke(#[from] SdkInvokeError),
+    #[error("Lambda invoke returned unexpected status code {status_code}")]
+    Status { status_code: i32 },
 }
 
 impl LambdaError {

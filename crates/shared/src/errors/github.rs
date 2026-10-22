@@ -3,16 +3,6 @@ use crate::errors::retryability::Retryability;
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum GitHubError {
-    #[error("GitHub repository id {repo_id:?} is not numeric: {source}")]
-    InvalidRepositoryId {
-        repo_id: String,
-        #[source]
-        source: std::num::ParseIntError,
-    },
-    #[error("{host:?} is not a hostname, IP address, or host:port")]
-    HostInvalid { host: String },
-    #[error("host {host:?} is not in the allowed GitHub hosts list")]
-    HostNotAllowed { host: String },
     #[error("failed to build GitHub client: {0}")]
     BuildClient(#[source] octocrab::Error),
     #[error("no commit found for {ref_name:?} in repository {repo_id}")]
@@ -25,17 +15,25 @@ pub enum GitHubError {
         #[source]
         source: octocrab::Error,
     },
-    #[error("directory {path:?} was not found in repository {repo_id} at {ref_name:?}")]
-    DirectoryNotFound {
+    #[error("failed to decode {encoding:?} content at {path:?} in repository {repo_id}: {source}")]
+    DecodeContent {
         repo_id: u64,
         path: String,
-        ref_name: String,
+        encoding: &'static str,
+        #[source]
+        source: base64::DecodeError,
     },
     #[error("directory {path:?} in repository {repo_id} exceeds the maximum depth of {max_depth}")]
     DirectoryDepthExceeded {
         repo_id: u64,
         path: String,
         max_depth: usize,
+    },
+    #[error("directory {path:?} was not found in repository {repo_id} at {ref_name:?}")]
+    DirectoryNotFound {
+        repo_id: u64,
+        path: String,
+        ref_name: String,
     },
     #[error(
         "directory {directory:?} in repository {repo_id} exceeds the maximum total size of {max_bytes} bytes"
@@ -44,14 +42,6 @@ pub enum GitHubError {
         repo_id: u64,
         directory: String,
         max_bytes: u64,
-    },
-    #[error("failed to decode {encoding:?} content at {path:?} in repository {repo_id}: {source}")]
-    DecodeContent {
-        repo_id: u64,
-        path: String,
-        encoding: &'static str,
-        #[source]
-        source: base64::DecodeError,
     },
     #[error("failed to get blob {sha} in repository {repo_id}: {source}")]
     GetBlob {
@@ -74,6 +64,12 @@ pub enum GitHubError {
         #[source]
         source: octocrab::Error,
     },
+    #[error("failed to get repository {repo_id}: {source}")]
+    GetRepository {
+        repo_id: u64,
+        #[source]
+        source: octocrab::Error,
+    },
     #[error("failed to get tree for {ref_name:?} in repository {repo_id}: {source}")]
     GetTree {
         repo_id: u64,
@@ -81,12 +77,10 @@ pub enum GitHubError {
         #[source]
         source: octocrab::Error,
     },
-    #[error("failed to get repository {repo_id}: {source}")]
-    GetRepository {
-        repo_id: u64,
-        #[source]
-        source: octocrab::Error,
-    },
+    #[error("{host:?} is not a hostname, IP address, or host:port")]
+    HostInvalid { host: String },
+    #[error("host {host:?} is not in the allowed GitHub hosts list")]
+    HostNotAllowed { host: String },
     #[error("failed to create client for installation {installation_id}: {source}")]
     Installation {
         installation_id: u64,
@@ -99,6 +93,12 @@ pub enum GitHubError {
         path: String,
         directory: String,
     },
+    #[error("GitHub repository id {repo_id:?} is not numeric: {source}")]
+    InvalidRepositoryId {
+        repo_id: String,
+        #[source]
+        source: std::num::ParseIntError,
+    },
     #[error("failed to list installation repositories: {0}")]
     ListRepositories(#[source] octocrab::Error),
     #[error("content for {path:?} in repository {repo_id} is missing")]
@@ -109,14 +109,14 @@ pub enum GitHubError {
         #[source]
         source: octocrab::Error,
     },
-    #[error("directory listing for repository {repo_id} at {ref_name:?} was truncated by GitHub")]
-    TreeTruncated { repo_id: u64, ref_name: String },
     #[error("directory {directory:?} in repository {repo_id} contains more than {max_files} files")]
     TooManyFiles {
         repo_id: u64,
         directory: String,
         max_files: usize,
     },
+    #[error("directory listing for repository {repo_id} at {ref_name:?} was truncated by GitHub")]
+    TreeTruncated { repo_id: u64, ref_name: String },
     #[error("unsupported content encoding {encoding:?} at {path:?} in repository {repo_id}")]
     UnsupportedContentEncoding {
         repo_id: u64,

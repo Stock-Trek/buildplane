@@ -3,10 +3,14 @@ use crate::{errors::retryability::Retryability, sqs_message::SqsMessage};
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum SqsError {
-    #[error("SQS record is missing a message id; cannot report a batch item failure")]
-    MissingMessageId,
+    #[error(
+        "SQS message body is {size} bytes, which exceeds the maximum batch payload of {limit} bytes"
+    )]
+    MessageTooLarge { size: usize, limit: usize },
     #[error("SQS record is missing a body")]
     MissingMessageBody,
+    #[error("SQS record is missing a message id; cannot report a batch item failure")]
+    MissingMessageId,
     #[error(
         "SQS PartialBatch sent {sent} message(s) and failed to send {unsent} message(s): {}",
         Self::format_batch_failures(.failures)
@@ -16,10 +20,6 @@ pub enum SqsError {
         unsent: usize,
         failures: Vec<SqsBatchFailure>,
     },
-    #[error(
-        "SQS message body is {size} bytes, which exceeds the maximum batch payload of {limit} bytes"
-    )]
-    MessageTooLarge { size: usize, limit: usize },
 }
 
 impl SqsError {
