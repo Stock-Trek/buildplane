@@ -21,22 +21,27 @@ pub trait Urls {
             trading_mode.to_string().to_uppercase()
         );
         let default = self.default(protocol, trading_mode);
-        let value = EnvVarConfig::from_env()
-            .env_var(&env_var_name)
-            .map_err(|error| {
-                let value = match &error {
-                    BpError::Config(ConfigError::EnvVar(VarError::NotUnicode(value))) => {
-                        value.to_string_lossy().into_owned()
+        let value =
+            EnvVarConfig::from_env()
+                .env_var(&env_var_name)
+                .or_else(|error| match error {
+                    BpError::Config(ConfigError::EnvVar(VarError::NotPresent)) => {
+                        Ok(default.to_owned())
                     }
-                    _ => default.to_owned(),
-                };
-                BpError::Exchange(ExchangeError::BadValue {
-                    name: env_var_name.clone(),
-                    value,
-                    reason: error.to_string(),
-                })
-            })?
-            .unwrap_or_else(|| default.to_owned());
+                    error => {
+                        let value = match &error {
+                            BpError::Config(ConfigError::EnvVar(VarError::NotUnicode(value))) => {
+                                value.to_string_lossy().into_owned()
+                            }
+                            _ => default.to_owned(),
+                        };
+                        Err(BpError::Exchange(ExchangeError::BadValue {
+                            name: env_var_name.clone(),
+                            value,
+                            reason: error.to_string(),
+                        }))
+                    }
+                })?;
         protocol.validate_url(&env_var_name, &value)?;
         Ok(value)
     }

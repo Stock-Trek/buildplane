@@ -6,6 +6,7 @@ use crate::{
 use chrono::{DateTime, NaiveDate, Utc};
 use std::{
     collections::HashMap,
+    env::VarError,
     ffi::{OsStr, OsString},
     num::{NonZeroU64, NonZeroUsize},
     time::Duration,
@@ -106,11 +107,13 @@ impl EnvVarConfig {
     /// Read an environment variable by name without applying any parsing.
     ///
     /// This is for values whose names are only known at runtime, such as the
-    /// per-exchange URL overrides. An empty value is returned as-is so callers
-    /// can decide whether it is valid; typed accessors treat empty values as
-    /// absent.
-    pub fn env_var(&self, name: &str) -> BpResult<Option<String>> {
-        self.raw(name)
+    /// per-exchange URL overrides. A missing variable is reported as
+    /// [`VarError::NotPresent`], while an empty value is returned as-is so
+    /// callers can decide whether it is valid; typed accessors treat empty
+    /// values as absent.
+    pub fn env_var(&self, name: &str) -> BpResult<String> {
+        self.raw(name)?
+            .ok_or_else(|| BpError::Config(ConfigError::EnvVar(VarError::NotPresent)))
     }
 
     pub fn backfill_start(&self) -> BpResult<Option<DateTime<Utc>>> {
@@ -385,14 +388,20 @@ impl EnvVarConfig {
     }
 
     fn optional(&self, name: &str) -> BpResult<Option<String>> {
-        Ok(self.env_var(name)?.filter(|value| !value.is_empty()))
+        match self.env_var(name) {
+            Ok(value) => Ok(Some(value).filter(|value| !value.is_empty())),
+            Err(BpError::Config(ConfigError::EnvVar(VarError::NotPresent))) => Ok(None),
+            Err(error) => Err(error),
+        }
     }
 
     fn raw(&self, name: &str) -> BpResult<Option<String>> {
         match self.vars.get(OsStr::new(name)) {
-            Some(value) => value.clone().into_string().map(Some).map_err(|value| {
-                BpError::Config(ConfigError::EnvVar(std::env::VarError::NotUnicode(value)))
-            }),
+            Some(value) => {
+                value.clone().into_string().map(Some).map_err(|value| {
+                    BpError::Config(ConfigError::EnvVar(VarError::NotUnicode(value)))
+                })
+            }
             None => Ok(None),
         }
     }
@@ -404,5 +413,33 @@ impl EnvVarConfig {
             .filter(|value| !value.is_empty())
             .map(str::to_owned)
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn env_var_reports_missing_variable() {
+        let config = EnvVarConfig::from_map(Vec::<(String, String)>::new());
+
+        let error = config
+            .env_var("BUILDPLANE_TEST_MISSING_ENV_VAR")
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            BpError::Config(ConfigError::EnvVar(VarError::NotPresent))
+        ));
+    }
+
+    #[test]
+    fn optional_treats_missing_variable_as_absent() {
+        let config = EnvVarConfig::from_map(Vec::<(String, String)>::new());
+
+        let value = config.optional("BUILDPLANE_TEST_MISSING_ENV_VAR").unwrap();
+
+        assert!(value.is_none());
     }
 }
