@@ -1,4 +1,5 @@
-use crate::{artifacts::Artifacts, request::BuildRequest};
+use crate::{artifacts::Artifacts, s3::SignedPost};
+use buildplane_shared::build_request::BuildRequest;
 use buildplane_shared::errors::TimeoutError;
 use buildplane_shared::errors::{BpError, BpResult};
 use std::{path::PathBuf, time::Duration};
@@ -30,7 +31,7 @@ impl Handler {
             commit_hash = request.commit_hash.as_deref().unwrap_or("unknown"),
             "starting build"
         );
-        let signed_post = request.signed_post(self.build_timeout)?;
+        let signed_post = SignedPost::from_build_request(&request.signed_post, self.build_timeout)?;
         let artifacts = Artifacts::new(
             signed_post,
             request.signed_get_url,

@@ -71,9 +71,20 @@ impl PresignedPost {
     pub fn max_artifact_size_bytes(&self) -> Option<u64> {
         self.max_artifact_size_bytes
     }
+}
 
-    pub fn fields_json(&self) -> BpResult<String> {
-        Ok(serde_json::to_string(&self.fields)?)
+#[cfg(test)]
+impl PresignedPost {
+    pub(crate) fn for_test(
+        url: String,
+        fields: BTreeMap<String, String>,
+        max_artifact_size_bytes: Option<u64>,
+    ) -> Self {
+        Self {
+            url,
+            fields,
+            max_artifact_size_bytes,
+        }
     }
 }
 
