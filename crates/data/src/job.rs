@@ -366,6 +366,7 @@ pub struct ResolvedTradingPair {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct JobOutcome {
     pub windows_ingested: usize,
+    pub windows_skipped: usize,
     pub compaction_targets: usize,
 }
 

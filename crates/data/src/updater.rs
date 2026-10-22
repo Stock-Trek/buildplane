@@ -1,6 +1,6 @@
 use crate::{
     constants::{UPDATE_QUANTIZATION, common_trading_pairs},
-    ingest::{Ingest, WindowIngest},
+    ingest::{Ingest, IngestOutcome, WindowIngest},
     job::BackfillJob,
     plan,
     quantized_time::QuantizedTime,
@@ -24,6 +24,27 @@ use tracing::{info, warn};
 
 pub struct KlinesUpdater {
     binance: HashMap<TradingMode, Arc<dyn ExchangeUpdater>>,
+}
+
+/// Windows processed by an update or backfill.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct UpdateOutcome {
+    pub windows_ingested: usize,
+    pub windows_skipped: usize,
+}
+
+impl UpdateOutcome {
+    fn record(&mut self, outcome: IngestOutcome) {
+        match outcome {
+            IngestOutcome::Ingested => self.windows_ingested += 1,
+            IngestOutcome::SkippedIncomplete { .. } => self.windows_skipped += 1,
+        }
+    }
+
+    fn merge(&mut self, other: Self) {
+        self.windows_ingested += other.windows_ingested;
+        self.windows_skipped += other.windows_skipped;
+    }
 }
 
 struct ExchangeUpdate {
@@ -63,12 +84,13 @@ impl KlinesUpdater {
         transfer_client: &TransferClient,
         bucket: &Bucket,
         backfill_start: Option<DateTime<Utc>>,
-    ) -> BpResult<()> {
+    ) -> BpResult<UpdateOutcome> {
         info!("update");
         let now = Utc::now();
         let schema = Ingest::schema();
         let end_time = QuantizedTime::timestamp(now, UPDATE_QUANTIZATION)?;
         let mut join_set = JoinSet::new();
+        let mut outcome = UpdateOutcome::default();
         let mut errors = Vec::new();
         for (cex_id, trading_mode, trading_pairs) in common_trading_pairs() {
             let s3_client = s3_client.clone();
@@ -112,14 +134,14 @@ impl KlinesUpdater {
         }
         while let Some(result) = join_set.join_next().await {
             match result {
-                Ok(Ok(())) => {}
+                Ok(Ok(exchange_outcome)) => outcome.merge(exchange_outcome),
                 Ok(Err(error)) if error.is_skippable() => {}
                 Ok(Err(error)) => errors.push(error),
                 Err(error) => errors.push(error.into()),
             }
         }
         if errors.is_empty() {
-            Ok(())
+            Ok(outcome)
         } else {
             Err(BpError::multiple(errors))
         }
@@ -136,7 +158,7 @@ impl KlinesUpdater {
         transfer_client: &TransferClient,
         bucket: &Bucket,
         backfill: &BackfillJob,
-    ) -> BpResult<usize> {
+    ) -> BpResult<UpdateOutcome> {
         let resolved = backfill.resolve()?;
         let updater = self.exchange_updater(resolved.cex_id, resolved.trading_mode)?;
         let candles_base_path = format!(
@@ -168,8 +190,9 @@ impl KlinesUpdater {
         )?;
         let window_count = windows.len();
         let schema = Ingest::schema();
+        let mut outcome = UpdateOutcome::default();
         for window in windows {
-            Ingest::ingest_window(
+            let ingest_outcome = Ingest::ingest_window(
                 transfer_client,
                 bucket,
                 updater.as_ref(),
@@ -181,12 +204,13 @@ impl KlinesUpdater {
                 },
             )
             .await?;
+            outcome.record(ingest_outcome);
         }
         info!(
-            "backfill {:?} completed {} window(s)",
-            resolved.trading_pair, window_count
+            "backfill {:?} completed {} window(s): {} ingested, {} skipped",
+            resolved.trading_pair, window_count, outcome.windows_ingested, outcome.windows_skipped
         );
-        Ok(window_count)
+        Ok(outcome)
     }
 
     fn exchange_updater(
@@ -213,7 +237,7 @@ impl KlinesUpdater {
         transfer_client: &TransferClient,
         bucket: &Bucket,
         update: ExchangeUpdate,
-    ) -> BpResult<()> {
+    ) -> BpResult<UpdateOutcome> {
         let ExchangeUpdate {
             cex_id,
             trading_mode,
@@ -229,6 +253,7 @@ impl KlinesUpdater {
         }
         let semaphore = Arc::new(Semaphore::new(10));
         let mut join_set = JoinSet::new();
+        let mut outcome = UpdateOutcome::default();
         let mut errors = Vec::new();
         for trading_pair in trading_pairs {
             info!("update symbol {:?}", trading_pair);
@@ -274,14 +299,14 @@ impl KlinesUpdater {
         }
         while let Some(result) = join_set.join_next().await {
             match result {
-                Ok(Ok(())) => {}
+                Ok(Ok(pair_outcome)) => outcome.merge(pair_outcome),
                 Ok(Err(error)) if error.is_skippable() => {}
                 Ok(Err(error)) => errors.push(error),
                 Err(error) => errors.push(error.into()),
             }
         }
         if errors.is_empty() {
-            Ok(())
+            Ok(outcome)
         } else {
             Err(BpError::multiple(errors))
         }
@@ -294,7 +319,7 @@ impl KlinesUpdater {
         semaphore: &Semaphore,
         updater: &dyn ExchangeUpdater,
         update: &TradingPairUpdate,
-    ) -> BpResult<()> {
+    ) -> BpResult<UpdateOutcome> {
         let TradingPairUpdate {
             cex_id,
             trading_mode,
@@ -321,8 +346,9 @@ impl KlinesUpdater {
                     .map(str::to_string)
             })
             .collect::<HashSet<_>>();
+        let mut outcome = UpdateOutcome::default();
         for window in plan::Planner::plan_windows(&existing, *end_time, *backfill_start)? {
-            Ingest::ingest_window(
+            let ingest_outcome = Ingest::ingest_window(
                 transfer_client,
                 bucket,
                 updater,
@@ -334,7 +360,8 @@ impl KlinesUpdater {
                 },
             )
             .await?;
+            outcome.record(ingest_outcome);
         }
-        Ok(())
+        Ok(outcome)
     }
 }
