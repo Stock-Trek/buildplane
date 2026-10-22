@@ -669,7 +669,9 @@ impl BpError {
         match self {
             Self::IoError(_)
             | Self::Io { .. }
-            | Self::S3 { retryable: true, .. }
+            | Self::S3 {
+                retryable: true, ..
+            }
             | Self::S3DeleteObjects { .. }
             | Self::Exchange { .. }
             | Self::Arrow(_)

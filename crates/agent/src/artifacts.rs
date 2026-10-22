@@ -252,8 +252,9 @@ impl Artifacts {
                 })?
                 .replace('\\', "/");
             archive.start_file(name, options).map_err(BpError::Zip)?;
-            let contents = std_fs::read(file)
-                .map_err(|source| BpError::io("read artifact", file.display().to_string(), source))?;
+            let contents = std_fs::read(file).map_err(|source| {
+                BpError::io("read artifact", file.display().to_string(), source)
+            })?;
             archive.write_all(&contents).map_err(|source| {
                 BpError::io("write source archive", file.display().to_string(), source)
             })?;
@@ -262,16 +263,13 @@ impl Artifacts {
     }
 
     async fn user_generated_files(root: &Path) -> BpResult<Vec<PathBuf>> {
-        let root =
-            fs::canonicalize(root)
-                .await
-                .map_err(|source| {
-                    BpError::io(
-                        "read artifact directory",
-                        root.display().to_string(),
-                        source,
-                    )
-                })?;
+        let root = fs::canonicalize(root).await.map_err(|source| {
+            BpError::io(
+                "read artifact directory",
+                root.display().to_string(),
+                source,
+            )
+        })?;
         let mut files = Vec::new();
         let mut pending = vec![root.clone()];
         while let Some(directory) = pending.pop() {

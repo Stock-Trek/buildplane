@@ -29,9 +29,7 @@ impl Source {
             .get(url)
             .send()
             .await
-            .map_err(|source| {
-                BpError::http_request("download user source archive", url, source)
-            })?;
+            .map_err(|source| BpError::http_request("download user source archive", url, source))?;
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
@@ -69,7 +67,11 @@ impl Source {
             let path = destination.join(relative);
             if entry.is_dir() {
                 std::fs::create_dir_all(&path).map_err(|source| {
-                    BpError::io("create source directory", path.display().to_string(), source)
+                    BpError::io(
+                        "create source directory",
+                        path.display().to_string(),
+                        source,
+                    )
                 })?;
                 continue;
             }

@@ -46,9 +46,7 @@ impl SqsHandler {
                     );
                     continue;
                 }
-                let message_id = record
-                    .message_id
-                    .ok_or_else(|| BpError::MissingMessageId)?;
+                let message_id = record.message_id.ok_or_else(|| BpError::MissingMessageId)?;
                 tracing::error!(
                     message_id = %message_id,
                     %error,

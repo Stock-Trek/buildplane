@@ -228,11 +228,7 @@ impl S3 {
             let delete = match Delete::builder().set_objects(Some(objects)).build() {
                 Ok(delete) => delete,
                 Err(error) => {
-                    errors.push(BpError::s3(
-                        "build delete request",
-                        target.clone(),
-                        error,
-                    ));
+                    errors.push(BpError::s3("build delete request", target.clone(), error));
                     continue;
                 }
             };
