@@ -1,9 +1,9 @@
-use data_encoding::{BASE64, HEXLOWER};
-use ed25519_compact::{KeyPair, Seed, Signature as Ed25519Signature};
 use buildplane_exchange_types::{
     api_key_credential::ApiKeyCredentials, binance::exchange::BinanceExchange, encode::ByteEncoder,
     encrypt::EncryptionAlgorithm, signer::Signer,
 };
+use data_encoding::{BASE64, HEXLOWER};
+use ed25519_compact::{KeyPair, Seed, Signature as Ed25519Signature};
 use hmac::{Hmac, KeyInit, Mac};
 use rsa::{
     RsaPrivateKey,
