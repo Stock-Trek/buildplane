@@ -12,7 +12,7 @@ pub enum LambdaError {
     #[error("Lambda invoke returned unexpected status code {status_code}")]
     Status { status_code: i32 },
     #[error("Lambda invoke error: {0}")]
-    SdkInvoke(#[from] Box<SdkInvokeError>),
+    SdkInvoke(#[from] SdkInvokeError),
 }
 
 impl LambdaError {
