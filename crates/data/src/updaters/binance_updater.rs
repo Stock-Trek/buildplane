@@ -17,7 +17,7 @@ use buildplane_exchange_types::{
 };
 use buildplane_shared::errors::ExchangeError;
 use buildplane_shared::errors::{BpError, BpResult};
-use buildplane_type_bridge::{BinanceConverter, Converter};
+use buildplane_type_bridge::{BinanceConverter, TickerMapping};
 use chrono::{DateTime, Utc};
 use std::time::Duration;
 use stock_trek_types::cex::trading_pair::TradingPair;
@@ -26,7 +26,7 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const MAX_RETRIES: u8 = 3;
 
 pub struct BinanceUpdater {
-    converter: BinanceConverter,
+    ticker_mapping: TickerMapping,
     connector: Connector<BinanceExchange, ReqwestHttpClient>,
 }
 
@@ -38,7 +38,7 @@ impl ExchangeUpdater for BinanceUpdater {
         start_time: DateTime<Utc>,
         end_time: DateTime<Utc>,
     ) -> BpResult<Vec<Kline>> {
-        let Some(symbol) = self.converter.ticker_mapping().symbol(trading_pair) else {
+        let Some(symbol) = self.ticker_mapping.symbol(trading_pair) else {
             return Err(BpError::Exchange(ExchangeError::MissingSymbol {
                 trading_pair: format!("{trading_pair:?}"),
             }));
@@ -83,7 +83,7 @@ impl BinanceUpdater {
     }
 
     pub fn try_new(trading_mode: TradingMode) -> BpResult<Self> {
-        let converter = BinanceConverter::default();
+        let ticker_mapping = BinanceConverter::ticker_mapping();
         let signer = Signer::new_unencrypted(ByteEncoder::HexLower);
         let connector = Connector::try_new_http_reqwest(
             trading_mode,
@@ -94,7 +94,7 @@ impl BinanceUpdater {
         )
         .map_err(|error| BpError::exchange("create Binance connector", error))?;
         Ok(Self {
-            converter,
+            ticker_mapping,
             connector,
         })
     }

@@ -25,8 +25,8 @@ use buildplane_exchange_types::{
     },
     new_types::Milliseconds,
 };
-use buildplane_shared::errors::{ExchangeError, SystemError, ValidationError};
-use std::{collections::HashMap, sync::OnceLock};
+use buildplane_shared::errors::{ExchangeError, ValidationError};
+use std::collections::HashMap;
 use stock_trek_types::cex::{
     activation::Activation, asset_id::AssetId, capability::CexCapability,
     order_request::OrderRequest, order_response::OrderResponse, order_status::OrderStatus,
@@ -37,17 +37,7 @@ use stock_trek_types::cex::{
 pub struct BinanceConverter {
     capabilities: Vec<CexCapability>,
     ticker_mapping: TickerMapping,
-    trading_precision: OnceLock<TradingPrecision>,
-}
-
-impl Default for BinanceConverter {
-    fn default() -> Self {
-        Self {
-            capabilities: vec![],
-            ticker_mapping: Self::ticker_mapping(),
-            trading_precision: OnceLock::new(),
-        }
-    }
+    trading_precision: TradingPrecision,
 }
 
 impl Converter for BinanceConverter {
@@ -64,11 +54,6 @@ impl Converter for BinanceConverter {
     }
     fn ticker_mapping(&self) -> &TickerMapping {
         &self.ticker_mapping
-    }
-    fn set_trading_precision(&self, trading_precision: TradingPrecision) -> BpResult<()> {
-        self.trading_precision
-            .set(trading_precision)
-            .map_err(|_| BpError::System(SystemError::PoisonedLock))
     }
     fn asset_limits_request(
         &self,
@@ -104,13 +89,8 @@ impl Converter for BinanceConverter {
         order_request: OrderRequest<AssetId, f64>,
         cex_preferences: &CexPreferences,
     ) -> BpResult<Self::OrderRequest> {
-        let Some(trading_precision) = self.trading_precision.get() else {
-            return Err(BpError::Validation(ValidationError::MissingValue(
-                "Trading Precision".into(),
-            )));
-        };
         let precise =
-            self.try_convert_precise(order_request, cex_preferences, *trading_precision)?;
+            self.try_convert_precise(order_request, cex_preferences, self.trading_precision)?;
         let (base, quote, side, activation, quantity, quote_order_qty, price, time_in_force, tag) =
             match precise {
                 OrderRequest::Limit {
@@ -338,7 +318,15 @@ impl Converter for BinanceConverter {
 }
 
 impl BinanceConverter {
-    fn ticker_mapping() -> TickerMapping {
+    pub fn new(trading_precision: TradingPrecision) -> Self {
+        Self {
+            capabilities: vec![],
+            ticker_mapping: Self::ticker_mapping(),
+            trading_precision,
+        }
+    }
+
+    pub fn ticker_mapping() -> TickerMapping {
         let mut map = BiHashMap::new();
         map.insert(AssetId::Aave, "AAVE".into());
         map.insert(AssetId::Arbitrum, "ARB".into());
@@ -431,5 +419,61 @@ impl BinanceConverter {
         Err(BpError::Validation(ValidationError::MissingValue(
             "PRICE_FILTER in symbol filters".into(),
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rust_decimal::{Decimal, RoundingStrategy};
+    use stock_trek_types::cex::{
+        preferences::CexRoundingPreferences, tag::Tag, time_in_force::TimeInForce,
+    };
+
+    fn precision() -> TradingPrecision {
+        let limits = MinMaxStep {
+            min: Decimal::ZERO,
+            max: Decimal::from(100_000),
+            step: Decimal::new(1, 2),
+        };
+        TradingPrecision::new(limits, limits, limits)
+    }
+
+    fn preferences() -> CexPreferences {
+        CexPreferences {
+            max_network_delay_millis: 0,
+            rounding: CexRoundingPreferences {
+                activation_price_triggered_above: RoundingStrategy::MidpointNearestEven,
+                activation_price_triggered_below: RoundingStrategy::MidpointNearestEven,
+                price: RoundingStrategy::MidpointNearestEven,
+                quantity: RoundingStrategy::MidpointNearestEven,
+                callback_rate_bps: RoundingStrategy::MidpointNearestEven,
+            },
+        }
+    }
+
+    #[test]
+    fn order_request_uses_precision_from_construction() {
+        let converter = BinanceConverter::new(precision());
+        let order_request = OrderRequest::Limit {
+            base: AssetId::Bitcoin,
+            quote: AssetId::TetherUSD,
+            side: Side::Buy,
+            activation: Activation::Immediate,
+            limit_price: 100.123,
+            time_in_force: TimeInForce::GoodTillCancelled,
+            quantity: Quantity::OfBase(1.234),
+            tag: Tag::new("test"),
+        };
+
+        let request = converter
+            .order_request(order_request, &preferences())
+            .unwrap();
+
+        assert_eq!(request.symbol, "BTCUSDT");
+        assert_eq!(request.price, Some(Decimal::new(10012, 2)));
+        assert_eq!(request.quantity, Some(Decimal::new(123, 2)));
+        assert_eq!(request.r#type, BinanceOrderType::LIMIT);
+        assert_eq!(request.timeInForce, Some(BinanceTimeInForce::GTC));
     }
 }

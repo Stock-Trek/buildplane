@@ -33,7 +33,6 @@ pub trait Converter {
 
     fn capabilities(&self) -> &Vec<CexCapability>;
     fn ticker_mapping(&self) -> &TickerMapping;
-    fn set_trading_precision(&self, trading_precision: TradingPrecision) -> BpResult<()>;
     fn asset_limits_request(
         &self,
         trading_pair: &TradingPair,
