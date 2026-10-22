@@ -152,6 +152,7 @@ impl MduError {
             Self::MissingSymbol { .. }
                 | Self::UnsupportedExchange { .. }
                 | Self::UnsupportedTradingMode { .. }
+                | Self::LockContention { .. }
         )
     }
 
