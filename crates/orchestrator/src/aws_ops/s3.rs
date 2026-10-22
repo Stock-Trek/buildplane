@@ -33,7 +33,8 @@ const SERVICE: &str = "s3";
 
 pub struct S3Config {
     pub user_artifacts_bucket: String,
-    pub max_object_size_bytes: u64,
+    pub max_source_archive_size_bytes: u64,
+    pub max_artifact_size_bytes: u64,
     pub signed_url_expiry: Duration,
     pub endpoint_url: Option<String>,
 }
@@ -42,7 +43,8 @@ impl S3Config {
     pub fn from_env(config: &EnvVarConfig) -> BpResult<Self> {
         Ok(Self {
             user_artifacts_bucket: config.s3_bucket_user_artifacts()?,
-            max_object_size_bytes: config.s3_max_object_size_bytes()?,
+            max_source_archive_size_bytes: config.s3_max_source_archive_size_bytes()?,
+            max_artifact_size_bytes: config.s3_max_artifact_size_bytes()?,
             signed_url_expiry: config.s3_signed_url_expiry()?,
             endpoint_url: config.aws_endpoint_url_s3()?,
         })
@@ -52,6 +54,7 @@ impl S3Config {
 pub struct PresignedPost {
     pub url: String,
     pub fields: BTreeMap<String, String>,
+    max_artifact_size_bytes: Option<u64>,
 }
 
 pub struct UploadedObject {
@@ -65,6 +68,10 @@ struct ObjectLocation {
 }
 
 impl PresignedPost {
+    pub fn max_artifact_size_bytes(&self) -> Option<u64> {
+        self.max_artifact_size_bytes
+    }
+
     pub fn fields_json(&self) -> BpResult<String> {
         Ok(serde_json::to_string(&self.fields)?)
     }
@@ -154,12 +161,14 @@ impl S3 {
         contents: Vec<u8>,
         deadline: Deadline,
     ) -> BpResult<UploadedObject> {
-        let max_object_size_bytes = self.config.max_object_size_bytes;
-        if max_object_size_bytes > 0 && contents.len() as u64 > max_object_size_bytes {
+        let max_source_archive_size_bytes = self.config.max_source_archive_size_bytes;
+        if max_source_archive_size_bytes > 0
+            && contents.len() as u64 > max_source_archive_size_bytes
+        {
             return Err(BpError::Storage(StorageError::ObjectTooLarge {
                 key: key.to_owned(),
                 size: contents.len(),
-                max_bytes: max_object_size_bytes,
+                max_bytes: max_source_archive_size_bytes,
             }));
         }
         let credentials = self.credentials(deadline).await?;
@@ -507,7 +516,7 @@ impl S3 {
             &amz_date,
             expires_at,
             credentials.session_token(),
-            self.config.max_object_size_bytes,
+            self.config.max_artifact_size_bytes,
         );
         let policy_base64 = BASE64.encode(serde_json::to_string(&policy)?);
         let signing_key = Self::signing_key(credentials.secret_access_key(), &date, &self.region);
@@ -526,6 +535,8 @@ impl S3 {
         Ok(PresignedPost {
             url: self.bucket_url(),
             fields,
+            max_artifact_size_bytes: (self.config.max_artifact_size_bytes > 0)
+                .then_some(self.config.max_artifact_size_bytes),
         })
     }
 
@@ -560,7 +571,7 @@ impl S3 {
         amz_date: &str,
         expires_at: SystemTime,
         session_token: Option<&str>,
-        max_object_size_bytes: u64,
+        max_artifact_size_bytes: u64,
     ) -> serde_json::Value {
         let mut conditions = vec![
             json!({ "bucket": bucket }),
@@ -569,11 +580,11 @@ impl S3 {
             json!({ "x-amz-credential": credential }),
             json!({ "x-amz-date": amz_date }),
         ];
-        if max_object_size_bytes > 0 {
+        if max_artifact_size_bytes > 0 {
             conditions.push(json!([
                 "content-length-range",
                 MIN_OBJECT_SIZE_BYTES,
-                max_object_size_bytes
+                max_artifact_size_bytes
             ]));
         }
         if let Some(token) = session_token {
@@ -654,7 +665,8 @@ mod tests {
             },
             S3Config {
                 user_artifacts_bucket: "stock-trek-user-artifacts".to_string(),
-                max_object_size_bytes: 0,
+                max_source_archive_size_bytes: 0,
+                max_artifact_size_bytes: 0,
                 signed_url_expiry: Duration::from_secs(900),
                 endpoint_url: None,
             },

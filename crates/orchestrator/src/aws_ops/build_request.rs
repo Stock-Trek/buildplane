@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 const COMMIT_HASH: &str = "COMMIT_HASH";
 const GIT_HOST: &str = "GIT_HOST";
 const GIT_PROVIDER: &str = "GIT_PROVIDER";
+const MAX_ARTIFACT_SIZE_BYTES: &str = "MAX_ARTIFACT_SIZE_BYTES";
 const REPO_ID: &str = "REPO_ID";
 const REF_NAME: &str = "REF_NAME";
 const REF_TYPE: &str = "REF_TYPE";
@@ -41,6 +42,9 @@ impl BuildRequest {
         ]);
         if let Some(commit_hash) = self.commit_hash.as_deref() {
             environment.insert(COMMIT_HASH, commit_hash.to_string());
+        }
+        if let Some(max_artifact_size_bytes) = self.signed_post.max_artifact_size_bytes() {
+            environment.insert(MAX_ARTIFACT_SIZE_BYTES, max_artifact_size_bytes.to_string());
         }
         Ok(environment)
     }

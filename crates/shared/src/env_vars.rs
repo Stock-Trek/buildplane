@@ -32,7 +32,12 @@ const INFISICAL_PROJECT_ID: &str = "INFISICAL_PROJECT_ID";
 const RUST_LOG: &str = "RUST_LOG";
 const S3_BUCKET: &str = "S3_BUCKET";
 const S3_BUCKET_USER_ARTIFACTS: &str = "S3_BUCKET_USER_ARTIFACTS";
+const S3_MAX_ARTIFACT_SIZE_BYTES: &str = "S3_MAX_ARTIFACT_SIZE_BYTES";
+const S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES: &str = "S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES";
+// Legacy aliases for the single limit that used to cover both object types.
+const S3_MAX_ARTIFACT_BYTES: &str = "S3_MAX_ARTIFACT_BYTES";
 const S3_MAX_OBJECT_SIZE_BYTES: &str = "S3_MAX_OBJECT_SIZE_BYTES";
+const S3_MAX_SOURCE_ARCHIVE_BYTES: &str = "S3_MAX_SOURCE_ARCHIVE_BYTES";
 pub const S3_SIGNED_URL_EXPIRY: &str = "S3_SIGNED_URL_EXPIRY";
 const SQS_DEDUP_MAX_MESSAGES: &str = "SQS_DEDUP_MAX_MESSAGES";
 const SQS_DEDUP_TTL: &str = "SQS_DEDUP_TTL";
@@ -46,7 +51,8 @@ const WEBHOOK_SECRET_FAILURE_BACKOFF: &str = "WEBHOOK_SECRET_FAILURE_BACKOFF";
 
 const DEFAULT_DEADLINE_BUFFER: Duration = Duration::from_secs(5);
 const DEFAULT_GITHUB_MAX_CACHED_INSTALLATIONS: usize = 128;
-const DEFAULT_S3_MAX_OBJECT_SIZE_BYTES: u64 = 16 * 1024 * 1024;
+const DEFAULT_S3_MAX_ARTIFACT_SIZE_BYTES: u64 = 16 * 1024 * 1024;
+const DEFAULT_S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES: u64 = 16 * 1024 * 1024;
 const DEFAULT_S3_SIGNED_URL_EXPIRY: Duration = Duration::from_secs(60 * 60);
 const DEFAULT_SQS_DEDUP_MAX_MESSAGES: usize = 4096;
 const DEFAULT_SQS_DEDUP_TTL: Duration = Duration::from_secs(3600);
@@ -191,8 +197,34 @@ impl EnvVarConfig {
         self.required(S3_BUCKET_USER_ARTIFACTS)
     }
 
-    pub fn s3_max_object_size_bytes(&self) -> BpResult<u64> {
-        self.parsed(S3_MAX_OBJECT_SIZE_BYTES, DEFAULT_S3_MAX_OBJECT_SIZE_BYTES)
+    pub fn s3_max_source_archive_size_bytes(&self) -> BpResult<u64> {
+        self.parsed_first(
+            &[
+                S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES,
+                S3_MAX_SOURCE_ARCHIVE_BYTES,
+                S3_MAX_OBJECT_SIZE_BYTES,
+            ],
+            DEFAULT_S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES,
+        )
+    }
+
+    pub fn s3_max_source_archive_bytes(&self) -> BpResult<u64> {
+        self.s3_max_source_archive_size_bytes()
+    }
+
+    pub fn s3_max_artifact_size_bytes(&self) -> BpResult<u64> {
+        self.parsed_first(
+            &[
+                S3_MAX_ARTIFACT_SIZE_BYTES,
+                S3_MAX_ARTIFACT_BYTES,
+                S3_MAX_OBJECT_SIZE_BYTES,
+            ],
+            DEFAULT_S3_MAX_ARTIFACT_SIZE_BYTES,
+        )
+    }
+
+    pub fn s3_max_artifact_bytes(&self) -> BpResult<u64> {
+        self.s3_max_artifact_size_bytes()
     }
 
     pub fn s3_signed_url_expiry(&self) -> BpResult<Duration> {
@@ -293,15 +325,26 @@ impl EnvVarConfig {
         T: std::str::FromStr,
         T::Err: std::error::Error + Send + Sync + 'static,
     {
-        let Some(value) = self.raw(key)? else {
-            return Ok(default);
-        };
-        if value.is_empty() {
-            return Err(BpError::config_empty(key));
+        self.parsed_first(&[key], default)
+    }
+
+    fn parsed_first<T>(&self, keys: &[&str], default: T) -> BpResult<T>
+    where
+        T: std::str::FromStr,
+        T::Err: std::error::Error + Send + Sync + 'static,
+    {
+        for key in keys {
+            let Some(value) = self.raw(key)? else {
+                continue;
+            };
+            if value.is_empty() {
+                return Err(BpError::config_empty(*key));
+            }
+            return value
+                .parse::<T>()
+                .map_err(|error| BpError::config_invalid_source(*key, error));
         }
-        value
-            .parse::<T>()
-            .map_err(|error| BpError::config_invalid_source(key, error))
+        Ok(default)
     }
 
     fn parse_timestamp(name: &str, value: &str) -> BpResult<DateTime<Utc>> {
@@ -405,5 +448,24 @@ mod tests {
         let value = config.optional("BUILDPLANE_TEST_MISSING_ENV_VAR").unwrap();
 
         assert!(value.is_none());
+    }
+
+    #[test]
+    fn s3_source_archive_and_artifact_limits_are_independent() {
+        let config = EnvVarConfig::from_map([
+            ("S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES", "1024"),
+            ("S3_MAX_ARTIFACT_SIZE_BYTES", "2048"),
+        ]);
+
+        assert_eq!(config.s3_max_source_archive_size_bytes().unwrap(), 1024);
+        assert_eq!(config.s3_max_artifact_size_bytes().unwrap(), 2048);
+    }
+
+    #[test]
+    fn legacy_s3_object_limit_applies_to_both_limits() {
+        let config = EnvVarConfig::from_map([("S3_MAX_OBJECT_SIZE_BYTES", "4096")]);
+
+        assert_eq!(config.s3_max_source_archive_size_bytes().unwrap(), 4096);
+        assert_eq!(config.s3_max_artifact_size_bytes().unwrap(), 4096);
     }
 }
