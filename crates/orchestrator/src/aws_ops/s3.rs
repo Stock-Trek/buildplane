@@ -1,4 +1,3 @@
-use crate::errors::{error::RsOrchestratorResult, s3_presign::RsS3PresignError};
 use aws_config::SdkConfig;
 use aws_credential_types::{
     Credentials,
@@ -10,13 +9,11 @@ use aws_sdk_s3::{
     error::{ProvideErrorMetadata, SdkError},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use buildplane_shared::errors::{StorageError, TimeoutError};
 use buildplane_shared::{
     deadline::Deadline,
     env_vars::{EnvVarConfig, S3_SIGNED_URL_EXPIRY},
-    errors::{
-        config::RsConfigError, error::RsSharedError, retryability::Retryability,
-        timeout::RsTimeoutError,
-    },
+    errors::{BpError, BpResult},
     timeouts::Timeouts,
 };
 use hmac::{Hmac, KeyInit, Mac};
@@ -42,7 +39,7 @@ pub struct S3Config {
 }
 
 impl S3Config {
-    pub fn from_env(config: &EnvVarConfig) -> RsOrchestratorResult<Self> {
+    pub fn from_env(config: &EnvVarConfig) -> BpResult<Self> {
         Ok(Self {
             user_artifacts_bucket: config.s3_bucket_user_artifacts()?,
             max_object_size_bytes: config.s3_max_object_size_bytes()?,
@@ -68,7 +65,7 @@ struct ObjectLocation {
 }
 
 impl PresignedPost {
-    pub fn fields_json(&self) -> RsOrchestratorResult<String> {
+    pub fn fields_json(&self) -> BpResult<String> {
         Ok(serde_json::to_string(&self.fields)?)
     }
 }
@@ -115,10 +112,10 @@ impl S3 {
         sdk_config: &SdkConfig,
         timeouts: Timeouts,
         config: &EnvVarConfig,
-    ) -> RsOrchestratorResult<Self> {
+    ) -> BpResult<Self> {
         let credentials_provider = sdk_config
             .credentials_provider()
-            .ok_or(RsS3PresignError::MissingCredentials)?;
+            .ok_or(BpError::Storage(StorageError::MissingCredentials))?;
         let region = sdk_config
             .region()
             .map(|region| region.as_ref().to_string())
@@ -141,7 +138,7 @@ impl S3 {
         &self,
         key_prefix: &str,
         deadline: Deadline,
-    ) -> RsOrchestratorResult<PresignedPost> {
+    ) -> BpResult<PresignedPost> {
         let credentials = self.credentials(deadline).await?;
         self.presigned_post(
             &credentials,
@@ -156,15 +153,14 @@ impl S3 {
         key: &str,
         contents: Vec<u8>,
         deadline: Deadline,
-    ) -> RsOrchestratorResult<UploadedObject> {
+    ) -> BpResult<UploadedObject> {
         let max_object_size_bytes = self.config.max_object_size_bytes;
         if max_object_size_bytes > 0 && contents.len() as u64 > max_object_size_bytes {
-            return Err(RsS3PresignError::ObjectTooLarge {
+            return Err(BpError::Storage(StorageError::ObjectTooLarge {
                 key: key.to_owned(),
                 size: contents.len(),
                 max_bytes: max_object_size_bytes,
-            }
-            .into());
+            }));
         }
         let credentials = self.credentials(deadline).await?;
         let url = self.presigned_url(
@@ -185,20 +181,20 @@ impl S3 {
         )
         .await
         .map_err(|_| {
-            RsSharedError::Timeout(RsTimeoutError::Operation {
+            BpError::Timeout(TimeoutError::Operation {
                 operation: "S3 upload object",
             })
         })?
-        .map_err(RsS3PresignError::Upload)?;
+        .map_err(|source| BpError::http_request("upload object", key, source))?;
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(RsS3PresignError::UploadRejected {
-                key: key.to_owned(),
-                status: status.as_u16(),
+            return Err(BpError::http_rejected(
+                "upload object",
+                key,
+                status.as_u16(),
                 body,
-            }
-            .into());
+            ));
         }
         let signed_get_url = self.presigned_url(
             &credentials,
@@ -211,11 +207,7 @@ impl S3 {
     }
 
     /// Lists every object under `prefix`, following S3's pagination markers.
-    pub async fn list_objects(
-        &self,
-        prefix: &str,
-        deadline: Deadline,
-    ) -> RsOrchestratorResult<Vec<String>> {
+    pub async fn list_objects(&self, prefix: &str, deadline: Deadline) -> BpResult<Vec<String>> {
         let bucket = &self.config.user_artifacts_bucket;
         let timeout = self.timeouts.operation_timeout(deadline)?;
         let mut paginator = self
@@ -230,7 +222,7 @@ impl S3 {
             let page = tokio::time::timeout(timeout, paginator.next())
                 .await
                 .map_err(|_| {
-                    RsSharedError::Timeout(RsTimeoutError::Operation {
+                    BpError::Timeout(TimeoutError::Operation {
                         operation: "S3 list objects",
                     })
                 })?;
@@ -255,7 +247,7 @@ impl S3 {
         source_key: &str,
         destination_key: &str,
         deadline: Deadline,
-    ) -> RsOrchestratorResult<()> {
+    ) -> BpResult<()> {
         let bucket = &self.config.user_artifacts_bucket;
         let timeout = self.timeouts.operation_timeout(deadline)?;
         let copy_source = Self::encode_copy_source(bucket, source_key);
@@ -270,7 +262,7 @@ impl S3 {
         )
         .await
         .map_err(|_| {
-            RsSharedError::Timeout(RsTimeoutError::Operation {
+            BpError::Timeout(TimeoutError::Operation {
                 operation: "S3 copy object",
             })
         })?
@@ -285,7 +277,7 @@ impl S3 {
     }
 
     /// Deletes an object from the user artifacts bucket.
-    pub async fn delete_object(&self, key: &str, deadline: Deadline) -> RsOrchestratorResult<()> {
+    pub async fn delete_object(&self, key: &str, deadline: Deadline) -> BpResult<()> {
         let bucket = &self.config.user_artifacts_bucket;
         let timeout = self.timeouts.operation_timeout(deadline)?;
         tokio::time::timeout(
@@ -294,7 +286,7 @@ impl S3 {
         )
         .await
         .map_err(|_| {
-            RsSharedError::Timeout(RsTimeoutError::Operation {
+            BpError::Timeout(TimeoutError::Operation {
                 operation: "S3 delete object",
             })
         })?
@@ -304,18 +296,16 @@ impl S3 {
         Ok(())
     }
 
-    async fn credentials(&self, deadline: Deadline) -> RsOrchestratorResult<Credentials> {
+    async fn credentials(&self, deadline: Deadline) -> BpResult<Credentials> {
         let timeout = self.timeouts.operation_timeout(deadline)?;
-        Ok(
-            tokio::time::timeout(timeout, self.credentials_provider.provide_credentials())
-                .await
-                .map_err(|_| {
-                    RsSharedError::Timeout(RsTimeoutError::Operation {
-                        operation: "S3 provide_credentials",
-                    })
-                })?
-                .map_err(RsS3PresignError::Credentials)?,
-        )
+        tokio::time::timeout(timeout, self.credentials_provider.provide_credentials())
+            .await
+            .map_err(|_| {
+                BpError::Timeout(TimeoutError::Operation {
+                    operation: "S3 provide_credentials",
+                })
+            })?
+            .map_err(|error| BpError::Storage(StorageError::Credentials(error)))
     }
 }
 
@@ -324,29 +314,24 @@ impl S3 {
         operation: &'static str,
         target: String,
         error: SdkError<E, R>,
-    ) -> RsS3PresignError
+    ) -> BpError
     where
         E: ProvideErrorMetadata + std::error::Error + Send + Sync + 'static,
         R: std::fmt::Debug + Send + Sync + 'static,
     {
-        let retryable = Self::sdk_error_retryability(&error) == Retryability::Retryable;
-        RsS3PresignError::Operation {
-            operation,
-            target,
-            retryable,
-            source: Box::new(error),
-        }
+        let retryable = Self::sdk_error_retryable(&error);
+        BpError::s3_with_retryability(operation, target, retryable, error)
     }
 
-    fn sdk_error_retryability<E, R>(error: &SdkError<E, R>) -> Retryability
+    fn sdk_error_retryable<E, R>(error: &SdkError<E, R>) -> bool
     where
         E: ProvideErrorMetadata,
     {
         match error {
-            SdkError::ConstructionFailure(_) => Retryability::Permanent,
+            SdkError::ConstructionFailure(_) => false,
             SdkError::ServiceError(context) => {
                 let code = context.err().code().unwrap_or_default();
-                if code.starts_with("Invalid")
+                !(code.starts_with("Invalid")
                     || code.ends_with("NotFound")
                     || matches!(
                         code,
@@ -354,14 +339,9 @@ impl S3 {
                             | "NoSuchBucket"
                             | "NotImplemented"
                             | "ObjectLockConfigurationNotFoundError"
-                    )
-                {
-                    Retryability::Permanent
-                } else {
-                    Retryability::Retryable
-                }
+                    ))
             }
-            _ => Retryability::Retryable,
+            _ => true,
         }
     }
 
@@ -393,7 +373,7 @@ impl S3 {
         key: &str,
         now: SystemTime,
         expires_in: Duration,
-    ) -> RsOrchestratorResult<String> {
+    ) -> BpResult<String> {
         let location = self.object_location(key)?;
         let (date, amz_date) = Self::amz_date(now);
         let credential = format!(
@@ -440,17 +420,17 @@ impl S3 {
         ))
     }
 
-    fn object_location(&self, key: &str) -> RsOrchestratorResult<ObjectLocation> {
+    fn object_location(&self, key: &str) -> BpResult<ObjectLocation> {
         let key = Self::encode_path(key);
         match &self.endpoint_url {
             Some(endpoint) => {
                 let url = Url::parse(endpoint)
-                    .map_err(|source| RsS3PresignError::InvalidEndpoint { source })?;
-                let host = url
-                    .host_str()
-                    .ok_or_else(|| RsS3PresignError::InvalidEndpointHost {
+                    .map_err(|source| BpError::Storage(StorageError::InvalidEndpoint { source }))?;
+                let host = url.host_str().ok_or_else(|| {
+                    BpError::Storage(StorageError::InvalidEndpointHost {
                         endpoint: endpoint.clone(),
-                    })?;
+                    })
+                })?;
                 let host = match url.port() {
                     Some(port) => format!("{host}:{port}"),
                     None => host.to_owned(),
@@ -508,12 +488,9 @@ impl S3 {
         key_prefix: &str,
         now: SystemTime,
         expires_in: Duration,
-    ) -> RsOrchestratorResult<PresignedPost> {
+    ) -> BpResult<PresignedPost> {
         let expires_at = now.checked_add(expires_in).ok_or_else(|| {
-            RsSharedError::Config(RsConfigError::invalid(
-                S3_SIGNED_URL_EXPIRY,
-                "expiry overflows the system clock",
-            ))
+            BpError::config_invalid(S3_SIGNED_URL_EXPIRY, "expiry overflows the system clock")
         })?;
         let (date, amz_date) = Self::amz_date(now);
         let credential = format!(

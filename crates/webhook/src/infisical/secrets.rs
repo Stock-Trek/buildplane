@@ -1,12 +1,10 @@
-use crate::{
-    error::{RsWebhookError, RsWebhookResult},
-    infisical::auth_flow::InfisicalAwsAuth,
-};
+use crate::infisical::auth_flow::InfisicalAwsAuth;
 use aws_config::SdkConfig;
+use buildplane_shared::errors::HttpError;
+use buildplane_shared::errors::{BpError, BpResult};
 use buildplane_shared::{
     deadline::Deadline,
     env_vars::EnvVarConfig,
-    errors::{config::RsConfigError, error::RsSharedError},
     timeouts::{Timeout, Timeouts},
 };
 use serde::Deserialize;
@@ -21,7 +19,7 @@ impl Secrets {
         timeouts: Timeouts,
         deadline: Deadline,
         config: &EnvVarConfig,
-    ) -> RsWebhookResult<Self> {
+    ) -> BpResult<Self> {
         let config = InfisicalConfig::from_env(config)?;
         let http_client = Self::http_client(timeouts)?;
         let auth = InfisicalAwsAuth::new(http_client, config.base_url, timeouts);
@@ -37,7 +35,7 @@ impl Secrets {
         Ok(Self(secrets))
     }
 
-    fn http_client(timeouts: Timeouts) -> RsWebhookResult<reqwest::Client> {
+    fn http_client(timeouts: Timeouts) -> BpResult<reqwest::Client> {
         let mut builder = reqwest::ClientBuilder::default();
         if let Timeout::Bounded(connect_timeout) = timeouts.connect {
             builder = builder.connect_timeout(connect_timeout.get());
@@ -45,13 +43,16 @@ impl Secrets {
         if let Timeout::Bounded(request_timeout) = timeouts.operation {
             builder = builder.timeout(request_timeout.get());
         }
-        builder.build().map_err(RsWebhookError::Reqwest)
+        builder
+            .build()
+            .map_err(|error| BpError::Http(HttpError::Reqwest(error)))
     }
 
-    pub(crate) fn get(&self, name: &str) -> RsWebhookResult<String> {
-        self.0.get(name).cloned().ok_or_else(|| {
-            RsWebhookError::Shared(RsSharedError::Config(RsConfigError::missing(name)))
-        })
+    pub(crate) fn get(&self, name: &str) -> BpResult<String> {
+        self.0
+            .get(name)
+            .cloned()
+            .ok_or_else(|| BpError::config_missing(name))
     }
 }
 
@@ -63,7 +64,7 @@ struct InfisicalConfig {
 }
 
 impl InfisicalConfig {
-    fn from_env(config: &EnvVarConfig) -> RsWebhookResult<Self> {
+    fn from_env(config: &EnvVarConfig) -> BpResult<Self> {
         Ok(Self {
             identity_id: config.infisical_identity_id()?,
             project_id: config.infisical_project_id()?,

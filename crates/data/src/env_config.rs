@@ -1,5 +1,6 @@
-use crate::{error::MduResult, s3::Bucket};
+use crate::s3::Bucket;
 use buildplane_shared::env_vars::EnvVarConfig;
+use buildplane_shared::errors::BpResult;
 use chrono::{DateTime, Utc};
 
 const DEFAULT_LAMBDA_FUNCTION_NAME: &str = "buildplane-data";
@@ -11,7 +12,7 @@ pub struct EnvConfig {
 }
 
 impl EnvConfig {
-    pub fn from_shared(config: &EnvVarConfig) -> MduResult<Self> {
+    pub fn from_shared(config: &EnvVarConfig) -> BpResult<Self> {
         Ok(Self {
             s3_bucket: Bucket::new(config.s3_bucket()?),
             lambda_function_name: config.lambda_function_name(DEFAULT_LAMBDA_FUNCTION_NAME)?,

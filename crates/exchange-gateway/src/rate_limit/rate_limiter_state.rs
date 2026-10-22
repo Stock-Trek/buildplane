@@ -1,5 +1,6 @@
-use crate::error::{EGError, EGResult};
 use buildplane_exchange_types::new_types::{Nanoseconds, UsageCount};
+use buildplane_shared::errors::RateLimitError;
+use buildplane_shared::errors::{BpError, BpResult};
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -22,7 +23,7 @@ impl RateLimiterState {
     pub fn try_new(
         interval_nanos: Nanoseconds,
         capacity_per_interval: UsageCount,
-    ) -> EGResult<Self> {
+    ) -> BpResult<Self> {
         Self::with_clock(
             interval_nanos,
             capacity_per_interval,
@@ -33,12 +34,12 @@ impl RateLimiterState {
         interval_nanos: Nanoseconds,
         capacity_per_interval: UsageCount,
         now: Arc<dyn Fn() -> Instant + Send + Sync>,
-    ) -> EGResult<Self> {
+    ) -> BpResult<Self> {
         if interval_nanos <= Nanoseconds::ZERO {
-            return Err(EGError::InvalidRateLimitInterval);
+            return Err(BpError::RateLimit(RateLimitError::InvalidRateLimitInterval));
         }
         if capacity_per_interval <= UsageCount::ZERO {
-            return Err(EGError::InvalidRateLimitCapacity);
+            return Err(BpError::RateLimit(RateLimitError::InvalidRateLimitCapacity));
         }
         Ok(Self {
             interval_nanos,
@@ -63,16 +64,18 @@ impl RateLimiterState {
         self.update_capacity();
         self.current_capacity
     }
-    pub fn did_consume(&mut self, cost: UsageCount) -> EGResult<()> {
+    pub fn did_consume(&mut self, cost: UsageCount) -> BpResult<()> {
         if self.cost_exceeds_capacity(cost) {
-            return Err(EGError::RequestExceedsRateLimit {
-                cost,
-                capacity: self.capacity_per_interval,
-                interval_nanos: self.interval_nanos,
-            });
+            return Err(BpError::RateLimit(
+                RateLimitError::RequestExceedsRateLimit {
+                    cost,
+                    capacity: self.capacity_per_interval,
+                    interval_nanos: self.interval_nanos,
+                },
+            ));
         }
         if self.is_throttled() {
-            return Err(EGError::RateLimited);
+            return Err(BpError::RateLimit(RateLimitError::RateLimited));
         }
         if self.did_quick_consume(cost) {
             Ok(())
@@ -81,7 +84,7 @@ impl RateLimiterState {
             if self.did_quick_consume(cost) {
                 Ok(())
             } else {
-                Err(EGError::RateLimited)
+                Err(BpError::RateLimit(RateLimitError::RateLimited))
             }
         }
     }

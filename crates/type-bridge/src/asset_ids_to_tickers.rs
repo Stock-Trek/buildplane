@@ -1,8 +1,7 @@
-use crate::{
-    error::{TBError, TBResult},
-    ticker_mapping::TickerMapping,
-};
+use crate::ticker_mapping::TickerMapping;
 use buildplane_exchange_types::ticker::Ticker;
+use buildplane_shared::errors::ValidationError;
+use buildplane_shared::errors::{BpError, BpResult};
 use stock_trek_types::cex::{asset_id::AssetId, order_request::OrderRequest};
 
 #[derive(Debug, Clone)]
@@ -12,7 +11,7 @@ impl AssetIdsToTickers {
     pub fn asset_ids_to_tickers<N>(
         order_request: OrderRequest<AssetId, N>,
         ticker_mapping: &TickerMapping,
-    ) -> TBResult<OrderRequest<Ticker, N>> {
+    ) -> BpResult<OrderRequest<Ticker, N>> {
         let (base, quote) = match order_request {
             OrderRequest::Limit { base, quote, .. }
             | OrderRequest::MarketBuy { base, quote, .. }
@@ -20,17 +19,17 @@ impl AssetIdsToTickers {
         };
         let base = ticker_mapping
             .ticker(&base)
-            .ok_or(TBError::Unsupported {
+            .ok_or(BpError::Validation(ValidationError::Unsupported {
                 name: "AssetId".into(),
                 value: base.to_string(),
-            })?
+            }))?
             .clone();
         let quote = ticker_mapping
             .ticker(&quote)
-            .ok_or(TBError::Unsupported {
+            .ok_or(BpError::Validation(ValidationError::Unsupported {
                 name: "AssetId".into(),
                 value: quote.to_string(),
-            })?
+            }))?
             .clone();
         let order_request = match order_request {
             OrderRequest::Limit {

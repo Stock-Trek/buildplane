@@ -1,5 +1,9 @@
-#[derive(Debug, thiserror::Error)]
-pub enum RsConfigError {
+use crate::errors::retryability::Retryability;
+use std::error::Error as StdError;
+
+#[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
+pub enum ConfigError {
     #[error("{name} is missing")]
     Missing { name: String },
     #[error("{name} must not be empty")]
@@ -11,39 +15,20 @@ pub enum RsConfigError {
         name: String,
         message: String,
         #[source]
-        source: Option<Box<dyn std::error::Error + Send + Sync + 'static>>,
+        source: Option<Box<dyn StdError + Send + Sync + 'static>>,
     },
+    #[error("invalid configuration: {0}")]
+    Build(String),
+    #[error("EnvVar: {0}")]
+    EnvVar(#[from] std::env::VarError),
 }
 
-impl RsConfigError {
-    pub fn missing(name: impl Into<String>) -> Self {
-        Self::Missing { name: name.into() }
+impl ConfigError {
+    pub fn error_type(&self) -> &'static str {
+        self.into()
     }
 
-    pub fn empty(name: impl Into<String>) -> Self {
-        Self::Empty { name: name.into() }
-    }
-
-    pub fn not_unicode(name: impl Into<String>) -> Self {
-        Self::NotUnicode { name: name.into() }
-    }
-
-    pub fn invalid(name: impl Into<String>, message: impl Into<String>) -> Self {
-        Self::Invalid {
-            name: name.into(),
-            message: message.into(),
-            source: None,
-        }
-    }
-
-    pub fn invalid_source(
-        name: impl Into<String>,
-        source: impl std::error::Error + Send + Sync + 'static,
-    ) -> Self {
-        Self::Invalid {
-            name: name.into(),
-            message: source.to_string(),
-            source: Some(Box::new(source)),
-        }
+    pub fn retryability(&self) -> Retryability {
+        Retryability::Permanent
     }
 }

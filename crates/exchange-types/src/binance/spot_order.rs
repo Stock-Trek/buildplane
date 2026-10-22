@@ -11,7 +11,6 @@ use crate::{
             BinanceWorkingFloor,
         },
     },
-    error::ETResult,
     http::{HttpMethod, HttpRequest},
     new_types::{Milliseconds, UsageCount},
     rate_limited::RateLimitRestriction,
@@ -20,6 +19,7 @@ use crate::{
     ticker::Ticker,
     websocket_id::ETWebsocketId,
 };
+use buildplane_shared::errors::BpResult;
 use query_params::QueryParams;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -179,7 +179,7 @@ impl ETHttpRequest for BinanceSpotOrderRequest {
     fn http_method(&self) -> HttpMethod {
         HttpMethod::POST
     }
-    fn try_into_http(self, signer: &Signer) -> ETResult<HttpRequest> {
+    fn try_into_http(self, signer: &Signer) -> BpResult<HttpRequest> {
         BinanceRequestFactory::try_into_http(self, signer)
     }
     fn verification_request_http(&self) -> Option<BinanceOrderStatusRequest> {
@@ -200,7 +200,7 @@ impl ETWebsocketRequest for BinanceSpotOrderRequest {
         self,
         signer: &Signer,
         id: ETWebsocketId,
-    ) -> ETResult<(String, WebsocketResponseMatcher)> {
+    ) -> BpResult<(String, WebsocketResponseMatcher)> {
         BinanceRequestFactory::try_into_websocket(self, signer, id)
     }
     fn verification_request_websocket(&self) -> Option<BinanceOrderStatusRequest> {

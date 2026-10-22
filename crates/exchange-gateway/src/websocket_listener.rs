@@ -1,5 +1,6 @@
-use crate::error::{EGError, EGResult};
 use crate::panic_guard::PanicUtils;
+use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_shared::errors::{ConnectorError, SystemError};
 use std::{
     pin::Pin,
     sync::{Arc, Mutex},
@@ -19,17 +20,17 @@ impl WebsocketListener {
             handlers: Arc::new(Mutex::new(Vec::new())),
         }
     }
-    pub async fn on_message(&self, message: serde_json::Value) -> EGResult<()> {
+    pub async fn on_message(&self, message: serde_json::Value) -> BpResult<()> {
         let handlers = self
             .handlers
             .lock()
-            .map_err(|_| EGError::MutexPoisoned)?
+            .map_err(|_| BpError::System(SystemError::PoisonedLock))?
             .clone();
         for handler in handlers {
             if handler.handle(&message)? {
                 self.handlers
                     .lock()
-                    .map_err(|_| EGError::MutexPoisoned)?
+                    .map_err(|_| BpError::System(SystemError::PoisonedLock))?
                     .retain(|existing| !Arc::ptr_eq(&existing.state, &handler.state));
                 break;
             }
@@ -39,7 +40,7 @@ impl WebsocketListener {
     pub fn waiter_for_filtered_response(
         &self,
         filter: ArcPredicate<serde_json::Value>,
-    ) -> EGResult<WaiterForResponse> {
+    ) -> BpResult<WaiterForResponse> {
         let state = Arc::new(Mutex::new(WaiterState::default()));
         let handler = ResponseHandler {
             state: state.clone(),
@@ -47,7 +48,7 @@ impl WebsocketListener {
         };
         self.handlers
             .lock()
-            .map_err(|_| EGError::MutexPoisoned)?
+            .map_err(|_| BpError::System(SystemError::PoisonedLock))?
             .push(handler);
         Ok(WaiterForResponse {
             state,
@@ -77,12 +78,12 @@ pub struct WaiterForResponse {
 }
 
 impl Future for WaiterForResponse {
-    type Output = EGResult<serde_json::Value>;
+    type Output = BpResult<serde_json::Value>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut state = match self.state.lock() {
             Ok(state) => state,
-            Err(_) => return Poll::Ready(Err(EGError::MutexPoisoned)),
+            Err(_) => return Poll::Ready(Err(BpError::System(SystemError::PoisonedLock))),
         };
         if let Some(msg) = state.filtered_response.take() {
             Poll::Ready(Ok(msg))
@@ -112,12 +113,17 @@ struct ResponseHandler {
 }
 
 impl ResponseHandler {
-    fn handle(&self, response: &serde_json::Value) -> EGResult<bool> {
+    fn handle(&self, response: &serde_json::Value) -> BpResult<bool> {
         let is_handled = match PanicUtils::catch_panic(|| (self.filter)(response)) {
             Ok(is_handled) => is_handled,
             Err(payload) => {
-                let error = EGError::CallbackPanicked(PanicUtils::panic_message(payload.as_ref()));
-                let mut state = self.state.lock().map_err(|_| EGError::MutexPoisoned)?;
+                let error = BpError::Connector(ConnectorError::CallbackPanicked(
+                    PanicUtils::panic_message(payload.as_ref()),
+                ));
+                let mut state = self
+                    .state
+                    .lock()
+                    .map_err(|_| BpError::System(SystemError::PoisonedLock))?;
                 state.error = Some(error);
                 if let Some(waker) = state.waker.take() {
                     waker.wake();
@@ -126,7 +132,10 @@ impl ResponseHandler {
             }
         };
         if is_handled {
-            let mut state = self.state.lock().map_err(|_| EGError::MutexPoisoned)?;
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| BpError::System(SystemError::PoisonedLock))?;
             state.filtered_response = Some(response.clone());
             if let Some(waker) = state.waker.take() {
                 waker.wake();
@@ -139,7 +148,7 @@ impl ResponseHandler {
 #[derive(Default)]
 struct WaiterState {
     filtered_response: Option<serde_json::Value>,
-    error: Option<EGError>,
+    error: Option<BpError>,
     waker: Option<Waker>,
 }
 

@@ -1,9 +1,9 @@
 use crate::{
     aws_ops::build_request::BuildRequest,
     context::RsOrchestratorContext,
-    errors::error::RsOrchestratorResult,
     tasks::{s3_keys::S3Keys, source_archive::SourceArchive},
 };
+use buildplane_shared::errors::BpResult;
 use buildplane_shared::{
     git_ops::git_remote::{GitHost, GitRemote},
     request_context::RequestContext,
@@ -52,7 +52,7 @@ impl Task {
     pub async fn handle(
         &self,
         request_context: RequestContext<&RsOrchestratorContext>,
-    ) -> RsOrchestratorResult<()> {
+    ) -> BpResult<()> {
         match self {
             Self::AllReposAdd { source } => {
                 match GitRemote::from_source(&request_context.context.github_auth, source)? {
@@ -106,7 +106,7 @@ impl Task {
         request_context: RequestContext<&RsOrchestratorContext>,
         source: &GitSource,
         remote: &Remote,
-    ) -> RsOrchestratorResult<()>
+    ) -> BpResult<()>
     where
         RepoId: Display,
         Remote: GitHost<InstallationId, RepoId>,
@@ -124,7 +124,7 @@ impl Task {
         request_context: RequestContext<&RsOrchestratorContext>,
         source: &GitSource,
         repo_ids: &[String],
-    ) -> RsOrchestratorResult<()> {
+    ) -> BpResult<()> {
         let messages = repo_ids
             .iter()
             .map(|repo_id| SqsMessage {
@@ -134,12 +134,12 @@ impl Task {
                 },
             })
             .collect::<Vec<_>>();
-        Ok(request_context
+        request_context
             .context
             .aws
             .sqs
             .send_batch(&messages, request_context.deadline)
-            .await?)
+            .await
     }
 
     async fn repo_add<InstallationId, RepoId, Remote>(
@@ -147,7 +147,7 @@ impl Task {
         source: &GitSource,
         remote: &Remote,
         repo_id: &str,
-    ) -> RsOrchestratorResult<()>
+    ) -> BpResult<()>
     where
         InstallationId: Display,
         RepoId: Display + Clone,
@@ -174,7 +174,7 @@ impl Task {
         source: &GitSource,
         remote: &Remote,
         repo_id: &str,
-    ) -> RsOrchestratorResult<()>
+    ) -> BpResult<()>
     where
         InstallationId: Display,
         RepoId: Display + Clone,
@@ -253,7 +253,7 @@ impl Task {
         ref_name: &str,
         ref_type: SqsRefType,
         commit_hash: Option<String>,
-    ) -> RsOrchestratorResult<()>
+    ) -> BpResult<()>
     where
         InstallationId: Display,
         RepoId: Display + Clone,

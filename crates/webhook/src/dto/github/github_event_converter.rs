@@ -15,14 +15,14 @@ use crate::{
             },
         },
     },
-    error::{RsWebhookError, RsWebhookResult},
     event_response::EventResponse,
     infisical::secrets::Secrets,
 };
+use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_shared::errors::{GitHubError, HttpError};
 use buildplane_shared::{
     env_vars::EnvVarConfig,
-    errors::{config::RsConfigError, error::RsSharedError},
-    git_ops::github::host_allow_list::{HostAllowlist, RsHostError},
+    git_ops::github::host_allow_list::HostAllowlist,
     metrics::event::EventMetrics,
     sqs_message::{GitSource, SqsDetail, SqsMessage, SqsRefType},
 };
@@ -40,12 +40,10 @@ pub struct GitHubEventConverter {
 }
 
 impl EventConverter for GitHubEventConverter {
-    fn new(secrets: &Secrets, config: &EnvVarConfig) -> RsWebhookResult<Self> {
+    fn new(secrets: &Secrets, config: &EnvVarConfig) -> BpResult<Self> {
         let secret = secrets.get(GITHUB_WEBHOOK_SECRET)?;
         if secret.is_empty() {
-            Err(RsSharedError::Config(RsConfigError::empty(
-                GITHUB_WEBHOOK_SECRET,
-            )))?;
+            Err(BpError::config_empty(GITHUB_WEBHOOK_SECRET))?;
         }
         Ok(Self {
             secret,
@@ -53,7 +51,7 @@ impl EventConverter for GitHubEventConverter {
         })
     }
 
-    fn event_response(&self, request: &lambda_http::Request) -> RsWebhookResult<EventResponse> {
+    fn event_response(&self, request: &lambda_http::Request) -> BpResult<EventResponse> {
         let Some(event_type_str) = request
             .headers()
             .get("x-github-event")
@@ -94,9 +92,9 @@ impl GitHubEventConverter {
         &self,
         request: &lambda_http::Request,
         delivery_id: Option<String>,
-    ) -> RsWebhookResult<EventResponse> {
-        let event: GitHubEventInstallation =
-            serde_json::from_slice(request.body()).map_err(RsWebhookError::Serde)?;
+    ) -> BpResult<EventResponse> {
+        let event: GitHubEventInstallation = serde_json::from_slice(request.body())
+            .map_err(|error| BpError::Http(HttpError::Serde(error)))?;
         let installation_id = event.installation.id;
         let action = event.action;
         match action {
@@ -133,9 +131,9 @@ impl GitHubEventConverter {
         &self,
         request: &lambda_http::Request,
         delivery_id: Option<String>,
-    ) -> RsWebhookResult<EventResponse> {
-        let event: GitHubEventInstallationRepositories =
-            serde_json::from_slice(request.body()).map_err(RsWebhookError::Serde)?;
+    ) -> BpResult<EventResponse> {
+        let event: GitHubEventInstallationRepositories = serde_json::from_slice(request.body())
+            .map_err(|error| BpError::Http(HttpError::Serde(error)))?;
         let action = event.action;
         match action {
             GitHubEventInstallationRepositoriesAction::Added => {}
@@ -163,9 +161,9 @@ impl GitHubEventConverter {
         &self,
         request: &lambda_http::Request,
         delivery_id: Option<String>,
-    ) -> RsWebhookResult<EventResponse> {
-        let event: GitHubEventRepository =
-            serde_json::from_slice(request.body()).map_err(RsWebhookError::Serde)?;
+    ) -> BpResult<EventResponse> {
+        let event: GitHubEventRepository = serde_json::from_slice(request.body())
+            .map_err(|error| BpError::Http(HttpError::Serde(error)))?;
         let installation_id = event.installation.id;
         let repo_id = Self::repo_id(event.repository);
         let action = event.action;
@@ -199,9 +197,9 @@ impl GitHubEventConverter {
         &self,
         request: &lambda_http::Request,
         delivery_id: Option<String>,
-    ) -> RsWebhookResult<EventResponse> {
-        let event: GitHubEventRef =
-            serde_json::from_slice(request.body()).map_err(RsWebhookError::Serde)?;
+    ) -> BpResult<EventResponse> {
+        let event: GitHubEventRef = serde_json::from_slice(request.body())
+            .map_err(|error| BpError::Http(HttpError::Serde(error)))?;
         let Some(ref_type) = Self::ref_type(&event.ref_type) else {
             EventMetrics::record_ignored_event("create", &event.ref_type.to_string());
             return Ok(EventResponse::Ignore);
@@ -215,7 +213,7 @@ impl GitHubEventConverter {
         Self::accept(host, delivery_id, event.installation.id, detail)
     }
 
-    fn ping_response(&self) -> RsWebhookResult<EventResponse> {
+    fn ping_response(&self) -> BpResult<EventResponse> {
         Ok(EventResponse::Pong)
     }
 
@@ -223,9 +221,9 @@ impl GitHubEventConverter {
         &self,
         request: &lambda_http::Request,
         delivery_id: Option<String>,
-    ) -> RsWebhookResult<EventResponse> {
-        let event: GitHubEventPush =
-            serde_json::from_slice(request.body()).map_err(RsWebhookError::Serde)?;
+    ) -> BpResult<EventResponse> {
+        let event: GitHubEventPush = serde_json::from_slice(request.body())
+            .map_err(|error| BpError::Http(HttpError::Serde(error)))?;
         let GitHubEventPush {
             after,
             created,
@@ -294,16 +292,21 @@ impl GitHubEventConverter {
         }
     }
 
-    fn host(&self, installation: &GitHubInstallation) -> RsWebhookResult<String> {
+    fn host(&self, installation: &GitHubInstallation) -> BpResult<String> {
         self.allowed_hosts
             .validate_url(&installation.html_url)
             .map_err(|error| match error {
-                RsHostError::Invalid { .. } => {
-                    RsWebhookError::InvalidHost(installation.html_url.clone())
+                BpError::GitHub(GitHubError::HostInvalid { .. }) => {
+                    BpError::GitHub(GitHubError::HostInvalid {
+                        host: installation.html_url.clone(),
+                    })
                 }
-                RsHostError::NotAllowed { .. } => {
-                    RsWebhookError::HostNotAllowed(installation.html_url.clone())
+                BpError::GitHub(GitHubError::HostNotAllowed { .. }) => {
+                    BpError::GitHub(GitHubError::HostNotAllowed {
+                        host: installation.html_url.clone(),
+                    })
                 }
+                _ => error,
             })
     }
 
@@ -321,7 +324,7 @@ impl GitHubEventConverter {
         delivery_id: Option<String>,
         installation_id: u64,
         detail: SqsDetail,
-    ) -> RsWebhookResult<EventResponse> {
+    ) -> BpResult<EventResponse> {
         let message = SqsMessage {
             source: GitSource::GitHub {
                 host,
@@ -378,10 +381,7 @@ mod tests {
         }
     }
 
-    fn host_from_converter(
-        converter: &GitHubEventConverter,
-        html_url: &str,
-    ) -> RsWebhookResult<String> {
+    fn host_from_converter(converter: &GitHubEventConverter, html_url: &str) -> BpResult<String> {
         let body = installation_payload(html_url);
         let request = signed_request(SECRET, "installation", &body);
         match converter.event_response(&request)? {
@@ -408,7 +408,7 @@ mod tests {
         .into_bytes()
     }
 
-    fn host_from_installation(html_url: &str) -> RsWebhookResult<String> {
+    fn host_from_installation(html_url: &str) -> BpResult<String> {
         host_from_converter(&converter(), html_url)
     }
 
@@ -476,7 +476,7 @@ mod tests {
         let request = signed_request(SECRET, "installation", &body);
         assert!(matches!(
             converter().event_response(&request),
-            Err(RsWebhookError::HostNotAllowed(url)) if url == "https://evil.com/"
+            Err(BpError::GitHub(GitHubError::HostNotAllowed { host: url })) if url == "https://evil.com/"
         ));
     }
 
@@ -484,7 +484,7 @@ mod tests {
     fn installation_event_rejects_non_https_scheme() {
         assert!(matches!(
             host_from_installation("http://github.com/"),
-            Err(RsWebhookError::InvalidHost(url)) if url == "http://github.com/"
+            Err(BpError::GitHub(GitHubError::HostInvalid { host: url })) if url == "http://github.com/"
         ));
     }
 
@@ -522,7 +522,7 @@ mod tests {
     fn installation_event_rejects_userinfo_trick() {
         assert!(matches!(
             host_from_installation("https://github.com@evil.com/"),
-            Err(RsWebhookError::InvalidHost(url)) if url == "https://github.com@evil.com/"
+            Err(BpError::GitHub(GitHubError::HostInvalid { host: url })) if url == "https://github.com@evil.com/"
         ));
     }
 }

@@ -1,11 +1,10 @@
-use crate::{
-    error::{EGError, EGResult},
-    rate_limit::rate_limiter::RateLimiter,
-};
+use crate::rate_limit::rate_limiter::RateLimiter;
 use buildplane_exchange_types::{
     new_types::{Nanoseconds, UsageCount},
     rate_limited::{RateLimit, RateLimitRestriction, RateUsage},
 };
+use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_shared::errors::{RateLimitError, SystemError};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -32,7 +31,7 @@ impl RateLimiters {
             acquisition_lock: Arc::new(Mutex::new(())),
         }
     }
-    pub fn remaining_capacity(&self) -> EGResult<HashMap<RateLimit, UsageCount>> {
+    pub fn remaining_capacity(&self) -> BpResult<HashMap<RateLimit, UsageCount>> {
         let mut capacities = HashMap::new();
         for (restriction, limiter) in &self.limiters {
             for (interval_nanos, remaining) in limiter.remaining_capacity()? {
@@ -47,15 +46,15 @@ impl RateLimiters {
         }
         Ok(capacities)
     }
-    pub fn did_acquire(&self, costs: &[(RateLimitRestriction, UsageCount)]) -> EGResult<()> {
+    pub fn did_acquire(&self, costs: &[(RateLimitRestriction, UsageCount)]) -> BpResult<()> {
         let _guard = self
             .acquisition_lock
             .lock()
-            .map_err(|_| EGError::MutexPoisoned)?;
+            .map_err(|_| BpError::System(SystemError::PoisonedLock))?;
         for limiter in self.limiters.values() {
             if limiter.is_throttled()? {
                 debug!("rate limiter is throttled, rejecting request");
-                return Err(EGError::RateLimited);
+                return Err(BpError::RateLimit(RateLimitError::RateLimited));
             }
         }
         let mut acquired = Vec::with_capacity(costs.len());
@@ -70,27 +69,27 @@ impl RateLimiters {
         }
         Ok(())
     }
-    fn refund_acquired(&self, acquired: &[(RateLimitRestriction, UsageCount)]) -> EGResult<()> {
+    fn refund_acquired(&self, acquired: &[(RateLimitRestriction, UsageCount)]) -> BpResult<()> {
         for &(restriction, cost) in acquired {
             self.refund_unlocked(restriction, cost)?;
         }
         Ok(())
     }
-    pub fn refund(&self, restriction: RateLimitRestriction, cost: UsageCount) -> EGResult<()> {
+    pub fn refund(&self, restriction: RateLimitRestriction, cost: UsageCount) -> BpResult<()> {
         let _guard = self
             .acquisition_lock
             .lock()
-            .map_err(|_| EGError::MutexPoisoned)?;
+            .map_err(|_| BpError::System(SystemError::PoisonedLock))?;
         self.refund_unlocked(restriction, cost)
     }
-    fn refund_unlocked(&self, restriction: RateLimitRestriction, cost: UsageCount) -> EGResult<()> {
+    fn refund_unlocked(&self, restriction: RateLimitRestriction, cost: UsageCount) -> BpResult<()> {
         if let Some(limiter) = self.limiters.get(&restriction) {
             limiter.refund(cost)
         } else {
             Ok(())
         }
     }
-    pub fn set_usage(&self, usage: &HashMap<RateLimit, RateUsage>) -> EGResult<()> {
+    pub fn set_usage(&self, usage: &HashMap<RateLimit, RateUsage>) -> BpResult<()> {
         for (restriction, limiter) in &self.limiters {
             let restriction_usage = usage
                 .iter()
@@ -101,7 +100,7 @@ impl RateLimiters {
         }
         Ok(())
     }
-    pub fn set_retry_after(&self, retry_after: Duration) -> EGResult<()> {
+    pub fn set_retry_after(&self, retry_after: Duration) -> BpResult<()> {
         warn!(
             ?retry_after,
             "exchange requested Retry-After, throttling requests"
@@ -167,7 +166,7 @@ mod tests {
             .expect("set retry after");
         assert!(matches!(
             rate_limiters.did_acquire(&[]),
-            Err(EGError::RateLimited)
+            Err(BpError::RateLimit(RateLimitError::RateLimited))
         ));
     }
 
@@ -221,7 +220,9 @@ mod tests {
         ];
         assert!(matches!(
             rate_limiters.did_acquire(&costs),
-            Err(EGError::RequestExceedsRateLimit { .. })
+            Err(BpError::RateLimit(
+                RateLimitError::RequestExceedsRateLimit { .. }
+            ))
         ));
 
         // RawRequests was acquired before Weight failed and must be rolled back.

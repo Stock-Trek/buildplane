@@ -1,13 +1,10 @@
+use crate::errors::GitHubError;
 use crate::{
     env_vars::EnvVarConfig,
-    errors::{
-        config::RsConfigError,
-        error::{RsSharedError, RsSharedResult},
-        github::RsGitHubError,
-    },
+    errors::{BpError, BpResult},
     git_ops::github::{
         app_config::GitHubAppConfig,
-        host_allow_list::{DEFAULT_HOST, HostAllowlist, RsHostError},
+        host_allow_list::{DEFAULT_HOST, HostAllowlist},
         installation::{DirectoryLimits, GitHubInstallation},
     },
     timeouts::Timeouts,
@@ -41,7 +38,7 @@ impl GitHubAuth {
         timeouts: Timeouts,
         allowed_hosts: HostAllowlist,
         max_cached_installations: NonZeroUsize,
-    ) -> RsSharedResult<Self> {
+    ) -> BpResult<Self> {
         Self::build(
             config,
             timeouts,
@@ -57,9 +54,9 @@ impl GitHubAuth {
         allowed_hosts: HostAllowlist,
         max_cached_installations: NonZeroUsize,
         directory_limits: DirectoryLimits,
-    ) -> RsSharedResult<Self> {
+    ) -> BpResult<Self> {
         let key = EncodingKey::from_rsa_pem(config.private_key.as_bytes())
-            .map_err(|error| RsConfigError::invalid_source("GitHub App private key", error))?;
+            .map_err(|error| BpError::config_invalid_source("GitHub App private key", error))?;
         Ok(Self {
             app_id: config.app_id,
             key,
@@ -71,7 +68,7 @@ impl GitHubAuth {
         })
     }
 
-    pub fn from_env(config: &EnvVarConfig) -> RsSharedResult<Self> {
+    pub fn from_env(config: &EnvVarConfig) -> BpResult<Self> {
         let app = GitHubAppConfig::from_env(config)?;
         let timeouts = Timeouts::from_env(
             config,
@@ -95,22 +92,8 @@ impl GitHubAuth {
         )
     }
 
-    pub fn installation(
-        &self,
-        host: &str,
-        installation_id: u64,
-    ) -> RsSharedResult<GitHubInstallation> {
-        let host = self
-            .allowed_hosts
-            .validate(host)
-            .map_err(|error| match error {
-                RsHostError::Invalid { host } => {
-                    RsSharedError::GitHub(RsGitHubError::InvalidHost { host })
-                }
-                RsHostError::NotAllowed { host } => {
-                    RsSharedError::GitHub(RsGitHubError::HostNotAllowed { host })
-                }
-            })?;
+    pub fn installation(&self, host: &str, installation_id: u64) -> BpResult<GitHubInstallation> {
+        let host = self.allowed_hosts.validate(host)?;
         let key = (host.clone(), installation_id);
         let mut installations = self.installations.lock();
         if let Some(installation) = installations.get(&key) {
@@ -132,7 +115,7 @@ impl GitHubAuth {
     /// caching it on first use. The public GitHub host uses octocrab's default
     /// base URI; any other host is treated as GitHub Enterprise and routed
     /// through `https://<host>/api/v3`.
-    fn app(&self, host: &str) -> RsSharedResult<Arc<Octocrab>> {
+    fn app(&self, host: &str) -> BpResult<Arc<Octocrab>> {
         let mut apps = self.apps.lock();
         if let Some(app) = apps.get(host) {
             return Ok(Arc::clone(app));
@@ -141,7 +124,7 @@ impl GitHubAuth {
         if host != DEFAULT_HOST {
             let base_uri = format!("https://{host}/{ENTERPRISE_API_PATH}");
             builder = builder.base_uri(base_uri).map_err(|error| {
-                RsConfigError::invalid_source(format!("GitHub Enterprise host {host}"), error)
+                BpError::config_invalid_source(format!("GitHub Enterprise host {host}"), error)
             })?;
         }
         let app = Arc::new(
@@ -149,7 +132,7 @@ impl GitHubAuth {
                 .set_connect_timeout(self.timeouts.connect.into())
                 .set_read_timeout(self.timeouts.operation.into())
                 .build()
-                .map_err(|error| RsSharedError::GitHub(RsGitHubError::BuildClient(error)))?,
+                .map_err(|error| BpError::GitHub(GitHubError::BuildClient(error)))?,
         );
         apps.insert(host.to_owned(), Arc::clone(&app));
         Ok(app)

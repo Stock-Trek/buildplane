@@ -1,5 +1,6 @@
-use crate::error::{EGError, EGResult};
 use buildplane_exchange_types::new_types::Milliseconds;
+use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_shared::errors::{ConnectorError, SystemError};
 use std::{
     sync::{
         Mutex,
@@ -28,42 +29,48 @@ impl Clock {
         }
     }
 
-    pub fn duration_since_last_sync(&self) -> EGResult<Option<Duration>> {
+    pub fn duration_since_last_sync(&self) -> BpResult<Option<Duration>> {
         let result = self.last_sync.lock();
-        let mutex = result.map_err(|_| EGError::MutexPoisoned)?;
+        let mutex = result.map_err(|_| BpError::System(SystemError::PoisonedLock))?;
         let last_sync = *mutex;
         Ok(last_sync.map(|i| i.elapsed()))
     }
 
-    pub fn is_synced(&self) -> EGResult<bool> {
-        let last_sync = self.last_sync.lock().map_err(|_| EGError::MutexPoisoned)?;
+    pub fn is_synced(&self) -> BpResult<bool> {
+        let last_sync = self
+            .last_sync
+            .lock()
+            .map_err(|_| BpError::System(SystemError::PoisonedLock))?;
         Ok(last_sync.is_some())
     }
-    pub fn sync(&self, server_time: Milliseconds, round_trip_duration: Duration) -> EGResult<()> {
+    pub fn sync(&self, server_time: Milliseconds, round_trip_duration: Duration) -> BpResult<()> {
         let system_time = Self::system_time()?;
         let round_trip_time = Milliseconds(round_trip_duration.as_millis() as i64);
         let system_time_estimate = system_time - (round_trip_time / 2);
         let offset_estimate = system_time_estimate - server_time;
         self.server_offset_millis
             .store(offset_estimate.0, Ordering::Relaxed);
-        let mut last_sync = self.last_sync.lock().map_err(|_| EGError::MutexPoisoned)?;
+        let mut last_sync = self
+            .last_sync
+            .lock()
+            .map_err(|_| BpError::System(SystemError::PoisonedLock))?;
         *last_sync = Some(Instant::now());
         Ok(())
     }
-    pub fn server_time_estimate(&self) -> EGResult<Milliseconds> {
+    pub fn server_time_estimate(&self) -> BpResult<Milliseconds> {
         if !self.is_synced()? {
-            return Err(EGError::ClockNotSynced);
+            return Err(BpError::Connector(ConnectorError::ClockNotSynced));
         }
         self.server_time_estimate_unchecked()
     }
-    pub fn server_time_estimate_unchecked(&self) -> EGResult<Milliseconds> {
+    pub fn server_time_estimate_unchecked(&self) -> BpResult<Milliseconds> {
         Ok(Self::system_time()? - self.server_offset())
     }
 
-    fn system_time() -> EGResult<Milliseconds> {
+    fn system_time() -> BpResult<Milliseconds> {
         let system_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|_| EGError::SystemTimeBeforeUnixEpoch)?;
+            .map_err(|_| BpError::System(SystemError::SystemTimeBeforeEpoch))?;
         Ok(Milliseconds(system_time.as_millis() as i64))
     }
     fn server_offset(&self) -> Milliseconds {
@@ -81,7 +88,7 @@ mod tests {
         assert!(!clock.is_synced().unwrap());
         assert!(matches!(
             clock.server_time_estimate(),
-            Err(EGError::ClockNotSynced)
+            Err(BpError::Connector(ConnectorError::ClockNotSynced))
         ));
     }
 

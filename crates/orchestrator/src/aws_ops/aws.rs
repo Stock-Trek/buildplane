@@ -1,8 +1,6 @@
-use crate::{
-    aws_ops::{lambda::Lambda, s3::S3},
-    errors::error::RsOrchestratorResult,
-};
+use crate::aws_ops::{lambda::Lambda, s3::S3};
 use aws_config::{BehaviorVersion, SdkConfig, timeout::TimeoutConfig};
+use buildplane_shared::errors::BpResult;
 use buildplane_shared::{env_vars::EnvVarConfig, sqs::Sqs, timeouts::Timeouts};
 use std::time::Duration;
 
@@ -16,13 +14,13 @@ pub struct Aws {
 }
 
 impl Aws {
-    pub fn load_timeouts(config: &EnvVarConfig) -> RsOrchestratorResult<Timeouts> {
-        Ok(Timeouts::from_env(
+    pub fn load_timeouts(config: &EnvVarConfig) -> BpResult<Timeouts> {
+        Timeouts::from_env(
             config,
             "AWS",
             DEFAULT_AWS_CONNECT_TIMEOUT,
             DEFAULT_AWS_OPERATION_TIMEOUT,
-        )?)
+        )
     }
     pub async fn load_sdk_config(timeouts: Timeouts) -> SdkConfig {
         let mut timeout_config = TimeoutConfig::builder();
@@ -44,7 +42,7 @@ impl Aws {
         sdk_config: &SdkConfig,
         timeouts: Timeouts,
         config: &EnvVarConfig,
-    ) -> RsOrchestratorResult<Self> {
+    ) -> BpResult<Self> {
         Ok(Self::new(
             Lambda::from_env(sdk_config, timeouts, config)?,
             S3::from_env(sdk_config, timeouts, config)?,

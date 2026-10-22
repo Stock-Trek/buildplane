@@ -1,0 +1,64 @@
+use crate::errors::retryability::Retryability;
+use chrono::{DateTime, Utc};
+use std::error::Error as StdError;
+
+#[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
+pub enum DataError {
+    #[error("Invalid data job: {message}")]
+    InvalidJob { message: String },
+    #[error("Invalid trading pair path {pair}; expected mode/cex/base/quote")]
+    InvalidTradingPairPath { pair: String },
+    #[error("Trading pair {pair} is not configured for data collection")]
+    UnsupportedTradingPair { pair: String },
+    #[error("Backfill end time {end} must be after start time {start}")]
+    InvalidBackfillRange {
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    },
+    #[error("Failed to acquire lock {key}: another invocation is already running")]
+    LockContention { key: String },
+    #[error("Lock {key} is missing an ETag and cannot be released safely")]
+    MissingLockETag { key: String },
+    #[error("Month {month} must be between 1 and 12")]
+    InvalidMonth { month: u32 },
+    #[error("Day {day} is not valid for this month")]
+    InvalidDay { day: u32 },
+    #[error("Hour {hour} must be between 0 and 23")]
+    InvalidHour { hour: u32 },
+    #[error("Failed to parse year and month from path {path}")]
+    InvalidYearMonth { path: String },
+    #[error("Cannot get subfolders from path with too many delimiters {path}")]
+    TooManyPathSegments { path: String },
+    #[error("Date time out of range while trying to {operation}")]
+    DateTimeOutOfRange { operation: &'static str },
+    #[error("Failed to convert candle {field} to f64: {source}")]
+    CandleConversion {
+        field: &'static str,
+        #[source]
+        source: Box<dyn StdError + Send + Sync>,
+    },
+    #[error("{count} operation(s) failed: {failures}")]
+    Multiple { count: usize, failures: String },
+}
+
+impl DataError {
+    pub fn multiple(failures: impl IntoIterator<Item = crate::errors::bp::BpError>) -> Self {
+        let failures = failures.into_iter().collect::<Vec<_>>();
+        let count = failures.len();
+        let failures = failures
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("; ");
+        Self::Multiple { count, failures }
+    }
+
+    pub fn error_type(&self) -> &'static str {
+        self.into()
+    }
+
+    pub fn retryability(&self) -> Retryability {
+        Retryability::Permanent
+    }
+}

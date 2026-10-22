@@ -4,7 +4,6 @@ use crate::{
         recv_window::BinanceRecvWindow, request::BinanceRequestFactory, response::BinanceResponse,
         supporting_types::BinanceCancelResponse,
     },
-    error::ETResult,
     http::{HttpMethod, HttpRequest},
     new_types::{Milliseconds, UsageCount},
     rate_limited::RateLimitRestriction,
@@ -12,6 +11,7 @@ use crate::{
     signer::Signer,
     websocket_id::ETWebsocketId,
 };
+use buildplane_shared::errors::BpResult;
 use query_params::QueryParams;
 use serde::Serialize;
 use serde_with::skip_serializing_none;
@@ -73,7 +73,7 @@ impl ETHttpRequest for BinanceCancelAllOpenOrdersRequest {
     fn http_method(&self) -> HttpMethod {
         HttpMethod::DELETE
     }
-    fn try_into_http(self, signer: &Signer) -> ETResult<HttpRequest> {
+    fn try_into_http(self, signer: &Signer) -> BpResult<HttpRequest> {
         BinanceRequestFactory::try_into_http(self, signer)
     }
     fn verification_request_http(&self) -> Option<Self::VerificationRequest> {
@@ -95,7 +95,7 @@ impl ETWebsocketRequest for BinanceCancelAllOpenOrdersRequest {
         self,
         signer: &Signer,
         id: ETWebsocketId,
-    ) -> ETResult<(String, WebsocketResponseMatcher)> {
+    ) -> BpResult<(String, WebsocketResponseMatcher)> {
         BinanceRequestFactory::try_into_websocket(self, signer, id)
     }
     fn verification_request_websocket(&self) -> Option<Self::VerificationRequest> {

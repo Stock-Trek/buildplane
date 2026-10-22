@@ -3,6 +3,8 @@ use aws_sdk_s3::{
     error::{ProvideErrorMetadata, SdkError},
     primitives::ByteStream,
 };
+use buildplane_shared::errors::DataError;
+use buildplane_shared::errors::{BpError, BpResult};
 use chrono::{DateTime, Utc};
 use std::{
     sync::atomic::{AtomicU64, Ordering},
@@ -11,10 +13,7 @@ use std::{
 use tokio::time::{Instant, sleep};
 use tracing::{info, warn};
 
-use crate::{
-    error::{MduError, MduResult},
-    s3::{Bucket, ObjectKey, S3},
-};
+use crate::s3::{Bucket, ObjectKey, S3};
 
 const STALE_AFTER: Duration = Duration::from_secs(16 * 60);
 const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -30,11 +29,7 @@ pub struct LockGuard {
 }
 
 impl LockGuard {
-    pub async fn acquire(
-        s3_client: &S3Client,
-        bucket: &Bucket,
-        key: &ObjectKey,
-    ) -> MduResult<Self> {
+    pub async fn acquire(s3_client: &S3Client, bucket: &Bucket, key: &ObjectKey) -> BpResult<Self> {
         let deadline = Instant::now() + ACQUIRE_TIMEOUT;
         loop {
             if let Some(guard) = Self::try_acquire(s3_client, bucket, key).await? {
@@ -45,9 +40,9 @@ impl LockGuard {
             }
             if Instant::now() >= deadline {
                 warn!("timed out waiting for lock {}", key);
-                return Err(MduError::LockContention {
+                return Err(BpError::Data(DataError::LockContention {
                     key: key.as_str().to_string(),
-                });
+                }));
             }
             sleep(RETRY_INTERVAL).await;
         }
@@ -57,7 +52,7 @@ impl LockGuard {
         s3_client: &S3Client,
         bucket: &Bucket,
         key: &ObjectKey,
-    ) -> MduResult<Option<Self>> {
+    ) -> BpResult<Option<Self>> {
         let target = S3::object_target(bucket, key);
         let token = Self::new_lock_token();
         let output = match s3_client
@@ -71,13 +66,13 @@ impl LockGuard {
         {
             Ok(output) => output,
             Err(error) if Self::is_precondition_failed(&error) => return Ok(None),
-            Err(error) => return Err(MduError::s3("acquire lock", target, error)),
+            Err(error) => return Err(BpError::s3("acquire lock", target, error)),
         };
         let Some(e_tag) = Self::resolve_e_tag(s3_client, bucket, key, output.e_tag()).await? else {
             Self::remove_unreleasable_lock(s3_client, bucket, key, &token).await;
-            return Err(MduError::MissingLockETag {
+            return Err(BpError::Data(DataError::MissingLockETag {
                 key: key.as_str().to_string(),
-            });
+            }));
         };
         info!("acquired lock {} ({})", key, e_tag);
         Ok(Some(Self {
@@ -94,7 +89,7 @@ impl LockGuard {
         bucket: &Bucket,
         key: &ObjectKey,
         e_tag: Option<&str>,
-    ) -> MduResult<Option<String>> {
+    ) -> BpResult<Option<String>> {
         if let Some(e_tag) = e_tag.filter(|e_tag| !e_tag.is_empty()) {
             return Ok(Some(e_tag.to_string()));
         }
@@ -111,7 +106,7 @@ impl LockGuard {
                 .filter(|e_tag| !e_tag.is_empty())
                 .map(str::to_string)),
             Err(SdkError::ServiceError(error)) if error.err().is_not_found() => Ok(None),
-            Err(error) => Err(MduError::s3("read lock metadata", target, error)),
+            Err(error) => Err(BpError::s3("read lock metadata", target, error)),
         }
     }
 
@@ -198,7 +193,7 @@ impl LockGuard {
         s3_client: &S3Client,
         bucket: &Bucket,
         key: &ObjectKey,
-    ) -> MduResult<bool> {
+    ) -> BpResult<bool> {
         let target = S3::object_target(bucket, key);
         let head = match s3_client
             .head_object()
@@ -210,7 +205,7 @@ impl LockGuard {
             Ok(head) => head,
             Err(SdkError::ServiceError(error)) if error.err().is_not_found() => return Ok(false),
             Err(error) => {
-                return Err(MduError::s3("read lock metadata", target.clone(), error));
+                return Err(BpError::s3("read lock metadata", target.clone(), error));
             }
         };
         let Some(last_modified) = head
@@ -219,10 +214,11 @@ impl LockGuard {
         else {
             return Ok(false);
         };
-        let stale_after =
-            chrono::Duration::from_std(STALE_AFTER).map_err(|_| MduError::DateTimeOutOfRange {
+        let stale_after = chrono::Duration::from_std(STALE_AFTER).map_err(|_| {
+            BpError::Data(DataError::DateTimeOutOfRange {
                 operation: "convert lock staleness duration",
-            })?;
+            })
+        })?;
         if Utc::now().signed_duration_since(last_modified) < stale_after {
             return Ok(false);
         }
@@ -242,11 +238,11 @@ impl LockGuard {
                 Ok(true)
             }
             Err(error) if Self::is_precondition_failed(&error) => Ok(false),
-            Err(error) => Err(MduError::s3("remove stale lock", target, error)),
+            Err(error) => Err(BpError::s3("remove stale lock", target, error)),
         }
     }
 
-    pub async fn release(&mut self) -> MduResult<()> {
+    pub async fn release(&mut self) -> BpResult<()> {
         if self.released {
             return Ok(());
         }
@@ -260,12 +256,12 @@ impl LockGuard {
         bucket: &Bucket,
         key: &ObjectKey,
         e_tag: &str,
-    ) -> MduResult<()> {
+    ) -> BpResult<()> {
         let target = S3::object_target(bucket, key);
         if e_tag.is_empty() {
-            return Err(MduError::MissingLockETag {
+            return Err(BpError::Data(DataError::MissingLockETag {
                 key: key.as_str().to_string(),
-            });
+            }));
         }
         match s3_client
             .delete_object()
@@ -283,7 +279,7 @@ impl LockGuard {
                 warn!("lock {} was taken over before release", key);
                 Ok(())
             }
-            Err(error) => Err(MduError::s3("release lock", target, error)),
+            Err(error) => Err(BpError::s3("release lock", target, error)),
         }
     }
 

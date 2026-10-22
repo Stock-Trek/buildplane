@@ -1,6 +1,6 @@
-use crate::error::MduResult;
 use buildplane_exchange_gateway::async_trait;
 use buildplane_exchange_types::klines::Kline;
+use buildplane_shared::errors::BpResult;
 use chrono::{DateTime, Utc};
 use stock_trek_types::cex::trading_pair::TradingPair;
 
@@ -11,5 +11,5 @@ pub trait ExchangeUpdater: Send + Sync {
         trading_pair: &TradingPair,
         start_time: DateTime<Utc>,
         end_time: DateTime<Utc>,
-    ) -> MduResult<Vec<Kline>>;
+    ) -> BpResult<Vec<Kline>>;
 }

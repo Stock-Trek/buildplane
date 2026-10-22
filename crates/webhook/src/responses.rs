@@ -1,4 +1,5 @@
-use crate::error::{RsWebhookError, RsWebhookResult};
+use buildplane_shared::errors::HttpError;
+use buildplane_shared::errors::{BpError, BpResult};
 use http::{Response, StatusCode};
 use lambda_http::Body;
 use std::time::Duration;
@@ -6,49 +7,49 @@ use std::time::Duration;
 pub struct Responses;
 
 impl Responses {
-    pub fn ok(body: &str) -> RsWebhookResult<Response<Body>> {
+    pub fn ok(body: &str) -> BpResult<Response<Body>> {
         Response::builder()
             .status(StatusCode::OK)
             .body(Body::Text(body.into()))
-            .map_err(RsWebhookError::Http)
+            .map_err(|error| BpError::Http(HttpError::Http(error)))
     }
 
-    pub fn accepted() -> RsWebhookResult<Response<Body>> {
+    pub fn accepted() -> BpResult<Response<Body>> {
         Response::builder()
             .status(StatusCode::ACCEPTED)
             .body(Body::Empty)
-            .map_err(RsWebhookError::Http)
+            .map_err(|error| BpError::Http(HttpError::Http(error)))
     }
 
-    pub fn no_content() -> RsWebhookResult<Response<Body>> {
+    pub fn no_content() -> BpResult<Response<Body>> {
         Response::builder()
             .status(StatusCode::NO_CONTENT)
             .body(Body::Empty)
-            .map_err(RsWebhookError::Http)
+            .map_err(|error| BpError::Http(HttpError::Http(error)))
     }
 
-    pub fn bad_request() -> RsWebhookResult<Response<Body>> {
+    pub fn bad_request() -> BpResult<Response<Body>> {
         Response::builder()
             .status(StatusCode::BAD_REQUEST)
             .body(Body::Empty)
-            .map_err(RsWebhookError::Http)
+            .map_err(|error| BpError::Http(HttpError::Http(error)))
     }
 
-    pub fn unauthorized() -> RsWebhookResult<Response<Body>> {
+    pub fn unauthorized() -> BpResult<Response<Body>> {
         Response::builder()
             .status(StatusCode::UNAUTHORIZED)
             .body(Body::Empty)
-            .map_err(RsWebhookError::Http)
+            .map_err(|error| BpError::Http(HttpError::Http(error)))
     }
 
-    pub fn internal_server_error() -> RsWebhookResult<Response<Body>> {
+    pub fn internal_server_error() -> BpResult<Response<Body>> {
         Response::builder()
             .status(StatusCode::INTERNAL_SERVER_ERROR)
             .body(Body::Empty)
-            .map_err(RsWebhookError::Http)
+            .map_err(|error| BpError::Http(HttpError::Http(error)))
     }
 
-    pub fn service_unavailable(retry_after: Duration) -> RsWebhookResult<Response<Body>> {
+    pub fn service_unavailable(retry_after: Duration) -> BpResult<Response<Body>> {
         Response::builder()
             .status(StatusCode::SERVICE_UNAVAILABLE)
             .header(
@@ -56,6 +57,6 @@ impl Responses {
                 retry_after.as_secs().max(1).to_string(),
             )
             .body(Body::Empty)
-            .map_err(RsWebhookError::Http)
+            .map_err(|error| BpError::Http(HttpError::Http(error)))
     }
 }

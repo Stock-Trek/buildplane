@@ -4,7 +4,6 @@ use crate::clients::reqwest::ReqwestHttpClient;
 use crate::{
     clients::client::{HttpClient, WebsocketClient},
     clock::Clock,
-    error::{EGError, EGResult},
     rate_limit::{
         rate_limiter::RateLimiter,
         rate_limiter_state::RateLimiterState,
@@ -26,6 +25,8 @@ use buildplane_exchange_types::{
     urls::{Protocol, TradingMode, Urls},
     websocket_id::ETWebsocketId,
 };
+use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_shared::errors::{ConnectorError, RateLimitError, TimeoutError};
 use futures_timer::Delay;
 use iris::{Config as IrisConfig, DisconnectedBehavior, ServerCloseBehavior};
 use std::{
@@ -54,10 +55,10 @@ impl Connector<(), ()> {
         trading_mode: TradingMode,
         exchange: Exchange,
         signer: Signer,
-        client_creator: impl FnOnce(String) -> EGResult<Client>,
+        client_creator: impl FnOnce(String) -> BpResult<Client>,
         request_timeout: Duration,
         max_retries: u8,
-    ) -> EGResult<Connector<Exchange, Client>>
+    ) -> BpResult<Connector<Exchange, Client>>
     where
         Exchange: ETExchange,
         Client: HttpClient + Send + Sync,
@@ -65,7 +66,7 @@ impl Connector<(), ()> {
         let url = exchange
             .urls()
             .env_var_or_default(exchange.name(), Protocol::Http, trading_mode)
-            .map_err(EGError::external)?;
+            .map_err(BpError::external)?;
         let client = client_creator(url)?;
         let rate_limiters = Self::rate_limiters(exchange.default_capacity())?;
         Ok(Connector {
@@ -85,7 +86,7 @@ impl Connector<(), ()> {
         signer: Signer,
         request_timeout: Duration,
         max_retries: u8,
-    ) -> EGResult<Connector<Exchange, ReqwestHttpClient>>
+    ) -> BpResult<Connector<Exchange, ReqwestHttpClient>>
     where
         Exchange: ETExchange,
     {
@@ -104,10 +105,10 @@ impl Connector<(), ()> {
         trading_mode: TradingMode,
         exchange: Exchange,
         signer: Signer,
-        client_creator: impl FnOnce(String, Arc<WebsocketListener>) -> EGResult<Client>,
+        client_creator: impl FnOnce(String, Arc<WebsocketListener>) -> BpResult<Client>,
         request_timeout: Duration,
         max_retries: u8,
-    ) -> EGResult<Connector<Exchange, Client>>
+    ) -> BpResult<Connector<Exchange, Client>>
     where
         Exchange: ETExchange,
         Client: WebsocketClient,
@@ -116,7 +117,7 @@ impl Connector<(), ()> {
         let url = exchange
             .urls()
             .env_var_or_default(exchange.name(), Protocol::Websocket, trading_mode)
-            .map_err(EGError::external)?;
+            .map_err(BpError::external)?;
         let client = client_creator(url, websocket_listener.clone())?;
         let rate_limiters = Self::rate_limiters(exchange.default_capacity())?;
         Ok(Connector {
@@ -138,7 +139,7 @@ impl Connector<(), ()> {
         mut iris_config: IrisConfig,
         request_timeout: Duration,
         max_retries: u8,
-    ) -> EGResult<Connector<Exchange, IrisWebsocketClient>>
+    ) -> BpResult<Connector<Exchange, IrisWebsocketClient>>
     where
         Exchange: ETExchange,
     {
@@ -161,7 +162,7 @@ impl Connector<(), ()> {
             max_retries,
         )
     }
-    fn rate_limiters(default_capacity: HashMap<RateLimit, UsageCount>) -> EGResult<RateLimiters> {
+    fn rate_limiters(default_capacity: HashMap<RateLimit, UsageCount>) -> BpResult<RateLimiters> {
         let mut limiter_states = HashMap::new();
         for (rate_limit, capacity) in default_capacity {
             let RateLimit {
@@ -191,19 +192,19 @@ where
     {
         AutoResyncConnector::new(Arc::new(self))
     }
-    pub fn duration_since_last_sync(&self) -> EGResult<Option<Duration>> {
+    pub fn duration_since_last_sync(&self) -> BpResult<Option<Duration>> {
         self.clock.duration_since_last_sync()
     }
-    pub fn remaining_rate_limit_capacity(&self) -> EGResult<HashMap<RateLimit, UsageCount>> {
+    pub fn remaining_rate_limit_capacity(&self) -> BpResult<HashMap<RateLimit, UsageCount>> {
         self.rate_limiters.remaining_capacity()
     }
-    pub fn server_time_estimate(&self) -> EGResult<Milliseconds> {
+    pub fn server_time_estimate(&self) -> BpResult<Milliseconds> {
         self.clock.server_time_estimate()
     }
     fn validate_rate_limits<Request>(
         &self,
         request: &Request,
-    ) -> EGResult<Vec<(RateLimitRestriction, UsageCount)>>
+    ) -> BpResult<Vec<(RateLimitRestriction, UsageCount)>>
     where
         Request: ETRequest,
     {
@@ -218,15 +219,15 @@ where
     }
     fn refund_if_not_sent(
         &self,
-        error: &EGError,
+        error: &BpError,
         costs: &mut Vec<(RateLimitRestriction, UsageCount)>,
-    ) -> EGResult<()> {
+    ) -> BpResult<()> {
         if error.was_not_sent() {
             self.refund(std::mem::take(costs))?;
         }
         Ok(())
     }
-    fn refund(&self, costs: Vec<(RateLimitRestriction, UsageCount)>) -> EGResult<()> {
+    fn refund(&self, costs: Vec<(RateLimitRestriction, UsageCount)>) -> BpResult<()> {
         for (restriction, cost) in costs {
             self.rate_limiters.refund(restriction, cost)?;
         }
@@ -234,15 +235,15 @@ where
     }
     fn on_send_failure<T>(
         &self,
-        error: EGError,
+        error: BpError,
         costs: Vec<(RateLimitRestriction, UsageCount)>,
-    ) -> EGResult<T> {
+    ) -> BpResult<T> {
         if error.was_not_sent() {
             self.refund(costs)?;
         }
         Err(error)
     }
-    fn set_rate_limits(&self, response: &impl ETResponse) -> EGResult<()> {
+    fn set_rate_limits(&self, response: &impl ETResponse) -> BpResult<()> {
         if let Some(usage) = response.rate_limit_usage() {
             self.rate_limiters.set_usage(usage)?;
         }
@@ -259,7 +260,7 @@ where
     Exchange: ETExchange,
     Client: HttpClient,
 {
-    pub async fn sync_clock_http(&self) -> EGResult<()> {
+    pub async fn sync_clock_http(&self) -> BpResult<()> {
         debug!(exchange = self.exchange.name(), "syncing clock over HTTP");
         let server_time_request = self.exchange.server_time_request_http();
         let costs = self.validate_rate_limits(&server_time_request)?;
@@ -267,7 +268,7 @@ where
             Ok(http_request) => http_request,
             Err(error) => {
                 self.refund(costs)?;
-                return Err(EGError::external(error));
+                return Err(BpError::external(error));
             }
         };
         let start = Instant::now();
@@ -280,7 +281,7 @@ where
             self.handle_http_response::<Exchange::ServerTimeResponseHttp>(http_response)?;
         let server_time = response
             .server_time()
-            .map_err(|_| EGError::MissingServerTime)?;
+            .map_err(|_| BpError::Connector(ConnectorError::MissingServerTime))?;
         self.clock.sync(server_time, round_trip_time)?;
         debug!(
             exchange = self.exchange.name(),
@@ -292,7 +293,7 @@ where
     pub fn submit_http<'connector, Request>(
         &'connector self,
         request: Request,
-    ) -> EGResult<Submission<'connector, Request, Request::Response, Request::VerificationRequest>>
+    ) -> BpResult<Submission<'connector, Request, Request::Response, Request::VerificationRequest>>
     where
         Request: ETHttpRequest<Exchange = Exchange> + Send + 'connector,
         Exchange: Sync,
@@ -300,7 +301,7 @@ where
     {
         let costs = self
             .validate_rate_limits(&request)
-            .map_err(EGError::send_not_sent)?;
+            .map_err(BpError::send_not_sent)?;
         let guard = RateLimitGuard::new(&self.rate_limiters, costs.clone());
         let future = async move {
             guard.disarm();
@@ -312,7 +313,7 @@ where
         &self,
         mut request: Request,
         mut costs: Vec<(RateLimitRestriction, UsageCount)>,
-    ) -> EGResult<SubmissionOutcome<Request, Request::Response, Request::VerificationRequest>>
+    ) -> BpResult<SubmissionOutcome<Request, Request::Response, Request::VerificationRequest>>
     where
         Request: ETHttpRequest<Exchange = Exchange> + Send,
         Exchange: Sync,
@@ -332,7 +333,7 @@ where
                 Err(error) => {
                     return self.submission_error_http(
                         request,
-                        EGError::send_not_sent(error),
+                        BpError::send_not_sent(error),
                         costs,
                     );
                 }
@@ -343,7 +344,7 @@ where
                 Err(error) => {
                     return self.submission_error_http(
                         request,
-                        EGError::send_not_sent_external(error),
+                        BpError::send_not_sent_external(error),
                         costs,
                     );
                 }
@@ -372,7 +373,7 @@ where
             }
         }
     }
-    fn handle_http_response<Response>(&self, http_response: HttpResponse) -> EGResult<Response>
+    fn handle_http_response<Response>(&self, http_response: HttpResponse) -> BpResult<Response>
     where
         Response: ETHttpResponse,
     {
@@ -381,18 +382,20 @@ where
         if status == 429 {
             if let Ok(response) = Response::try_from_http(http_response) {
                 self.set_rate_limits(&response)
-                    .map_err(EGError::send_failed)?;
+                    .map_err(BpError::send_failed)?;
             }
             if let Some(retry_after) = retry_after {
                 self.rate_limiters
                     .set_retry_after(retry_after)
-                    .map_err(EGError::send_failed)?;
+                    .map_err(BpError::send_failed)?;
             }
             warn!(
                 exchange = self.exchange.name(),
                 status, "exchange rate limited the request"
             );
-            return Err(EGError::send_failed(EGError::RateLimited));
+            return Err(BpError::send_failed(BpError::RateLimit(
+                RateLimitError::RateLimited,
+            )));
         }
         if !(200..300).contains(&status) {
             warn!(
@@ -402,35 +405,40 @@ where
             if let Some(retry_after) = retry_after {
                 self.rate_limiters
                     .set_retry_after(retry_after)
-                    .map_err(EGError::send_unknown)?;
+                    .map_err(BpError::send_unknown)?;
                 // The exchange responded but is throttling us. The request reached
                 // the exchange, so it cannot be reported as not sent.
-                return Err(EGError::send_unknown(EGError::RateLimited));
+                return Err(BpError::send_unknown(BpError::RateLimit(
+                    RateLimitError::RateLimited,
+                )));
             }
-            let error = EGError::HttpError { status };
+            let error = BpError::Connector(ConnectorError::GatewayHttpStatus { status });
             return Err(if status >= 500 {
-                EGError::send_unknown(error)
+                BpError::send_unknown(error)
             } else {
-                EGError::send_failed(error)
+                BpError::send_failed(error)
             });
         }
         if let Some(retry_after) = retry_after {
             self.rate_limiters
                 .set_retry_after(retry_after)
-                .map_err(EGError::send_unknown)?;
+                .map_err(BpError::send_unknown)?;
         }
-        let response = Response::try_from_http(http_response)
-            .map_err(|source| EGError::send_unknown(EGError::HttpParseError { source }))?;
+        let response = Response::try_from_http(http_response).map_err(|source| {
+            BpError::send_unknown(BpError::Connector(ConnectorError::HttpParseError {
+                source: Box::new(source),
+            }))
+        })?;
         self.set_rate_limits(&response)
-            .map_err(EGError::send_unknown)?;
+            .map_err(BpError::send_unknown)?;
         Ok(response)
     }
     fn submission_error_http<Request>(
         &self,
         request: Request,
-        error: EGError,
+        error: BpError,
         costs: Vec<(RateLimitRestriction, UsageCount)>,
-    ) -> EGResult<SubmissionOutcome<Request, Request::Response, Request::VerificationRequest>>
+    ) -> BpResult<SubmissionOutcome<Request, Request::Response, Request::VerificationRequest>>
     where
         Request: ETHttpRequest,
     {
@@ -458,18 +466,18 @@ where
     Exchange: ETExchange,
     Client: WebsocketClient,
 {
-    pub async fn connect(&self) -> EGResult<()> {
+    pub async fn connect(&self) -> BpResult<()> {
         debug!(exchange = self.exchange.name(), "connecting websocket");
         self.client.connect().await
     }
-    pub fn is_connected(&self) -> EGResult<bool> {
+    pub fn is_connected(&self) -> BpResult<bool> {
         Ok(self.client.is_connected())
     }
-    pub async fn disconnect(&self) -> EGResult<()> {
+    pub async fn disconnect(&self) -> BpResult<()> {
         debug!(exchange = self.exchange.name(), "disconnecting websocket");
         self.client.disconnect().await
     }
-    pub async fn sync_clock_websocket(&self) -> EGResult<()> {
+    pub async fn sync_clock_websocket(&self) -> BpResult<()> {
         debug!(
             exchange = self.exchange.name(),
             "syncing clock over websocket"
@@ -482,7 +490,7 @@ where
                 Ok(request) => request,
                 Err(error) => {
                     self.refund(costs)?;
-                    return Err(EGError::external(error));
+                    return Err(BpError::external(error));
                 }
             };
         let start = Instant::now();
@@ -494,7 +502,7 @@ where
         let round_trip_time = start.elapsed();
         let server_time = response
             .server_time()
-            .map_err(|_| EGError::MissingServerTime)?;
+            .map_err(|_| BpError::Connector(ConnectorError::MissingServerTime))?;
         self.clock.sync(server_time, round_trip_time)?;
         debug!(
             exchange = self.exchange.name(),
@@ -506,14 +514,14 @@ where
     pub fn submit_websocket<'connector, Request>(
         &'connector self,
         request: Request,
-    ) -> EGResult<Submission<'connector, Request, Request::Response, Request::VerificationRequest>>
+    ) -> BpResult<Submission<'connector, Request, Request::Response, Request::VerificationRequest>>
     where
         Request: ETWebsocketRequest<Exchange = Exchange> + Send + 'connector,
         Exchange: Sync,
     {
         let costs = self
             .validate_rate_limits(&request)
-            .map_err(EGError::send_not_sent)?;
+            .map_err(BpError::send_not_sent)?;
         let guard = RateLimitGuard::new(&self.rate_limiters, costs.clone());
         let future = async move {
             guard.disarm();
@@ -525,7 +533,7 @@ where
         &self,
         mut request: Request,
         mut costs: Vec<(RateLimitRestriction, UsageCount)>,
-    ) -> EGResult<SubmissionOutcome<Request, Request::Response, Request::VerificationRequest>>
+    ) -> BpResult<SubmissionOutcome<Request, Request::Response, Request::VerificationRequest>>
     where
         Request: ETWebsocketRequest<Exchange = Exchange> + Send,
         Exchange: Sync,
@@ -547,7 +555,7 @@ where
                 Err(error) => {
                     return self.submission_error_websocket(
                         request,
-                        EGError::send_not_sent(error),
+                        BpError::send_not_sent(error),
                         costs,
                     );
                 }
@@ -562,7 +570,7 @@ where
                 Err(error) => {
                     return self.submission_error_websocket(
                         request,
-                        EGError::send_not_sent_external(error),
+                        BpError::send_not_sent_external(error),
                         costs,
                     );
                 }
@@ -592,20 +600,22 @@ where
         &self,
         message: String,
         response_matcher: Arc<dyn Fn(&serde_json::Value) -> bool + Send + Sync>,
-    ) -> EGResult<Response>
+    ) -> BpResult<Response>
     where
         Response: ETWebsocketResponse,
     {
         let listener = match self.websocket_listener.as_ref() {
             Some(listener) => listener,
             None => {
-                return Err(EGError::send_not_sent(EGError::WebsocketListenerMissing));
+                return Err(BpError::send_not_sent(BpError::Connector(
+                    ConnectorError::WebsocketListenerMissing,
+                )));
             }
         };
         let waiter = match listener.waiter_for_filtered_response(response_matcher) {
             Ok(waiter) => waiter,
             Err(error) => {
-                return Err(EGError::send_not_sent(error));
+                return Err(BpError::send_not_sent(error));
             }
         };
         let exchange = self.exchange.name();
@@ -616,28 +626,33 @@ where
         let mut waiter = Box::pin(waiter);
         let mut delay = Box::pin(Delay::new(remaining));
         let response_value = poll_fn(move |cx| match waiter.as_mut().poll(cx) {
-            Poll::Ready(result) => Poll::Ready(result.map_err(EGError::send_unknown)),
+            Poll::Ready(result) => Poll::Ready(result.map_err(BpError::send_unknown)),
             Poll::Pending => match delay.as_mut().poll(cx) {
                 Poll::Ready(()) => {
                     warn!(exchange, "websocket request timed out");
-                    Poll::Ready(Err(EGError::send_unknown(EGError::TimedOut)))
+                    Poll::Ready(Err(BpError::send_unknown(BpError::Timeout(
+                        TimeoutError::TimedOut,
+                    ))))
                 }
                 Poll::Pending => Poll::Pending,
             },
         })
         .await?;
-        let response = Response::try_from_websocket(response_value)
-            .map_err(|source| EGError::send_unknown(EGError::WebsocketParseError { source }))?;
+        let response = Response::try_from_websocket(response_value).map_err(|source| {
+            BpError::send_unknown(BpError::Connector(ConnectorError::WebsocketParseError {
+                source: Box::new(source),
+            }))
+        })?;
         self.set_rate_limits(&response)
-            .map_err(EGError::send_unknown)?;
+            .map_err(BpError::send_unknown)?;
         Ok(response)
     }
     fn submission_error_websocket<Request>(
         &self,
         request: Request,
-        error: EGError,
+        error: BpError,
         costs: Vec<(RateLimitRestriction, UsageCount)>,
-    ) -> EGResult<SubmissionOutcome<Request, Request::Response, Request::VerificationRequest>>
+    ) -> BpResult<SubmissionOutcome<Request, Request::Response, Request::VerificationRequest>>
     where
         Request: ETWebsocketRequest,
     {

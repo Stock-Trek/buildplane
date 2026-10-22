@@ -1,8 +1,4 @@
-use crate::{
-    constants::KLINE_LIMIT,
-    error::{MduError, MduResult},
-    updaters::exchange_updater::ExchangeUpdater,
-};
+use crate::{constants::KLINE_LIMIT, updaters::exchange_updater::ExchangeUpdater};
 use buildplane_exchange_gateway::{
     async_trait, clients::reqwest::ReqwestHttpClient, connector::Connector,
     submission::SubmissionOutcome,
@@ -19,6 +15,8 @@ use buildplane_exchange_types::{
     signer::Signer,
     urls::TradingMode,
 };
+use buildplane_shared::errors::ExchangeError;
+use buildplane_shared::errors::{BpError, BpResult};
 use buildplane_type_bridge::{BinanceConverter, Converter};
 use chrono::{DateTime, Utc};
 use std::time::Duration;
@@ -39,11 +37,11 @@ impl ExchangeUpdater for BinanceUpdater {
         trading_pair: &TradingPair,
         start_time: DateTime<Utc>,
         end_time: DateTime<Utc>,
-    ) -> MduResult<Vec<Kline>> {
+    ) -> BpResult<Vec<Kline>> {
         let Some(symbol) = self.converter.ticker_mapping().symbol(trading_pair) else {
-            return Err(MduError::MissingSymbol {
+            return Err(BpError::Exchange(ExchangeError::MissingSymbol {
                 trading_pair: format!("{trading_pair:?}"),
-            });
+            }));
         };
         let mut request = BinanceKlinesRequest::new(symbol, BinanceKlinesInterval::ONE_MINUTE);
         let (start_millis, end_millis) = Self::kline_time_bounds(start_time, end_time);
@@ -52,24 +50,26 @@ impl ExchangeUpdater for BinanceUpdater {
         request.limit = KLINE_LIMIT
             .map(|limit| {
                 BinanceKlinesLimit::try_new(limit)
-                    .map_err(|error| MduError::exchange("build Binance klines limit", error))
+                    .map_err(|error| BpError::exchange("build Binance klines limit", error))
             })
             .transpose()?;
         let submission = self
             .connector
             .submit_http(request)
-            .map_err(|error| MduError::exchange("submit Binance klines request", error))?;
+            .map_err(|error| BpError::exchange("submit Binance klines request", error))?;
         match submission
             .wait()
             .await
-            .map_err(|error| MduError::exchange("await Binance klines response", error))?
+            .map_err(|error| BpError::exchange("await Binance klines response", error))?
         {
             SubmissionOutcome::Submitted(response) => response
                 .klines()
-                .map_err(|error| MduError::exchange("decode Binance klines response", error)),
-            SubmissionOutcome::Unknown { .. } => Err(MduError::UnknownSubmissionOutcome {
-                exchange: "Binance",
-            }),
+                .map_err(|error| BpError::exchange("decode Binance klines response", error)),
+            SubmissionOutcome::Unknown { .. } => {
+                Err(BpError::Exchange(ExchangeError::UnknownSubmissionOutcome {
+                    exchange: "Binance",
+                }))
+            }
         }
     }
 }
@@ -82,7 +82,7 @@ impl BinanceUpdater {
         )
     }
 
-    pub fn try_new(trading_mode: TradingMode) -> MduResult<Self> {
+    pub fn try_new(trading_mode: TradingMode) -> BpResult<Self> {
         let converter = BinanceConverter::default();
         let signer = Signer::new_unencrypted(ByteEncoder::HexLower);
         let connector = Connector::try_new_http_reqwest(
@@ -92,7 +92,7 @@ impl BinanceUpdater {
             REQUEST_TIMEOUT,
             MAX_RETRIES,
         )
-        .map_err(|error| MduError::exchange("create Binance connector", error))?;
+        .map_err(|error| BpError::exchange("create Binance connector", error))?;
         Ok(Self {
             converter,
             connector,

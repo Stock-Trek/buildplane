@@ -1,9 +1,9 @@
 use crate::{
-    error::ETResult,
     http::HttpResponse,
     new_types::Seconds,
     rate_limited::{RateLimit, RateUsage},
 };
+use buildplane_shared::errors::BpResult;
 use std::{collections::HashMap, fmt::Debug};
 
 pub trait ETResponse: Clone + Debug {
@@ -15,12 +15,12 @@ pub trait ETHttpResponse: ETResponse
 where
     Self: Sized,
 {
-    fn try_from_http(response: HttpResponse) -> ETResult<Self>;
+    fn try_from_http(response: HttpResponse) -> BpResult<Self>;
 }
 
 pub trait ETWebsocketResponse: ETResponse
 where
     Self: Sized,
 {
-    fn try_from_websocket(response: serde_json::Value) -> ETResult<Self>;
+    fn try_from_websocket(response: serde_json::Value) -> BpResult<Self>;
 }

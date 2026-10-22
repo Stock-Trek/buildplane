@@ -1,7 +1,6 @@
 pub mod compacter;
 pub mod constants;
 pub mod env_config;
-pub mod error;
 pub mod ingest;
 pub mod job;
 pub mod lock;

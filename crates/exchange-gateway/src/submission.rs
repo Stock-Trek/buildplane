@@ -1,4 +1,4 @@
-use crate::error::EGResult;
+use buildplane_shared::errors::BpResult;
 use std::{fmt, future::Future, pin::Pin};
 
 #[derive(Debug)]
@@ -16,7 +16,7 @@ pub struct Submission<'connector, Request, Response, VerificationRequest> {
 
 type BoxedFuture<'connector, Request, Response, VerificationRequest> = Pin<
     Box<
-        dyn Future<Output = EGResult<SubmissionOutcome<Request, Response, VerificationRequest>>>
+        dyn Future<Output = BpResult<SubmissionOutcome<Request, Response, VerificationRequest>>>
             + Send
             + 'connector,
     >,
@@ -27,7 +27,7 @@ impl<'connector, Request, Response, VerificationRequest>
 {
     pub(crate) fn new(
         future: impl Future<
-            Output = EGResult<SubmissionOutcome<Request, Response, VerificationRequest>>,
+            Output = BpResult<SubmissionOutcome<Request, Response, VerificationRequest>>,
         > + Send
         + 'connector,
     ) -> Self {
@@ -35,7 +35,7 @@ impl<'connector, Request, Response, VerificationRequest>
             future: Box::pin(future),
         }
     }
-    pub async fn wait(self) -> EGResult<SubmissionOutcome<Request, Response, VerificationRequest>> {
+    pub async fn wait(self) -> BpResult<SubmissionOutcome<Request, Response, VerificationRequest>> {
         self.future.await
     }
 }

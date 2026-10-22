@@ -1,6 +1,6 @@
 use crate::{
     TBExchangeInfo, asset_ids_to_tickers::AssetIdsToTickers, asset_limits::TBAssetLimits,
-    error::TBResult, floats_to_decimals::FloatsToDecimals, semantic_checker::SemanticChecker,
+    floats_to_decimals::FloatsToDecimals, semantic_checker::SemanticChecker,
     ticker_mapping::TickerMapping, trading_precision::TradingPrecision,
 };
 use buildplane_exchange_types::{
@@ -9,6 +9,7 @@ use buildplane_exchange_types::{
     response::{ETHttpResponse, ETWebsocketResponse},
     ticker::Ticker,
 };
+use buildplane_shared::errors::BpResult;
 use rust_decimal::Decimal;
 use stock_trek_types::cex::{
     asset_id::AssetId, capability::CexCapability, order_request::OrderRequest,
@@ -32,31 +33,31 @@ pub trait Converter {
 
     fn capabilities(&self) -> &Vec<CexCapability>;
     fn ticker_mapping(&self) -> &TickerMapping;
-    fn set_trading_precision(&self, trading_precision: TradingPrecision) -> TBResult<()>;
+    fn set_trading_precision(&self, trading_precision: TradingPrecision) -> BpResult<()>;
     fn asset_limits_request(
         &self,
         trading_pair: &TradingPair,
         cex_preferences: &CexPreferences,
-    ) -> TBResult<Self::AssetLimitsRequest>;
-    fn exchange_info_request(&self) -> TBResult<Self::ExchangeInfoRequest>;
+    ) -> BpResult<Self::AssetLimitsRequest>;
+    fn exchange_info_request(&self) -> BpResult<Self::ExchangeInfoRequest>;
     fn order_request(
         &self,
         order_request: OrderRequest<AssetId, f64>,
         cex_preferences: &CexPreferences,
-    ) -> TBResult<Self::OrderRequest>;
+    ) -> BpResult<Self::OrderRequest>;
     fn asset_limits_response(&self, response: Self::AssetLimitsResponse)
-    -> TBResult<TBAssetLimits>;
+    -> BpResult<TBAssetLimits>;
     fn exchange_info_response(
         &self,
         response: Self::ExchangeInfoResponse,
-    ) -> TBResult<TBExchangeInfo>;
-    fn order_response(&self, response: Self::OrderResponse) -> TBResult<OrderResponse>;
+    ) -> BpResult<TBExchangeInfo>;
+    fn order_response(&self, response: Self::OrderResponse) -> BpResult<OrderResponse>;
     fn try_convert_precise(
         &self,
         order_request: OrderRequest<AssetId, f64>,
         cex_preferences: &CexPreferences,
         trading_precision: TradingPrecision,
-    ) -> TBResult<OrderRequest<Ticker, Decimal>> {
+    ) -> BpResult<OrderRequest<Ticker, Decimal>> {
         let order_request_with_precision =
             FloatsToDecimals::new(trading_precision, cex_preferences.rounding)
                 .floats_to_decimals(order_request)?;

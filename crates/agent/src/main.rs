@@ -1,13 +1,13 @@
 use crate::{
-    env_var_config::EnvVarConfig, error::BaResult, handler::Handler, request::BuildRequest,
+    env_var_config::EnvVarConfig, handler::Handler, request::BuildRequest,
     tracing_setup::TracingSetup,
 };
+use buildplane_shared::errors::BpResult;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use serde_json::{Value, json};
 
 mod artifacts;
 mod env_var_config;
-mod error;
 mod handler;
 mod request;
 mod s3;
@@ -33,7 +33,7 @@ async fn main() -> Result<(), Error> {
 struct BuildAgent;
 
 impl BuildAgent {
-    async fn handle(handler: Handler, event: LambdaEvent<BuildRequest>) -> BaResult<Value> {
+    async fn handle(handler: Handler, event: LambdaEvent<BuildRequest>) -> BpResult<Value> {
         handler.handle(event.payload).await?;
         Ok(json!({ "status": "ok" }))
     }

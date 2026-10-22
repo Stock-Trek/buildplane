@@ -1,4 +1,5 @@
-use crate::error::{ETError, ETResult};
+use buildplane_shared::errors::ExchangeError;
+use buildplane_shared::errors::{BpError, BpResult};
 use serde::Serialize;
 use std::fmt;
 
@@ -10,15 +11,15 @@ impl BinanceKlinesLimit {
     pub const MINIMUM: u32 = 1;
     pub const MAXIMUM: u32 = 1000;
 
-    pub fn try_new(klines_limit: u32) -> ETResult<Self> {
+    pub fn try_new(klines_limit: u32) -> BpResult<Self> {
         if Self::is_valid(klines_limit) {
             Ok(Self(klines_limit))
         } else {
-            Err(ETError::BadValue {
+            Err(BpError::Exchange(ExchangeError::BadValue {
                 name: "klines_limit".into(),
                 value: klines_limit.to_string(),
                 reason: format!("Out of bounds >={} <={}", Self::MINIMUM, Self::MAXIMUM),
-            })
+            }))
         }
     }
 

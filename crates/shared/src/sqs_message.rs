@@ -1,8 +1,6 @@
+use crate::errors::SqsError;
 use crate::{
-    errors::{
-        error::{RsSharedError, RsSharedResult},
-        sqs::RsSqsError,
-    },
+    errors::{BpError, BpResult},
     sqs::SQS_MAX_BATCH_BYTES,
 };
 use serde::{Deserialize, Serialize};
@@ -92,7 +90,7 @@ impl GitSource {
 }
 
 impl SqsMessage {
-    pub fn chunk(self) -> RsSharedResult<Vec<SqsMessage>> {
+    pub fn chunk(self) -> BpResult<Vec<SqsMessage>> {
         let SqsMessage { source, detail } = self;
         let SqsDetail::MultiRepoAdd { repo_ids } = &detail else {
             return Ok(vec![SqsMessage { source, detail }]);
@@ -108,7 +106,7 @@ impl SqsMessage {
         })?
         .len();
         if envelope > SQS_MAX_BATCH_BYTES {
-            return Err(RsSharedError::Sqs(RsSqsError::MessageTooLarge {
+            return Err(BpError::Sqs(SqsError::MessageTooLarge {
                 size: envelope,
                 limit: SQS_MAX_BATCH_BYTES,
             }));
@@ -133,7 +131,7 @@ impl SqsMessage {
                 encoded + 1
             };
             if envelope + extra + addition > SQS_MAX_BATCH_BYTES {
-                return Err(RsSharedError::Sqs(RsSqsError::MessageTooLarge {
+                return Err(BpError::Sqs(SqsError::MessageTooLarge {
                     size: envelope + addition,
                     limit: SQS_MAX_BATCH_BYTES,
                 }));

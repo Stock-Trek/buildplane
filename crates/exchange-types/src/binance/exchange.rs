@@ -8,13 +8,13 @@ use crate::{
     },
     encode::ByteEncoder,
     encrypt::EncryptionAlgorithm,
-    error::ETResult,
     exchange::ETExchange,
     new_types::{Nanoseconds, UsageCount},
     rate_limited::{RateLimit, RateLimitRestriction},
     signer::Signer,
     urls::Urls,
 };
+use buildplane_shared::errors::BpResult;
 use std::{collections::HashMap, time::Duration};
 
 pub struct BinanceExchange;
@@ -70,21 +70,21 @@ impl ETExchange for BinanceExchange {
 }
 
 impl BinanceExchange {
-    pub fn signer_hmac_sha256(credentials: ApiKeyCredentials) -> ETResult<Signer> {
+    pub fn signer_hmac_sha256(credentials: ApiKeyCredentials) -> BpResult<Signer> {
         Signer::try_new(
             credentials,
             EncryptionAlgorithm::HmacSha256,
             ByteEncoder::HexLower,
         )
     }
-    pub fn signer_rsa_sha256(credentials: ApiKeyCredentials) -> ETResult<Signer> {
+    pub fn signer_rsa_sha256(credentials: ApiKeyCredentials) -> BpResult<Signer> {
         Signer::try_new(
             credentials,
             EncryptionAlgorithm::RsaSha256,
             ByteEncoder::Base64,
         )
     }
-    pub fn signer_ed25519(credentials: ApiKeyCredentials) -> ETResult<Signer> {
+    pub fn signer_ed25519(credentials: ApiKeyCredentials) -> BpResult<Signer> {
         Signer::try_new(
             credentials,
             EncryptionAlgorithm::Ed25519,

@@ -1,9 +1,7 @@
+use crate::errors::GitHubError;
 use crate::{
     env_vars::EnvVarConfig,
-    errors::{
-        config::RsConfigError,
-        error::{RsSharedError, RsSharedResult},
-    },
+    errors::{BpError, BpResult},
 };
 use std::{
     collections::HashMap,
@@ -14,14 +12,6 @@ use url::{Host, Url};
 pub const DEFAULT_HOST: &str = "github.com";
 const ENTERPRISE_ALLOWED_HOSTS: &str = "GITHUB_ENTERPRISE_ALLOWED_HOSTS";
 const DEFAULT_HTTPS_PORT: u16 = 443;
-
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum RsHostError {
-    #[error("{host:?} is not a hostname, IP address, or host:port")]
-    Invalid { host: String },
-    #[error("host {host:?} is not in the allowed GitHub hosts list")]
-    NotAllowed { host: String },
-}
 
 /// The port policy for a single allowlisted host. Ports are owned by the
 /// allowlist entry, never derived from an incoming URL, so every caller
@@ -66,7 +56,7 @@ pub struct HostAllowlist {
 }
 
 impl HostAllowlist {
-    pub fn from_env(config: &EnvVarConfig) -> RsSharedResult<Self> {
+    pub fn from_env(config: &EnvVarConfig) -> BpResult<Self> {
         Self::from_hosts(config.github_enterprise_allowed_hosts()?)
     }
 
@@ -76,7 +66,7 @@ impl HostAllowlist {
     ///
     /// [`DEFAULT_HOST`] is always included with the default HTTPS port, even if
     /// it is omitted from `hosts` or configured with another port.
-    pub fn from_hosts<I, S>(hosts: I) -> RsSharedResult<Self>
+    pub fn from_hosts<I, S>(hosts: I) -> BpResult<Self>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
@@ -94,9 +84,11 @@ impl HostAllowlist {
         self.validate(host).is_ok()
     }
 
-    pub fn validate(&self, host: &str) -> Result<String, RsHostError> {
-        let (name, port) = Self::parse(host.trim()).ok_or_else(|| RsHostError::Invalid {
-            host: host.to_owned(),
+    pub fn validate(&self, host: &str) -> Result<String, BpError> {
+        let (name, port) = Self::parse(host.trim()).ok_or_else(|| {
+            BpError::GitHub(GitHubError::HostInvalid {
+                host: host.to_owned(),
+            })
         })?;
         self.check(&name, port, host)
     }
@@ -115,22 +107,26 @@ impl HostAllowlist {
     /// allowlist entry. The returned host is rebuilt from the allowlist's
     /// policy, so callers must use it rather than any part of the original
     /// string.
-    pub fn validate_url(&self, url: &str) -> Result<String, RsHostError> {
-        let parsed = Url::parse(url).map_err(|_| RsHostError::Invalid {
-            host: url.to_owned(),
+    pub fn validate_url(&self, url: &str) -> Result<String, BpError> {
+        let parsed = Url::parse(url).map_err(|_| {
+            BpError::GitHub(GitHubError::HostInvalid {
+                host: url.to_owned(),
+            })
         })?;
         if parsed.scheme() != "https" {
-            return Err(RsHostError::Invalid {
+            return Err(BpError::GitHub(GitHubError::HostInvalid {
                 host: url.to_owned(),
-            });
+            }));
         }
         if !parsed.username().is_empty() || parsed.password().is_some() {
-            return Err(RsHostError::Invalid {
+            return Err(BpError::GitHub(GitHubError::HostInvalid {
                 host: url.to_owned(),
-            });
+            }));
         }
-        let (name, port) = Self::host_from_url(&parsed).ok_or_else(|| RsHostError::Invalid {
-            host: url.to_owned(),
+        let (name, port) = Self::host_from_url(&parsed).ok_or_else(|| {
+            BpError::GitHub(GitHubError::HostInvalid {
+                host: url.to_owned(),
+            })
         })?;
         self.check(&name, port, url)
     }
@@ -139,16 +135,16 @@ impl HostAllowlist {
     /// [`HostAllowlist::validate_url`]. `name` is an already-normalized host
     /// and `port` is the port parsed from `input`; the returned host is rebuilt
     /// from the port owned by the allowlist entry.
-    fn check(&self, name: &str, port: Option<u16>, input: &str) -> Result<String, RsHostError> {
+    fn check(&self, name: &str, port: Option<u16>, input: &str) -> Result<String, BpError> {
         let Some(policy) = self.hosts.get(name) else {
-            return Err(RsHostError::NotAllowed {
+            return Err(BpError::GitHub(GitHubError::HostNotAllowed {
                 host: input.to_owned(),
-            });
+            }));
         };
         if !policy.allows(port) {
-            return Err(RsHostError::NotAllowed {
+            return Err(BpError::GitHub(GitHubError::HostNotAllowed {
                 host: input.to_owned(),
-            });
+            }));
         }
         Ok(Self::render(name, policy.effective()))
     }
@@ -162,14 +158,14 @@ impl HostAllowlist {
         Some((name, url.port()))
     }
 
-    fn validated(host: &str) -> RsSharedResult<(String, Option<u16>)> {
+    fn validated(host: &str) -> BpResult<(String, Option<u16>)> {
         Self::parse(host).ok_or_else(|| {
-            RsSharedError::Config(RsConfigError::invalid(
+            BpError::config_invalid(
                 ENTERPRISE_ALLOWED_HOSTS,
                 format!(
                     "{host:?} is not a hostname, IP address, or host:port (expected e.g. \"ghe.example.com\", \"ghe.example.com:8443\", or \"[2001:db8::1]:8443\")"
                 ),
-            ))
+            )
         })
     }
 
@@ -350,7 +346,7 @@ mod tests {
     fn rejects_non_allowlisted_host() {
         assert!(matches!(
             allowlist().validate_url("https://evil.com/"),
-            Err(RsHostError::NotAllowed { .. })
+            Err(BpError::GitHub(GitHubError::HostNotAllowed { .. }))
         ));
     }
 

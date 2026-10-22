@@ -979,6 +979,7 @@ dependencies = [
 name = "buildplane-agent"
 version = "0.1.1"
 dependencies = [
+ "buildplane-shared",
  "lambda_runtime",
  "reqwest 0.12.28",
  "serde",
@@ -1023,6 +1024,7 @@ version = "0.1.1"
 dependencies = [
  "async-trait",
  "buildplane-exchange-types",
+ "buildplane-shared",
  "futures-timer",
  "httpdate",
  "iris",
@@ -1115,15 +1117,24 @@ dependencies = [
 name = "buildplane-shared"
 version = "0.1.1"
 dependencies = [
+ "arrow-schema",
  "aws-config",
+ "aws-credential-types",
+ "aws-sdk-lambda",
  "aws-sdk-sqs",
+ "aws-sigv4",
  "base64 0.23.1",
  "chrono",
+ "http 1.5.0",
  "jsonwebtoken",
+ "lambda_http",
+ "lambda_runtime",
  "lru",
  "metrics",
  "octocrab",
  "parking_lot",
+ "parquet",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "strum",
@@ -1132,6 +1143,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "zip",
 ]
 
 [[package]]
@@ -1140,6 +1152,7 @@ version = "0.1.1"
 dependencies = [
  "bimap",
  "buildplane-exchange-types",
+ "buildplane-shared",
  "rust_decimal",
  "serde",
  "stock-trek-types",

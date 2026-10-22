@@ -1,4 +1,5 @@
-use crate::error::{BaError, BaResult};
+use buildplane_shared::errors::ConfigError;
+use buildplane_shared::errors::{BpError, BpResult};
 use std::{
     env::{self, VarError},
     path::{Path, PathBuf},
@@ -28,7 +29,7 @@ pub struct EnvVarConfig {
 }
 
 impl EnvVarConfig {
-    pub fn from_env() -> BaResult<Self> {
+    pub fn from_env() -> BpResult<Self> {
         Ok(Self {
             build_timeout: Self::build_timeout_from_env()?,
             log_filter: Self::log_filter_from_env()?,
@@ -53,28 +54,33 @@ impl EnvVarConfig {
         &self.build_cache_dir
     }
 
-    fn build_timeout_from_env() -> BaResult<Duration> {
+    fn build_timeout_from_env() -> BpResult<Duration> {
         match Self::optional(BUILD_TIMEOUT_ENV)? {
             Some(value) => value
                 .parse::<u64>()
                 .map(Duration::from_secs)
                 .map_err(|error| {
-                    BaError::Config(format!("{BUILD_TIMEOUT_ENV} is invalid: {error}"))
+                    BpError::Config(ConfigError::Build(format!(
+                        "{BUILD_TIMEOUT_ENV} is invalid: {error}"
+                    )))
                 }),
             None => Ok(Duration::from_secs(DEFAULT_BUILD_TIMEOUT_SECS)),
         }
     }
 
-    fn log_filter_from_env() -> BaResult<EnvFilter> {
+    fn log_filter_from_env() -> BpResult<EnvFilter> {
         match Self::optional(EnvFilter::DEFAULT_ENV)? {
             Some(directives) => EnvFilter::try_new(&directives).map_err(|error| {
-                BaError::Config(format!("{} is invalid: {error}", EnvFilter::DEFAULT_ENV))
+                BpError::Config(ConfigError::Build(format!(
+                    "{} is invalid: {error}",
+                    EnvFilter::DEFAULT_ENV
+                )))
             }),
             None => Ok(EnvFilter::new(DEFAULT_LOG_FILTER)),
         }
     }
 
-    fn path_from_env(name: &str, default: &str) -> BaResult<PathBuf> {
+    fn path_from_env(name: &str, default: &str) -> BpResult<PathBuf> {
         match Self::optional(name)? {
             Some(value) if value.is_empty() => Ok(PathBuf::from(default)),
             Some(value) => Ok(PathBuf::from(value)),
@@ -82,13 +88,13 @@ impl EnvVarConfig {
         }
     }
 
-    fn optional(name: &str) -> BaResult<Option<String>> {
+    fn optional(name: &str) -> BpResult<Option<String>> {
         match env::var(name) {
             Ok(value) => Ok(Some(value)),
             Err(VarError::NotPresent) => Ok(None),
-            Err(VarError::NotUnicode(_)) => {
-                Err(BaError::Config(format!("{name} is not valid UTF-8")))
-            }
+            Err(VarError::NotUnicode(_)) => Err(BpError::Config(ConfigError::Build(format!(
+                "{name} is not valid UTF-8"
+            )))),
         }
     }
 }

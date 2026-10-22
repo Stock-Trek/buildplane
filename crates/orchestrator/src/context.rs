@@ -1,4 +1,5 @@
-use crate::{aws_ops::aws::Aws, errors::error::RsOrchestratorResult};
+use crate::aws_ops::aws::Aws;
+use buildplane_shared::errors::BpResult;
 use buildplane_shared::{
     env_vars::EnvVarConfig, git_ops::github::github_auth::GitHubAuth, sqs_dedup::SqsDedup,
 };
@@ -13,7 +14,7 @@ pub struct RsOrchestratorContext {
 }
 
 impl RsOrchestratorContext {
-    pub async fn new(config: &EnvVarConfig) -> RsOrchestratorResult<Self> {
+    pub async fn new(config: &EnvVarConfig) -> BpResult<Self> {
         let aws_timeouts = Aws::load_timeouts(config)?;
         let sdk_config = Aws::load_sdk_config(aws_timeouts).await;
         let aws = Aws::from_env(&sdk_config, aws_timeouts, config)?;

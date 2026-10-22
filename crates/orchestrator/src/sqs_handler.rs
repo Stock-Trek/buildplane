@@ -1,12 +1,9 @@
-use crate::{
-    context::RsOrchestratorContext, errors::error::RsOrchestratorResult, tasks::task::Task,
-};
+use crate::{context::RsOrchestratorContext, tasks::task::Task};
 use aws_lambda_events::event::sqs::{SqsBatchResponse, SqsEvent, SqsMessage as SqsRecord};
+use buildplane_shared::errors::SqsError;
 use buildplane_shared::{
     deadline::Deadline,
-    errors::{
-        error::RsSharedError, invalid_message::RsInvalidMessageError, retryability::Retryability,
-    },
+    errors::{BpError, BpResult},
     metrics::route::RouteMetrics,
     metrics::sqs::SqsMetrics,
     request_context::RequestContext,
@@ -22,7 +19,7 @@ impl SqsHandler {
         &self,
         context: &RsOrchestratorContext,
         event: LambdaEvent<SqsEvent>,
-    ) -> RsOrchestratorResult<SqsBatchResponse> {
+    ) -> BpResult<SqsBatchResponse> {
         let request_context = RequestContext {
             context,
             deadline: Deadline::new(event.context.deadline(), context.deadline_buffer),
@@ -42,7 +39,7 @@ impl SqsHandler {
         let mut response = SqsBatchResponse::default();
         for (record, result) in results {
             if let Err(error) = result {
-                if error.retryability() == Retryability::Permanent {
+                if !error.is_retryable() {
                     tracing::error!(
                         message_id = record.message_id.as_deref().unwrap_or("unknown"),
                         %error,
@@ -50,9 +47,9 @@ impl SqsHandler {
                     );
                     continue;
                 }
-                let message_id = record.message_id.ok_or_else(|| {
-                    RsSharedError::InvalidMessage(RsInvalidMessageError::MissingMessageId)
-                })?;
+                let message_id = record
+                    .message_id
+                    .ok_or_else(|| BpError::Sqs(SqsError::MissingMessageId))?;
                 tracing::error!(
                     message_id = %message_id,
                     %error,
@@ -70,11 +67,11 @@ impl SqsHandler {
         &self,
         request_context: RequestContext<&RsOrchestratorContext>,
         record: &SqsRecord,
-    ) -> RsOrchestratorResult<()> {
+    ) -> BpResult<()> {
         let body = record
             .body
             .as_deref()
-            .ok_or_else(|| RsSharedError::InvalidMessage(RsInvalidMessageError::MissingBody))?;
+            .ok_or_else(|| BpError::Sqs(SqsError::MissingMessageBody))?;
         let message: SqsMessage = serde_json::from_str(body)?;
         let dedup = request_context.context.dedup.clone();
         if dedup.is_duplicate(&message) {
