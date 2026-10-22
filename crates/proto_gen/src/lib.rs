@@ -64,7 +64,7 @@ mod tests {
                 .unwrap_or_else(|error| panic!("failed to read generated {name}: {error}"));
             assert_eq!(
                 expected, actual,
-                "crates/runner/src/generated/{name} is out of date; run `cargo run -p proto-gen`"
+                "crates/runner/src/generated/{name} is out of date; run `cargo run -p buildplane-proto-gen`"
             );
         }
 
