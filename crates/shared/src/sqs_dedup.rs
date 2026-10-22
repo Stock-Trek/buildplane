@@ -1,4 +1,4 @@
-use crate::{env_vars::EnvVarConfig, errors::error::RsSharedResult, sqs_message::SqsMessage};
+use crate::{env_vars::EnvVarConfig, errors::BpResult, sqs_message::SqsMessage};
 use lru::LruCache;
 use parking_lot::Mutex;
 use std::{
@@ -21,7 +21,7 @@ pub struct SqsDedup {
 }
 
 impl SqsDedup {
-    pub fn from_env(config: &EnvVarConfig) -> RsSharedResult<Self> {
+    pub fn from_env(config: &EnvVarConfig) -> BpResult<Self> {
         let capacity = config.sqs_dedup_max_messages()?;
         let ttl = config.sqs_dedup_ttl()?;
         Ok(Self::new(capacity, ttl))

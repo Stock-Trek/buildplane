@@ -7,7 +7,7 @@
 //! working directory replaces the checked in algorithm stub with the user's
 //! source.
 
-use crate::error::{BaError, BaResult};
+use buildplane_shared::errors::{BpError, BpResult};
 use std::{
     io::{Cursor, Write},
     path::{Component, Path, PathBuf},
@@ -24,16 +24,16 @@ pub struct Source {
 }
 
 impl Source {
-    pub async fn download(url: &str) -> BaResult<Self> {
+    pub async fn download(url: &str) -> BpResult<Self> {
         let response = reqwest::Client::new()
             .get(url)
             .send()
             .await
-            .map_err(BaError::DownloadSource)?;
+            .map_err(BpError::BuildDownloadSource)?;
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(BaError::SourceDownloadRejected {
+            return Err(BpError::BuildSourceDownloadRejected {
                 status: status.as_u16(),
                 body,
             });
@@ -41,16 +41,16 @@ impl Source {
         let bytes = response
             .bytes()
             .await
-            .map_err(BaError::ReadSourceResponse)?;
+            .map_err(BpError::BuildReadSourceResponse)?;
         info!(bytes = bytes.len(), "downloaded user source archive");
         Ok(Self {
             bytes: bytes.to_vec(),
         })
     }
 
-    pub fn extract(&self, destination: &Path) -> BaResult<()> {
+    pub fn extract(&self, destination: &Path) -> BpResult<()> {
         let mut archive =
-            ZipArchive::new(Cursor::new(&self.bytes)).map_err(BaError::ReadSourceArchive)?;
+            ZipArchive::new(Cursor::new(&self.bytes)).map_err(BpError::BuildReadSourceArchive)?;
 
         // Validate every path before writing anything, so a malformed archive
         // cannot leave a partially extracted source tree behind.
@@ -59,19 +59,19 @@ impl Source {
         for index in 0..entry_count {
             let entry = archive
                 .by_index(index)
-                .map_err(BaError::ReadSourceArchive)?;
-            let name = entry.name().map_err(BaError::ReadSourceArchive)?;
+                .map_err(BpError::BuildReadSourceArchive)?;
+            let name = entry.name().map_err(BpError::BuildReadSourceArchive)?;
             entries.push(Self::entry_path(&name)?);
         }
 
         for (index, relative) in entries.into_iter().enumerate() {
             let mut entry = archive
                 .by_index(index)
-                .map_err(BaError::ReadSourceArchive)?;
+                .map_err(BpError::BuildReadSourceArchive)?;
             let path = destination.join(relative);
             if entry.is_dir() {
                 std::fs::create_dir_all(&path).map_err(|source| {
-                    BaError::CreateSourceDirectory {
+                    BpError::BuildCreateSourceDirectory {
                         path: path.clone(),
                         source,
                     }
@@ -80,25 +80,29 @@ impl Source {
             }
             if let Some(parent) = path.parent() {
                 std::fs::create_dir_all(parent).map_err(|source| {
-                    BaError::CreateSourceDirectory {
+                    BpError::BuildCreateSourceDirectory {
                         path: parent.to_path_buf(),
                         source,
                     }
                 })?;
             }
             let mut output =
-                std::fs::File::create(&path).map_err(|source| BaError::WriteSourceFile {
+                std::fs::File::create(&path).map_err(|source| BpError::BuildWriteSourceFile {
                     path: path.clone(),
                     source,
                 })?;
-            std::io::copy(&mut entry, &mut output).map_err(|source| BaError::WriteSourceFile {
-                path: path.clone(),
-                source,
+            std::io::copy(&mut entry, &mut output).map_err(|source| {
+                BpError::BuildWriteSourceFile {
+                    path: path.clone(),
+                    source,
+                }
             })?;
-            output.flush().map_err(|source| BaError::WriteSourceFile {
-                path: path.clone(),
-                source,
-            })?;
+            output
+                .flush()
+                .map_err(|source| BpError::BuildWriteSourceFile {
+                    path: path.clone(),
+                    source,
+                })?;
         }
 
         info!(
@@ -109,9 +113,9 @@ impl Source {
         Ok(())
     }
 
-    fn entry_path(name: &str) -> BaResult<PathBuf> {
+    fn entry_path(name: &str) -> BpResult<PathBuf> {
         if name.contains('\\') {
-            return Err(BaError::UnsafeSourcePath(name.to_string()));
+            return Err(BpError::BuildUnsafeSourcePath(name.to_string()));
         }
         let path = Path::new(name);
         if path.as_os_str().is_empty()
@@ -119,10 +123,10 @@ impl Source {
                 .components()
                 .any(|component| !matches!(component, Component::Normal(_)))
         {
-            return Err(BaError::UnsafeSourcePath(name.to_string()));
+            return Err(BpError::BuildUnsafeSourcePath(name.to_string()));
         }
         if path != Path::new(USER_GENERATED_DIR) && !path.starts_with(USER_GENERATED_PREFIX) {
-            return Err(BaError::UnsafeSourcePath(name.to_string()));
+            return Err(BpError::BuildUnsafeSourcePath(name.to_string()));
         }
         Ok(path.to_path_buf())
     }

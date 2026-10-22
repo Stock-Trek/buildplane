@@ -1,6 +1,5 @@
 use crate::{
     constants::PARQUET_SUFFIX,
-    error::{MduError, MduResult},
     parquet_reader::ParquetReader,
     parquet_writer::writer_properties,
     plan,
@@ -9,6 +8,7 @@ use crate::{
 };
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
+use buildplane_shared::errors::{BpError, BpResult};
 use futures::TryStreamExt;
 use parquet::arrow::{AsyncArrowWriter, ParquetRecordBatchStreamBuilder};
 use std::{
@@ -97,7 +97,7 @@ impl Compactor {
         transfer_client: &TransferClient,
         bucket: &Bucket,
         prefix: &ObjectKey,
-    ) -> MduResult<()> {
+    ) -> BpResult<()> {
         Self::folder(s3_client, transfer_client, bucket, prefix, PARQUET_SUFFIX).await
     }
 
@@ -107,7 +107,7 @@ impl Compactor {
         bucket: &Bucket,
         prefix: &ObjectKey,
         suffix: &str,
-    ) -> MduResult<()> {
+    ) -> BpResult<()> {
         info!("compact folder with prefix {}", prefix);
         let expected_subfolders = match SubFolders::subfolders_from_path(prefix.as_str()) {
             Ok(subfolders) => subfolders,
@@ -211,7 +211,7 @@ impl Compactor {
         bucket: &Bucket,
         prefix: &ObjectKey,
         suffix: &str,
-    ) -> MduResult<()> {
+    ) -> BpResult<()> {
         let subfolders_files = Self::subfolders_files(s3_client, bucket, prefix, suffix).await?;
         Box::pin(Self::delete_sources(
             s3_client,
@@ -229,7 +229,7 @@ impl Compactor {
         prefix: &ObjectKey,
         suffix: &str,
         subfolders_files: SubfoldersFiles,
-    ) -> MduResult<()> {
+    ) -> BpResult<()> {
         if !subfolders_files.files.is_empty() {
             info!(
                 "deleting {} source files under {}",
@@ -263,7 +263,7 @@ impl Compactor {
         bucket: &Bucket,
         prefix: &ObjectKey,
         suffix: &str,
-    ) -> MduResult<SubfoldersFiles> {
+    ) -> BpResult<SubfoldersFiles> {
         info!("find subfolders and files for prefix {}", prefix);
         let mut list_request = s3_client
             .list_objects_v2()
@@ -277,7 +277,7 @@ impl Compactor {
         let mut subfolders = Vec::new();
         while let Some(page_result) = paginator.next().await {
             let page = page_result.map_err(|error| {
-                MduError::s3(
+                BpError::s3(
                     "list subfolders and files",
                     S3::object_target(bucket, prefix),
                     error,
@@ -308,7 +308,7 @@ impl Compactor {
         files: &[ObjectKey],
         compacted_file: &ObjectKey,
         suffix: &str,
-    ) -> MduResult<()> {
+    ) -> BpResult<()> {
         info!("compact files {:?} to {}", files, compacted_file);
         if files.is_empty() {
             warn!("No data to compact");
@@ -335,7 +335,7 @@ impl Compactor {
         bucket: &Bucket,
         files: &[ObjectKey],
         compacted_file: &ObjectKey,
-    ) -> MduResult<bool> {
+    ) -> BpResult<bool> {
         info!("compact {} files", files.len());
         let mut temp_file = TempCompactionFile::new();
         let mut writer: Option<AsyncArrowWriter<File>> = None;
@@ -349,7 +349,7 @@ impl Compactor {
             while let Some(batch) = stream.try_next().await? {
                 if writer.is_none() {
                     let output = File::create(temp_file.path()).await.map_err(|error| {
-                        MduError::io(
+                        BpError::io(
                             "create temporary compaction file",
                             temp_file.path().display().to_string(),
                             error,

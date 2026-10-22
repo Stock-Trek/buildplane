@@ -1,7 +1,5 @@
-use crate::{
-    api_key_credential::ApiKeyCredentials,
-    error::{ETError, ETResult},
-};
+use crate::api_key_credential::ApiKeyCredentials;
+use buildplane_shared::errors::{BpError, BpResult};
 use hmac::{Hmac, KeyInit, Mac};
 use p256::ecdsa::signature::Signer as SignerTrait;
 use rsa::{
@@ -49,26 +47,26 @@ impl std::fmt::Debug for Encryptor {
 }
 
 impl EncryptionAlgorithm {
-    pub fn encryptor(&self, api_key_credentials: ApiKeyCredentials) -> ETResult<Encryptor> {
+    pub fn encryptor(&self, api_key_credentials: ApiKeyCredentials) -> BpResult<Encryptor> {
         let secret_key_bytes = api_key_credentials.secret.expose_secret().as_bytes();
         match self {
             Self::Null => Ok(Encryptor::Null),
             Self::EcdsaP256 => {
                 let signing_key = p256::ecdsa::SigningKey::from_slice(secret_key_bytes)
-                    .map_err(|e| ETError::CryptoKey(format!("ECDSA P-256 key error: {e}")))?;
+                    .map_err(|e| BpError::CryptoKey(format!("ECDSA P-256 key error: {e}")))?;
                 Ok(Encryptor::EcdsaP256(signing_key))
             }
             Self::EcdsaP384 => {
                 let signing_key = p384::ecdsa::SigningKey::from_slice(secret_key_bytes)
-                    .map_err(|e| ETError::CryptoKey(format!("ECDSA P-384 key error: {e}")))?;
+                    .map_err(|e| BpError::CryptoKey(format!("ECDSA P-384 key error: {e}")))?;
                 Ok(Encryptor::EcdsaP384(signing_key))
             }
             Self::Ed25519 => {
                 let seed = ed25519_compact::Seed::from_slice(secret_key_bytes).map_err(|_| {
-                    ETError::CryptoKey("Ed25519 key must be exactly 32 bytes".to_string())
+                    BpError::CryptoKey("Ed25519 key must be exactly 32 bytes".to_string())
                 })?;
                 if seed.iter().all(|byte| *byte == 0) {
-                    return Err(ETError::CryptoKey(
+                    return Err(BpError::CryptoKey(
                         "Ed25519 key must not be all zeros".to_string(),
                     ));
                 }
@@ -85,7 +83,7 @@ impl EncryptionAlgorithm {
             }
             Self::RsaSha256 => {
                 let signing_key = rsa_signing_key(api_key_credentials.secret.expose_secret())
-                    .map_err(|e| ETError::CryptoKey(format!("RSA key error: {e}")))?;
+                    .map_err(|e| BpError::CryptoKey(format!("RSA key error: {e}")))?;
                 Ok(Encryptor::RsaSha256(Box::new(signing_key)))
             }
         }
@@ -93,7 +91,7 @@ impl EncryptionAlgorithm {
 }
 
 impl Encryptor {
-    pub fn encrypt(&self, bytes: &[u8]) -> ETResult<Vec<u8>> {
+    pub fn encrypt(&self, bytes: &[u8]) -> BpResult<Vec<u8>> {
         match self {
             Self::Null => Ok(bytes.to_vec()),
             Self::EcdsaP256(signing_key) => {
@@ -111,13 +109,13 @@ impl Encryptor {
             Self::HmacSha256(signing_slice) => {
                 let mut mac =
                     Hmac::<sha2::Sha256>::new_from_slice(signing_slice.expose_secret())
-                        .map_err(|e| ETError::CryptoKey(format!("HMAC-SHA256 key error: {e}")))?;
+                        .map_err(|e| BpError::CryptoKey(format!("HMAC-SHA256 key error: {e}")))?;
                 mac.update(bytes);
                 Ok(mac.finalize().into_bytes().to_vec())
             }
             Self::HmacSha512(signing_slice) => {
                 let mut mac = Hmac::<Sha512>::new_from_slice(signing_slice.expose_secret())
-                    .map_err(|e| ETError::CryptoKey(format!("HMAC-SHA512 key error: {e}")))?;
+                    .map_err(|e| BpError::CryptoKey(format!("HMAC-SHA512 key error: {e}")))?;
                 mac.update(bytes);
                 Ok(mac.finalize().into_bytes().to_vec())
             }

@@ -1,5 +1,4 @@
 use crate::{
-    error::ETResult,
     exchange::ETExchange,
     http::{HttpMethod, HttpRequest},
     new_types::{Milliseconds, UsageCount},
@@ -8,6 +7,7 @@ use crate::{
     signer::Signer,
     websocket_id::ETWebsocketId,
 };
+use buildplane_shared::errors::BpResult;
 use serde::Serialize;
 use std::{fmt::Debug, sync::Arc};
 
@@ -33,7 +33,7 @@ where
 
     fn http_method(&self) -> HttpMethod;
     fn http_endpoint(&self) -> &'static str;
-    fn try_into_http(self, signer: &Signer) -> ETResult<HttpRequest>;
+    fn try_into_http(self, signer: &Signer) -> BpResult<HttpRequest>;
     fn verification_request_http(&self) -> Option<Self::VerificationRequest> {
         None as Option<Self::VerificationRequest>
     }
@@ -51,7 +51,7 @@ where
         self,
         signer: &Signer,
         id: ETWebsocketId,
-    ) -> ETResult<(String, WebsocketResponseMatcher)>;
+    ) -> BpResult<(String, WebsocketResponseMatcher)>;
     fn verification_request_websocket(&self) -> Option<Self::VerificationRequest> {
         None as Option<Self::VerificationRequest>
     }

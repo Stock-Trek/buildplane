@@ -1,9 +1,9 @@
-use crate::error::{ETError, ETResult};
-use buildplane_shared::{env_vars::EnvVarConfig, errors::error::RsSharedError};
+use buildplane_shared::env_vars::EnvVarConfig;
+use buildplane_shared::errors::{BpError, BpResult};
+pub use buildplane_shared::protocol::Protocol;
 use serde::{Deserialize, Serialize};
 use std::env::VarError;
 use strum::Display;
-use url::Url;
 
 pub trait Urls {
     fn default(&self, protocol: Protocol, trading_mode: TradingMode) -> &str;
@@ -12,7 +12,7 @@ pub trait Urls {
         prefix: &'static str,
         protocol: Protocol,
         trading_mode: TradingMode,
-    ) -> ETResult<String> {
+    ) -> BpResult<String> {
         let env_var_name = format!(
             "{}_{}_{}",
             prefix.to_uppercase(),
@@ -24,13 +24,13 @@ pub trait Urls {
             .env_var(&env_var_name)
             .map_err(|error| {
                 let value = match &error {
-                    RsSharedError::EnvVar(error) => match error.as_ref() {
+                    BpError::EnvVar(error) => match error {
                         VarError::NotUnicode(value) => value.to_string_lossy().into_owned(),
                         VarError::NotPresent => default.to_owned(),
                     },
                     _ => default.to_owned(),
                 };
-                ETError::BadValue {
+                BpError::BadValue {
                     name: env_var_name.clone(),
                     value,
                     reason: error.to_string(),
@@ -39,42 +39,6 @@ pub trait Urls {
             .unwrap_or_else(|| default.to_owned());
         protocol.validate_url(&env_var_name, &value)?;
         Ok(value)
-    }
-}
-
-#[derive(Debug, Display, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Protocol {
-    Http,
-    Websocket,
-}
-
-impl Protocol {
-    fn allowed_schemes(self) -> &'static [&'static str] {
-        match self {
-            Self::Http => &["http", "https"],
-            Self::Websocket => &["ws", "wss"],
-        }
-    }
-
-    fn validate_url(self, name: &str, value: &str) -> ETResult<()> {
-        let url = Url::parse(value).map_err(|error| ETError::BadValue {
-            name: name.into(),
-            value: value.into(),
-            reason: error.to_string(),
-        })?;
-        let allowed_schemes = self.allowed_schemes();
-        if !allowed_schemes.contains(&url.scheme()) {
-            return Err(ETError::BadValue {
-                name: name.into(),
-                value: value.into(),
-                reason: format!(
-                    "URL scheme must be one of {}, got {}",
-                    allowed_schemes.join(", "),
-                    url.scheme()
-                ),
-            });
-        }
-        Ok(())
     }
 }
 

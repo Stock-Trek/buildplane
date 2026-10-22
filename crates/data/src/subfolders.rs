@@ -1,15 +1,12 @@
-use crate::{
-    constants::UPDATE_QUANTIZATION,
-    error::{MduError, MduResult},
-    quantized_time::Quantization,
-};
+use crate::{constants::UPDATE_QUANTIZATION, quantized_time::Quantization};
+use buildplane_shared::errors::{BpError, BpResult};
 use chrono::{Datelike, NaiveDate};
 
 pub struct SubFolders;
 
 impl SubFolders {
     /// Expected child entries for compaction, using the configured update quantization.
-    pub fn subfolders_from_path(path: &str) -> MduResult<Vec<String>> {
+    pub fn subfolders_from_path(path: &str) -> BpResult<Vec<String>> {
         Self::subfolders_from_path_with_quantization(path, UPDATE_QUANTIZATION)
     }
 
@@ -20,7 +17,7 @@ impl SubFolders {
     pub fn subfolders_from_path_with_quantization(
         path: &str,
         quantization: Quantization,
-    ) -> MduResult<Vec<String>> {
+    ) -> BpResult<Vec<String>> {
         let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
         match segments.len() {
             0..=4 => Ok(Vec::new()),
@@ -53,7 +50,7 @@ impl SubFolders {
                 Ok(Self::subfolders(&Self::minutes_in_hour(quantization)))
             }
             9 => Ok(Vec::new()),
-            _ => Err(MduError::TooManyPathSegments {
+            _ => Err(BpError::TooManyPathSegments {
                 path: path.to_string(),
             }),
         }
@@ -87,7 +84,7 @@ impl SubFolders {
         quantization: Quantization,
         year: i32,
         month: u32,
-    ) -> MduResult<Vec<i32>> {
+    ) -> BpResult<Vec<i32>> {
         let days_in_month = Self::days_in_month(year, month)?;
         match quantization {
             Quantization::Minutes(_) | Quantization::Hour(_) | Quantization::Day => {
@@ -135,50 +132,50 @@ impl SubFolders {
         }
     }
 
-    fn parse_year(segment: &str, path: &str) -> MduResult<i32> {
+    fn parse_year(segment: &str, path: &str) -> BpResult<i32> {
         segment
             .parse::<i32>()
-            .map_err(|_| MduError::InvalidYearMonth {
+            .map_err(|_| BpError::InvalidYearMonth {
                 path: path.to_string(),
             })
     }
 
-    fn parse_number(segment: &str, path: &str) -> MduResult<u32> {
+    fn parse_number(segment: &str, path: &str) -> BpResult<u32> {
         segment
             .parse::<u32>()
-            .map_err(|_| MduError::InvalidYearMonth {
+            .map_err(|_| BpError::InvalidYearMonth {
                 path: path.to_string(),
             })
     }
 
-    fn parse_month(segment: &str, path: &str) -> MduResult<u32> {
+    fn parse_month(segment: &str, path: &str) -> BpResult<u32> {
         let month = Self::parse_number(segment, path)?;
         if (1..=12).contains(&month) {
             Ok(month)
         } else {
-            Err(MduError::InvalidMonth { month })
+            Err(BpError::InvalidMonth { month })
         }
     }
 
-    fn parse_day(segment: &str, days_in_month: u32, path: &str) -> MduResult<u32> {
+    fn parse_day(segment: &str, days_in_month: u32, path: &str) -> BpResult<u32> {
         let day = Self::parse_number(segment, path)?;
         if (1..=days_in_month).contains(&day) {
             Ok(day)
         } else {
-            Err(MduError::InvalidDay { day })
+            Err(BpError::InvalidDay { day })
         }
     }
 
-    fn parse_hour(segment: &str, path: &str) -> MduResult<u32> {
+    fn parse_hour(segment: &str, path: &str) -> BpResult<u32> {
         let hour = Self::parse_number(segment, path)?;
         if hour < 24 {
             Ok(hour)
         } else {
-            Err(MduError::InvalidHour { hour })
+            Err(BpError::InvalidHour { hour })
         }
     }
 
-    fn days_in_month(year: i32, month: u32) -> MduResult<u32> {
+    fn days_in_month(year: i32, month: u32) -> BpResult<u32> {
         match month {
             1 | 3 | 5 | 7 | 8 | 10 | 12 => Ok(31),
             4 | 6 | 9 | 11 => Ok(30),
@@ -189,7 +186,7 @@ impl SubFolders {
                     Ok(28)
                 }
             }
-            _ => Err(MduError::InvalidMonth { month }),
+            _ => Err(BpError::InvalidMonth { month }),
         }
     }
 }

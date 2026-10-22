@@ -1,8 +1,5 @@
 use crate::{
-    errors::{
-        config::RsConfigError,
-        error::{RsSharedError, RsSharedResult},
-    },
+    errors::{BpError, BpResult},
     git_ops::github::installation::DirectoryLimits,
 };
 use chrono::{DateTime, NaiveDate, Utc};
@@ -97,11 +94,11 @@ impl EnvVarConfig {
         }
     }
 
-    pub fn lambda_function_name(&self, default: &str) -> RsSharedResult<String> {
+    pub fn lambda_function_name(&self, default: &str) -> BpResult<String> {
         self.parsed(AWS_LAMBDA_FUNCTION_NAME, default.to_owned())
     }
 
-    pub fn log_filter(&self) -> RsSharedResult<Option<String>> {
+    pub fn log_filter(&self) -> BpResult<Option<String>> {
         self.optional(RUST_LOG)
     }
 
@@ -111,144 +108,126 @@ impl EnvVarConfig {
     /// per-exchange URL overrides. An empty value is returned as-is so callers
     /// can decide whether it is valid; typed accessors treat empty values as
     /// absent.
-    pub fn env_var(&self, name: &str) -> RsSharedResult<Option<String>> {
+    pub fn env_var(&self, name: &str) -> BpResult<Option<String>> {
         self.raw(name)
     }
 
-    pub fn backfill_start(&self) -> RsSharedResult<Option<DateTime<Utc>>> {
+    pub fn backfill_start(&self) -> BpResult<Option<DateTime<Utc>>> {
         let Some(value) = self.optional(BACKFILL_START)? else {
             return Ok(None);
         };
         Self::parse_timestamp(BACKFILL_START, value.trim()).map(Some)
     }
 
-    pub fn deadline_buffer(&self) -> RsSharedResult<Duration> {
+    pub fn deadline_buffer(&self) -> BpResult<Duration> {
         self.duration(DEADLINE_BUFFER, DEFAULT_DEADLINE_BUFFER)
     }
 
-    pub fn github_app_id(&self) -> RsSharedResult<u64> {
+    pub fn github_app_id(&self) -> BpResult<u64> {
         self.required_parsed(GITHUB_APP_ID)
     }
 
-    pub fn github_app_private_key(&self) -> RsSharedResult<String> {
+    pub fn github_app_private_key(&self) -> BpResult<String> {
         Ok(self.required(GITHUB_APP_PRIVATE_KEY)?.replace("\\n", "\n"))
     }
 
-    pub fn github_enterprise_allowed_hosts(&self) -> RsSharedResult<Vec<String>> {
+    pub fn github_enterprise_allowed_hosts(&self) -> BpResult<Vec<String>> {
         self.optional_csv(ENTERPRISE_ALLOWED_HOSTS)
     }
 
-    pub fn github_max_cached_installations(&self) -> RsSharedResult<NonZeroUsize> {
+    pub fn github_max_cached_installations(&self) -> BpResult<NonZeroUsize> {
         let installations = self.parsed(
             GITHUB_MAX_CACHED_INSTALLATIONS,
             DEFAULT_GITHUB_MAX_CACHED_INSTALLATIONS,
         )?;
         NonZeroUsize::new(installations).ok_or_else(|| {
-            RsSharedError::Config(RsConfigError::invalid(
-                GITHUB_MAX_CACHED_INSTALLATIONS,
-                "must be greater than zero",
-            ))
+            BpError::config_invalid(GITHUB_MAX_CACHED_INSTALLATIONS, "must be greater than zero")
         })
     }
 
-    pub fn github_max_directory_depth(&self) -> RsSharedResult<NonZeroUsize> {
+    pub fn github_max_directory_depth(&self) -> BpResult<NonZeroUsize> {
         let depth = self.parsed(
             GITHUB_MAX_DIRECTORY_DEPTH,
             DirectoryLimits::default().max_depth,
         )?;
         NonZeroUsize::new(depth).ok_or_else(|| {
-            RsSharedError::Config(RsConfigError::invalid(
-                GITHUB_MAX_DIRECTORY_DEPTH,
-                "must be greater than zero",
-            ))
+            BpError::config_invalid(GITHUB_MAX_DIRECTORY_DEPTH, "must be greater than zero")
         })
     }
 
-    pub fn github_max_directory_files(&self) -> RsSharedResult<NonZeroUsize> {
+    pub fn github_max_directory_files(&self) -> BpResult<NonZeroUsize> {
         let files = self.parsed(
             GITHUB_MAX_DIRECTORY_FILES,
             DirectoryLimits::default().max_files,
         )?;
         NonZeroUsize::new(files).ok_or_else(|| {
-            RsSharedError::Config(RsConfigError::invalid(
-                GITHUB_MAX_DIRECTORY_FILES,
-                "must be greater than zero",
-            ))
+            BpError::config_invalid(GITHUB_MAX_DIRECTORY_FILES, "must be greater than zero")
         })
     }
 
-    pub fn github_max_directory_bytes(&self) -> RsSharedResult<NonZeroU64> {
+    pub fn github_max_directory_bytes(&self) -> BpResult<NonZeroU64> {
         let bytes = self.parsed(
             GITHUB_MAX_DIRECTORY_BYTES,
             DirectoryLimits::default().max_total_bytes,
         )?;
         NonZeroU64::new(bytes).ok_or_else(|| {
-            RsSharedError::Config(RsConfigError::invalid(
-                GITHUB_MAX_DIRECTORY_BYTES,
-                "must be greater than zero",
-            ))
+            BpError::config_invalid(GITHUB_MAX_DIRECTORY_BYTES, "must be greater than zero")
         })
     }
 
-    pub fn sqs_queue_url(&self) -> RsSharedResult<String> {
+    pub fn sqs_queue_url(&self) -> BpResult<String> {
         self.required(SQS_QUEUE_URL)
     }
 
-    pub fn sqs_dedup_max_messages(&self) -> RsSharedResult<NonZeroUsize> {
+    pub fn sqs_dedup_max_messages(&self) -> BpResult<NonZeroUsize> {
         let messages = self.parsed(SQS_DEDUP_MAX_MESSAGES, DEFAULT_SQS_DEDUP_MAX_MESSAGES)?;
         NonZeroUsize::new(messages).ok_or_else(|| {
-            RsSharedError::Config(RsConfigError::invalid(
-                SQS_DEDUP_MAX_MESSAGES,
-                "must be greater than zero",
-            ))
+            BpError::config_invalid(SQS_DEDUP_MAX_MESSAGES, "must be greater than zero")
         })
     }
 
-    pub fn sqs_dedup_ttl(&self) -> RsSharedResult<Duration> {
+    pub fn sqs_dedup_ttl(&self) -> BpResult<Duration> {
         self.duration(SQS_DEDUP_TTL, DEFAULT_SQS_DEDUP_TTL)
     }
 
-    pub fn sqs_process_concurrency(&self) -> RsSharedResult<NonZeroUsize> {
+    pub fn sqs_process_concurrency(&self) -> BpResult<NonZeroUsize> {
         let concurrency = self.parsed(SQS_PROCESS_CONCURRENCY, DEFAULT_SQS_PROCESS_CONCURRENCY)?;
         NonZeroUsize::new(concurrency).ok_or_else(|| {
-            RsSharedError::Config(RsConfigError::invalid(
-                SQS_PROCESS_CONCURRENCY,
-                "must be greater than zero",
-            ))
+            BpError::config_invalid(SQS_PROCESS_CONCURRENCY, "must be greater than zero")
         })
     }
 
-    pub fn s3_bucket(&self) -> RsSharedResult<String> {
+    pub fn s3_bucket(&self) -> BpResult<String> {
         self.required(S3_BUCKET)
     }
 
-    pub fn s3_bucket_user_artifacts(&self) -> RsSharedResult<String> {
+    pub fn s3_bucket_user_artifacts(&self) -> BpResult<String> {
         self.required(S3_BUCKET_USER_ARTIFACTS)
     }
 
-    pub fn s3_max_object_size_bytes(&self) -> RsSharedResult<u64> {
+    pub fn s3_max_object_size_bytes(&self) -> BpResult<u64> {
         self.parsed(S3_MAX_OBJECT_SIZE_BYTES, DEFAULT_S3_MAX_OBJECT_SIZE_BYTES)
     }
 
-    pub fn s3_signed_url_expiry(&self) -> RsSharedResult<Duration> {
+    pub fn s3_signed_url_expiry(&self) -> BpResult<Duration> {
         let expiry = self.duration(S3_SIGNED_URL_EXPIRY, DEFAULT_S3_SIGNED_URL_EXPIRY)?;
         if expiry.is_zero() || expiry > MAX_SIGNED_URL_EXPIRY {
-            return Err(RsSharedError::Config(RsConfigError::invalid(
+            return Err(BpError::config_invalid(
                 S3_SIGNED_URL_EXPIRY,
                 format!(
                     "must be between 1 and {} seconds (7 days)",
                     MAX_SIGNED_URL_EXPIRY.as_secs()
                 ),
-            )));
+            ));
         }
         Ok(expiry)
     }
 
-    pub fn aws_endpoint_url_s3(&self) -> RsSharedResult<Option<String>> {
+    pub fn aws_endpoint_url_s3(&self) -> BpResult<Option<String>> {
         self.optional(AWS_ENDPOINT_URL_S3)
     }
 
-    pub fn build_agent_function_name(&self) -> RsSharedResult<String> {
+    pub fn build_agent_function_name(&self) -> BpResult<String> {
         self.first_present(&[
             BUILD_AGENT_FUNCTION_NAME,
             BUILD_AGENT_FUNCTION_ARN,
@@ -258,97 +237,93 @@ impl EnvVarConfig {
             BUILD_AGENT_LAMBDA_NAME,
             BUILD_AGENT_ARN,
         ])?
-        .ok_or_else(|| RsSharedError::Config(RsConfigError::missing(BUILD_AGENT_FUNCTION_NAME)))
+        .ok_or_else(|| BpError::config_missing(BUILD_AGENT_FUNCTION_NAME))
     }
 
-    pub fn build_agent_function_arn(&self) -> RsSharedResult<String> {
+    pub fn build_agent_function_arn(&self) -> BpResult<String> {
         self.build_agent_function_name()
     }
 
-    pub fn build_agent_lambda_function_name(&self) -> RsSharedResult<String> {
+    pub fn build_agent_lambda_function_name(&self) -> BpResult<String> {
         self.build_agent_function_name()
     }
 
-    pub fn build_agent_lambda_arn(&self) -> RsSharedResult<String> {
+    pub fn build_agent_lambda_arn(&self) -> BpResult<String> {
         self.build_agent_function_name()
     }
 
-    pub fn webhook_dedup_max_deliveries(&self) -> RsSharedResult<NonZeroUsize> {
+    pub fn webhook_dedup_max_deliveries(&self) -> BpResult<NonZeroUsize> {
         let deliveries = self.parsed(
             WEBHOOK_DEDUP_MAX_DELIVERIES,
             DEFAULT_WEBHOOK_DEDUP_MAX_DELIVERIES,
         )?;
         NonZeroUsize::new(deliveries).ok_or_else(|| {
-            RsSharedError::Config(RsConfigError::invalid(
-                WEBHOOK_DEDUP_MAX_DELIVERIES,
-                "must be greater than zero",
-            ))
+            BpError::config_invalid(WEBHOOK_DEDUP_MAX_DELIVERIES, "must be greater than zero")
         })
     }
 
-    pub fn webhook_dedup_ttl(&self) -> RsSharedResult<Duration> {
+    pub fn webhook_dedup_ttl(&self) -> BpResult<Duration> {
         self.duration(WEBHOOK_DEDUP_TTL, DEFAULT_WEBHOOK_DEDUP_TTL)
     }
 
-    pub fn webhook_refresh_cooldown(&self) -> RsSharedResult<Duration> {
+    pub fn webhook_refresh_cooldown(&self) -> BpResult<Duration> {
         self.duration(WEBHOOK_REFRESH_COOLDOWN, DEFAULT_WEBHOOK_REFRESH_COOLDOWN)
     }
 
-    pub fn webhook_secret_failure_backoff(&self) -> RsSharedResult<Duration> {
+    pub fn webhook_secret_failure_backoff(&self) -> BpResult<Duration> {
         self.duration(
             WEBHOOK_SECRET_FAILURE_BACKOFF,
             DEFAULT_WEBHOOK_SECRET_FAILURE_BACKOFF,
         )
     }
 
-    pub fn webhook_cold_start_refresh_timeout(&self) -> RsSharedResult<Duration> {
+    pub fn webhook_cold_start_refresh_timeout(&self) -> BpResult<Duration> {
         self.duration(
             WEBHOOK_COLD_START_REFRESH_TIMEOUT,
             DEFAULT_WEBHOOK_COLD_START_REFRESH_TIMEOUT,
         )
     }
 
-    pub fn infisical_identity_id(&self) -> RsSharedResult<String> {
+    pub fn infisical_identity_id(&self) -> BpResult<String> {
         self.required(INFISICAL_IDENTITY_ID)
     }
 
-    pub fn infisical_project_id(&self) -> RsSharedResult<String> {
+    pub fn infisical_project_id(&self) -> BpResult<String> {
         self.required(INFISICAL_PROJECT_ID)
     }
 
-    pub fn infisical_environment(&self) -> RsSharedResult<String> {
+    pub fn infisical_environment(&self) -> BpResult<String> {
         self.required(INFISICAL_ENVIRONMENT)
     }
 
-    pub fn infisical_base_url(&self) -> RsSharedResult<String> {
+    pub fn infisical_base_url(&self) -> BpResult<String> {
         let base_url = self.required(INFISICAL_BASE_URL)?;
-        let url = Url::parse(&base_url).map_err(|error| {
-            RsSharedError::Config(RsConfigError::invalid_source(INFISICAL_BASE_URL, error))
-        })?;
+        let url = Url::parse(&base_url)
+            .map_err(|error| BpError::config_invalid_source(INFISICAL_BASE_URL, error))?;
         if url.scheme() != "https" {
-            return Err(RsSharedError::Config(RsConfigError::invalid(
+            return Err(BpError::config_invalid(
                 INFISICAL_BASE_URL,
                 format!("must use the \"https\" scheme, got \"{}\"", url.scheme()),
-            )));
+            ));
         }
         Ok(base_url)
     }
 
-    pub(crate) fn duration(&self, key: &str, default: Duration) -> RsSharedResult<Duration> {
+    pub(crate) fn duration(&self, key: &str, default: Duration) -> BpResult<Duration> {
         Ok(Duration::from_secs(self.parsed(key, default.as_secs())?))
     }
 
-    fn required_parsed<T>(&self, key: &str) -> RsSharedResult<T>
+    fn required_parsed<T>(&self, key: &str) -> BpResult<T>
     where
         T: std::str::FromStr,
         T::Err: std::error::Error + Send + Sync + 'static,
     {
         self.required(key)?
             .parse::<T>()
-            .map_err(|error| RsSharedError::Config(RsConfigError::invalid_source(key, error)))
+            .map_err(|error| BpError::config_invalid_source(key, error))
     }
 
-    fn parsed<T>(&self, key: &str, default: T) -> RsSharedResult<T>
+    fn parsed<T>(&self, key: &str, default: T) -> BpResult<T>
     where
         T: std::str::FromStr,
         T::Err: std::error::Error + Send + Sync + 'static,
@@ -357,14 +332,14 @@ impl EnvVarConfig {
             return Ok(default);
         };
         if value.is_empty() {
-            return Err(RsSharedError::Config(RsConfigError::empty(key)));
+            return Err(BpError::config_empty(key));
         }
         value
             .parse::<T>()
-            .map_err(|error| RsSharedError::Config(RsConfigError::invalid_source(key, error)))
+            .map_err(|error| BpError::config_invalid_source(key, error))
     }
 
-    fn parse_timestamp(name: &str, value: &str) -> RsSharedResult<DateTime<Utc>> {
+    fn parse_timestamp(name: &str, value: &str) -> BpResult<DateTime<Utc>> {
         if let Ok(date_time) = DateTime::parse_from_rfc3339(value) {
             return Ok(date_time.with_timezone(&Utc));
         }
@@ -377,21 +352,21 @@ impl EnvVarConfig {
         Err(Self::invalid_timestamp(name, value))
     }
 
-    fn invalid_timestamp(name: &str, value: &str) -> RsSharedError {
-        RsSharedError::Config(RsConfigError::invalid(
+    fn invalid_timestamp(name: &str, value: &str) -> BpError {
+        BpError::config_invalid(
             name,
             format!("must be an RFC 3339 timestamp or YYYY-MM-DD date, got {value}"),
-        ))
+        )
     }
 
-    fn optional_csv(&self, name: &str) -> RsSharedResult<Vec<String>> {
+    fn optional_csv(&self, name: &str) -> BpResult<Vec<String>> {
         match self.optional(name)? {
             Some(value) => Ok(Self::split_csv(&value)),
             None => Ok(Vec::new()),
         }
     }
 
-    fn first_present(&self, names: &[&str]) -> RsSharedResult<Option<String>> {
+    fn first_present(&self, names: &[&str]) -> BpResult<Option<String>> {
         for name in names {
             if let Some(value) = self.optional(name)? {
                 return Ok(Some(value));
@@ -400,25 +375,25 @@ impl EnvVarConfig {
         Ok(None)
     }
 
-    fn required(&self, name: &str) -> RsSharedResult<String> {
+    fn required(&self, name: &str) -> BpResult<String> {
         match self.raw(name)? {
-            Some(value) if value.is_empty() => {
-                Err(RsSharedError::Config(RsConfigError::empty(name)))
-            }
+            Some(value) if value.is_empty() => Err(BpError::config_empty(name)),
             Some(value) => Ok(value),
-            None => Err(RsSharedError::Config(RsConfigError::missing(name))),
+            None => Err(BpError::config_missing(name)),
         }
     }
 
-    fn optional(&self, name: &str) -> RsSharedResult<Option<String>> {
+    fn optional(&self, name: &str) -> BpResult<Option<String>> {
         Ok(self.env_var(name)?.filter(|value| !value.is_empty()))
     }
 
-    fn raw(&self, name: &str) -> RsSharedResult<Option<String>> {
+    fn raw(&self, name: &str) -> BpResult<Option<String>> {
         match self.vars.get(OsStr::new(name)) {
-            Some(value) => value.clone().into_string().map(Some).map_err(|value| {
-                RsSharedError::EnvVar(Box::new(std::env::VarError::NotUnicode(value)))
-            }),
+            Some(value) => value
+                .clone()
+                .into_string()
+                .map(Some)
+                .map_err(|value| BpError::EnvVar(std::env::VarError::NotUnicode(value))),
             None => Ok(None),
         }
     }

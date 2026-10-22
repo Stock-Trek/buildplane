@@ -1,9 +1,9 @@
 use crate::{
-    error::ETResult,
     new_types::Milliseconds,
     request::{ETHttpRequest, ETWebsocketRequest},
     response::{ETHttpResponse, ETWebsocketResponse},
 };
+use buildplane_shared::errors::BpResult;
 
 pub trait ServerTimeHttpRequest<Response>: ETHttpRequest<Response = Response>
 where
@@ -18,5 +18,5 @@ where
 }
 
 pub trait ServerTimeResponse {
-    fn server_time(&self) -> ETResult<Milliseconds>;
+    fn server_time(&self) -> BpResult<Milliseconds>;
 }

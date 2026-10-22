@@ -1,4 +1,5 @@
-use crate::{aws_ops::s3::PresignedPost, errors::error::RsOrchestratorResult};
+use crate::aws_ops::s3::PresignedPost;
+use buildplane_shared::errors::BpResult;
 use buildplane_shared::sqs_message::{GitSource, SqsRefType};
 use std::collections::BTreeMap;
 
@@ -27,7 +28,7 @@ impl BuildRequest {
     ///
     /// Lambda does not support per-invocation environment variables, so the
     /// values are sent in the invocation payload instead.
-    pub fn environment(&self) -> RsOrchestratorResult<BTreeMap<&'static str, String>> {
+    pub fn environment(&self) -> BpResult<BTreeMap<&'static str, String>> {
         let mut environment = BTreeMap::from([
             (GIT_HOST, self.source.host().to_string()),
             (GIT_PROVIDER, self.source.name().to_string()),
@@ -44,7 +45,7 @@ impl BuildRequest {
         Ok(environment)
     }
 
-    pub fn payload(&self) -> RsOrchestratorResult<Vec<u8>> {
+    pub fn payload(&self) -> BpResult<Vec<u8>> {
         Ok(serde_json::to_vec(&self.environment()?)?)
     }
 }

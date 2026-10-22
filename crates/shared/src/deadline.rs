@@ -1,7 +1,4 @@
-use crate::errors::{
-    error::{RsSharedError, RsSharedResult},
-    timeout::RsTimeoutError,
-};
+use crate::errors::{BpError, BpResult};
 use std::time::{Duration, Instant, SystemTime};
 
 #[derive(Debug, Clone, Copy)]
@@ -21,13 +18,13 @@ impl Deadline {
         }
     }
 
-    pub fn remaining(self) -> RsSharedResult<Duration> {
+    pub fn remaining(self) -> BpResult<Duration> {
         let remaining = self
             .at
             .saturating_duration_since(Instant::now())
             .saturating_sub(self.buffer);
         if remaining.is_zero() {
-            return Err(RsSharedError::Timeout(RsTimeoutError::DeadlineExceeded));
+            return Err(BpError::TimeoutDeadlineExceeded);
         }
         Ok(remaining)
     }

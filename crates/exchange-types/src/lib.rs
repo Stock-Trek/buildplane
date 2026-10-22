@@ -2,7 +2,6 @@ pub mod api_key_credential;
 pub mod binance;
 pub mod encode;
 pub mod encrypt;
-pub mod error;
 pub mod exchange;
 pub mod http;
 pub mod klines;

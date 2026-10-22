@@ -1,6 +1,6 @@
 use crate::{
     deadline::Deadline,
-    errors::error::RsSharedResult,
+    errors::BpResult,
     git_ops::github::{github_auth::GitHubAuth, installation::GitHubInstallation},
     sqs_message::GitSource,
 };
@@ -20,30 +20,26 @@ pub trait GitHost<InstallationId, RepoId>: Send + Sync {
     fn provider(&self) -> &'static str;
     fn host(&self) -> &str;
     fn installation_id(&self) -> InstallationId;
-    fn parse_repo_id(&self, repo_id: &str) -> RsSharedResult<RepoId>;
-    async fn repo_ids(&self, deadline: Deadline) -> RsSharedResult<Vec<RepoId>>;
-    async fn repo_default_branch(
-        &self,
-        repo_id: RepoId,
-        deadline: Deadline,
-    ) -> RsSharedResult<String>;
+    fn parse_repo_id(&self, repo_id: &str) -> BpResult<RepoId>;
+    async fn repo_ids(&self, deadline: Deadline) -> BpResult<Vec<RepoId>>;
+    async fn repo_default_branch(&self, repo_id: RepoId, deadline: Deadline) -> BpResult<String>;
     async fn ref_commit(
         &self,
         repo_id: RepoId,
         ref_name: &str,
         deadline: Deadline,
-    ) -> RsSharedResult<String>;
+    ) -> BpResult<String>;
     async fn directory_files(
         &self,
         repo_id: RepoId,
         ref_name: &str,
         directory: &str,
         deadline: Deadline,
-    ) -> RsSharedResult<Vec<GitFile>>;
+    ) -> BpResult<Vec<GitFile>>;
 }
 
 impl GitRemote {
-    pub fn from_source(github_auth: &GitHubAuth, source: &GitSource) -> RsSharedResult<Self> {
+    pub fn from_source(github_auth: &GitHubAuth, source: &GitSource) -> BpResult<Self> {
         match source {
             GitSource::GitHub {
                 host,

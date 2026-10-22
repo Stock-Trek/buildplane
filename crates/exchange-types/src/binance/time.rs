@@ -4,7 +4,6 @@ use crate::{
         request::BinanceRequestFactory,
         response::{BinanceResponse, BinanceResponsePayload},
     },
-    error::{ETError, ETResult},
     http::{HttpMethod, HttpRequest},
     new_types::{Milliseconds, UsageCount},
     rate_limited::RateLimitRestriction,
@@ -13,6 +12,7 @@ use crate::{
     signer::Signer,
     websocket_id::ETWebsocketId,
 };
+use buildplane_shared::errors::{BpError, BpResult};
 use query_params::QueryParams;
 use serde::{Deserialize, Serialize};
 
@@ -36,10 +36,10 @@ impl ServerTimeHttpRequest<BinanceResponse<BinanceTimeResponse>> for BinanceTime
 impl ServerTimeWebsocketRequest<BinanceResponse<BinanceTimeResponse>> for BinanceTimeRequest {}
 
 impl ServerTimeResponse for BinanceResponse<BinanceTimeResponse> {
-    fn server_time(&self) -> ETResult<Milliseconds> {
+    fn server_time(&self) -> BpResult<Milliseconds> {
         match &self.payload {
             BinanceResponsePayload::Failure(_) => {
-                Err(ETError::BadResponse("Failure in server time".into()))
+                Err(BpError::BadResponse("Failure in server time".into()))
             }
             BinanceResponsePayload::Success(payload) => Ok(Milliseconds(payload.serverTime)),
         }
@@ -78,7 +78,7 @@ impl ETHttpRequest for BinanceTimeRequest {
     fn http_method(&self) -> HttpMethod {
         HttpMethod::GET
     }
-    fn try_into_http(self, signer: &Signer) -> ETResult<HttpRequest> {
+    fn try_into_http(self, signer: &Signer) -> BpResult<HttpRequest> {
         BinanceRequestFactory::try_into_http(self, signer)
     }
 }
@@ -94,7 +94,7 @@ impl ETWebsocketRequest for BinanceTimeRequest {
         self,
         signer: &Signer,
         id: ETWebsocketId,
-    ) -> ETResult<(String, WebsocketResponseMatcher)> {
+    ) -> BpResult<(String, WebsocketResponseMatcher)> {
         BinanceRequestFactory::try_into_websocket(self, signer, id)
     }
 }

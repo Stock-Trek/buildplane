@@ -1,11 +1,6 @@
 use crate::{
     deadline::Deadline,
-    errors::{
-        error::{RsSharedError, RsSharedResult},
-        github::RsGitHubError,
-        invalid_message::RsInvalidMessageError,
-        timeout::RsTimeoutError,
-    },
+    errors::{BpError, BpResult},
     git_ops::git_remote::{GitFile, GitHost},
     timeouts::Timeouts,
 };
@@ -126,39 +121,31 @@ impl GitHost<u64, u64> for GitHubInstallation {
         self.installation_id
     }
 
-    fn parse_repo_id(&self, repo_id: &str) -> RsSharedResult<u64> {
-        repo_id.parse().map_err(|error| {
-            RsSharedError::InvalidMessage(RsInvalidMessageError::GitHubRepositoryId {
+    fn parse_repo_id(&self, repo_id: &str) -> BpResult<u64> {
+        repo_id
+            .parse()
+            .map_err(|error| BpError::InvalidMessageGitHubRepositoryId {
                 repo_id: repo_id.to_owned(),
                 source: error,
             })
-        })
     }
 
-    async fn repo_ids(&self, deadline: Deadline) -> RsSharedResult<Vec<u64>> {
+    async fn repo_ids(&self, deadline: Deadline) -> BpResult<Vec<u64>> {
         let timeout = self.timeouts.operation_timeout(deadline)?;
         let repos = tokio::time::timeout(timeout, self.repos())
             .await
-            .map_err(|_| {
-                RsSharedError::Timeout(RsTimeoutError::Operation {
-                    operation: "GitHub list repositories",
-                })
+            .map_err(|_| BpError::TimeoutOperation {
+                operation: "GitHub list repositories",
             })??;
         Ok(repos.into_iter().map(|repo| repo.id).collect())
     }
 
-    async fn repo_default_branch(
-        &self,
-        repo_id: u64,
-        deadline: Deadline,
-    ) -> RsSharedResult<String> {
+    async fn repo_default_branch(&self, repo_id: u64, deadline: Deadline) -> BpResult<String> {
         let timeout = self.timeouts.operation_timeout(deadline)?;
         let repo = tokio::time::timeout(timeout, self.repo(repo_id))
             .await
-            .map_err(|_| {
-                RsSharedError::Timeout(RsTimeoutError::Operation {
-                    operation: "GitHub get repository",
-                })
+            .map_err(|_| BpError::TimeoutOperation {
+                operation: "GitHub get repository",
             })?;
         repo.map(|r| r.default_branch)
     }
@@ -168,7 +155,7 @@ impl GitHost<u64, u64> for GitHubInstallation {
         repo_id: u64,
         ref_name: &str,
         deadline: Deadline,
-    ) -> RsSharedResult<String> {
+    ) -> BpResult<String> {
         let timeout = self.timeouts.operation_timeout(deadline)?;
         let params = CommitsParams {
             sha: ref_name,
@@ -182,27 +169,21 @@ impl GitHost<u64, u64> for GitHubInstallation {
             ),
         )
         .await
-        .map_err(|_| {
-            RsSharedError::Timeout(RsTimeoutError::Operation {
-                operation: "GitHub get commit",
-            })
+        .map_err(|_| BpError::TimeoutOperation {
+            operation: "GitHub get commit",
         })?
-        .map_err(|error| {
-            RsSharedError::GitHub(RsGitHubError::GetCommit {
-                repo_id,
-                ref_name: ref_name.to_owned(),
-                source: error,
-            })
+        .map_err(|error| BpError::GitHubGetCommit {
+            repo_id,
+            ref_name: ref_name.to_owned(),
+            source: error,
         })?;
         commits
             .into_iter()
             .next()
             .map(|commit| commit.sha)
-            .ok_or_else(|| {
-                RsSharedError::GitHub(RsGitHubError::CommitNotFound {
-                    repo_id,
-                    ref_name: ref_name.to_owned(),
-                })
+            .ok_or_else(|| BpError::GitHubCommitNotFound {
+                repo_id,
+                ref_name: ref_name.to_owned(),
             })
     }
 
@@ -212,17 +193,15 @@ impl GitHost<u64, u64> for GitHubInstallation {
         ref_name: &str,
         directory: &str,
         deadline: Deadline,
-    ) -> RsSharedResult<Vec<GitFile>> {
+    ) -> BpResult<Vec<GitFile>> {
         let timeout = self.timeouts.operation_timeout(deadline)?;
         tokio::time::timeout(
             timeout,
             self.collect_directory_files(repo_id, ref_name, directory),
         )
         .await
-        .map_err(|_| {
-            RsSharedError::Timeout(RsTimeoutError::Operation {
-                operation: "GitHub get repository contents",
-            })
+        .map_err(|_| BpError::TimeoutOperation {
+            operation: "GitHub get repository contents",
         })?
     }
 }
@@ -233,7 +212,7 @@ impl GitHubInstallation {
         host: &str,
         installation_id: u64,
         timeouts: Timeouts,
-    ) -> RsSharedResult<Self> {
+    ) -> BpResult<Self> {
         Self::with_limits(
             app,
             host,
@@ -249,14 +228,12 @@ impl GitHubInstallation {
         installation_id: u64,
         timeouts: Timeouts,
         directory_limits: DirectoryLimits,
-    ) -> RsSharedResult<Self> {
+    ) -> BpResult<Self> {
         let client = app
             .installation(InstallationId::from(installation_id))
-            .map_err(|error| {
-                RsSharedError::GitHub(RsGitHubError::Installation {
-                    installation_id,
-                    source: error,
-                })
+            .map_err(|error| BpError::GitHubInstallation {
+                installation_id,
+                source: error,
             })?;
         Ok(Self {
             client: Arc::new(client),
@@ -275,7 +252,7 @@ impl GitHubInstallation {
         repo_id: u64,
         ref_name: &str,
         directory: &str,
-    ) -> RsSharedResult<Vec<GitFile>> {
+    ) -> BpResult<Vec<GitFile>> {
         let directory = directory.trim_matches('/');
         if !directory.is_empty() {
             Self::validate_relative_path(repo_id, directory, "")?;
@@ -286,10 +263,10 @@ impl GitHubInstallation {
         // had to truncate it), so use that for directory discovery instead.
         let tree = self.tree(repo_id, ref_name).await?;
         if tree.truncated {
-            return Err(RsSharedError::GitHub(RsGitHubError::TreeTruncated {
+            return Err(BpError::GitHubTreeTruncated {
                 repo_id,
                 ref_name: ref_name.to_owned(),
-            }));
+            });
         }
 
         if !directory.is_empty()
@@ -298,11 +275,11 @@ impl GitHubInstallation {
                 .iter()
                 .any(|entry| entry.path == directory && entry.kind == "tree")
         {
-            return Err(RsSharedError::GitHub(RsGitHubError::DirectoryNotFound {
+            return Err(BpError::GitHubDirectoryNotFound {
                 repo_id,
                 path: directory.to_owned(),
                 ref_name: ref_name.to_owned(),
-            }));
+            });
         }
 
         let prefix = if directory.is_empty() {
@@ -322,13 +299,11 @@ impl GitHubInstallation {
 
             let depth = relative.matches('/').count();
             if depth > self.directory_limits.max_depth {
-                return Err(RsSharedError::GitHub(
-                    RsGitHubError::DirectoryDepthExceeded {
-                        repo_id,
-                        path: entry.path,
-                        max_depth: self.directory_limits.max_depth,
-                    },
-                ));
+                return Err(BpError::GitHubDirectoryDepthExceeded {
+                    repo_id,
+                    path: entry.path,
+                    max_depth: self.directory_limits.max_depth,
+                });
             }
             Self::validate_relative_path(repo_id, relative, directory)?;
 
@@ -341,29 +316,29 @@ impl GitHubInstallation {
                         continue;
                     }
                     if files.len() >= self.directory_limits.max_files {
-                        return Err(RsSharedError::GitHub(RsGitHubError::TooManyFiles {
+                        return Err(BpError::GitHubTooManyFiles {
                             repo_id,
                             directory: directory.to_owned(),
                             max_files: self.directory_limits.max_files,
-                        }));
+                        });
                     }
                     if let Some(size) = entry.size
                         && total_bytes.saturating_add(size) > self.directory_limits.max_total_bytes
                     {
-                        return Err(RsSharedError::GitHub(RsGitHubError::DirectoryTooLarge {
+                        return Err(BpError::GitHubDirectoryTooLarge {
                             repo_id,
                             directory: directory.to_owned(),
                             max_bytes: self.directory_limits.max_total_bytes,
-                        }));
+                        });
                     }
                     let contents = self.blob(repo_id, &entry.sha).await?;
                     total_bytes = total_bytes.saturating_add(contents.len() as u64);
                     if total_bytes > self.directory_limits.max_total_bytes {
-                        return Err(RsSharedError::GitHub(RsGitHubError::DirectoryTooLarge {
+                        return Err(BpError::GitHubDirectoryTooLarge {
                             repo_id,
                             directory: directory.to_owned(),
                             max_bytes: self.directory_limits.max_total_bytes,
-                        }));
+                        });
                     }
                     files.push(GitFile {
                         path: relative.to_owned(),
@@ -372,13 +347,11 @@ impl GitHubInstallation {
                 }
                 "commit" => {}
                 kind => {
-                    return Err(RsSharedError::GitHub(
-                        RsGitHubError::UnsupportedContentType {
-                            repo_id,
-                            path: entry.path,
-                            content_type: kind.to_owned(),
-                        },
-                    ));
+                    return Err(BpError::GitHubUnsupportedContentType {
+                        repo_id,
+                        path: entry.path,
+                        content_type: kind.to_owned(),
+                    });
                 }
             }
         }
@@ -386,7 +359,7 @@ impl GitHubInstallation {
         Ok(files)
     }
 
-    async fn tree(&self, repo_id: u64, ref_name: &str) -> RsSharedResult<GitHubTree> {
+    async fn tree(&self, repo_id: u64, ref_name: &str) -> BpResult<GitHubTree> {
         let params = TreeParams { recursive: 1 };
         self.client
             .get::<GitHubTree, _, _>(
@@ -397,16 +370,14 @@ impl GitHubInstallation {
                 Some(&params),
             )
             .await
-            .map_err(|source| {
-                RsSharedError::GitHub(RsGitHubError::GetTree {
-                    repo_id,
-                    ref_name: ref_name.to_owned(),
-                    source: Box::new(source),
-                })
+            .map_err(|source| BpError::GitHubGetTree {
+                repo_id,
+                ref_name: ref_name.to_owned(),
+                source: Box::new(source),
             })
     }
 
-    async fn blob(&self, repo_id: u64, sha: &str) -> RsSharedResult<Vec<u8>> {
+    async fn blob(&self, repo_id: u64, sha: &str) -> BpResult<Vec<u8>> {
         let blob = self
             .client
             .get::<GitHubBlob, _, _>(
@@ -414,12 +385,10 @@ impl GitHubInstallation {
                 None::<&()>,
             )
             .await
-            .map_err(|source| {
-                RsSharedError::GitHub(RsGitHubError::GetBlob {
-                    repo_id,
-                    sha: sha.to_owned(),
-                    source: Box::new(source),
-                })
+            .map_err(|source| BpError::GitHubGetBlob {
+                repo_id,
+                sha: sha.to_owned(),
+                source: Box::new(source),
             })?;
         Self::decode_content(
             repo_id,
@@ -427,11 +396,9 @@ impl GitHubInstallation {
             blob.content.as_deref(),
             blob.encoding.as_deref(),
         )?
-        .ok_or_else(|| {
-            RsSharedError::GitHub(RsGitHubError::MissingContent {
-                repo_id,
-                path: sha.to_owned(),
-            })
+        .ok_or_else(|| BpError::GitHubMissingContent {
+            repo_id,
+            path: sha.to_owned(),
         })
     }
 
@@ -440,7 +407,7 @@ impl GitHubInstallation {
         path: &str,
         content: Option<&str>,
         encoding: Option<&str>,
-    ) -> RsSharedResult<Option<Vec<u8>>> {
+    ) -> BpResult<Option<Vec<u8>>> {
         let Some(content) = content else {
             return Ok(None);
         };
@@ -450,24 +417,23 @@ impl GitHubInstallation {
                     .chars()
                     .filter(|character| !character.is_ascii_whitespace())
                     .collect::<String>();
-                BASE64.decode(compact).map(Some).map_err(|source| {
-                    RsSharedError::GitHub(RsGitHubError::DecodeContent {
+                BASE64
+                    .decode(compact)
+                    .map(Some)
+                    .map_err(|source| BpError::GitHubDecodeContent {
                         repo_id,
                         path: path.to_owned(),
                         encoding: "base64",
                         source,
                     })
-                })
             }
             Some("utf8") => Ok(Some(content.as_bytes().to_vec())),
             Some("none") | None if content.is_empty() => Ok(None),
-            Some(encoding) => Err(RsSharedError::GitHub(
-                RsGitHubError::UnsupportedContentEncoding {
-                    repo_id,
-                    path: path.to_owned(),
-                    encoding: encoding.to_owned(),
-                },
-            )),
+            Some(encoding) => Err(BpError::GitHubUnsupportedContentEncoding {
+                repo_id,
+                path: path.to_owned(),
+                encoding: encoding.to_owned(),
+            }),
             None => Ok(Some(content.as_bytes().to_vec())),
         }
     }
@@ -490,7 +456,7 @@ impl GitHubInstallation {
             .join("/")
     }
 
-    fn validate_relative_path(repo_id: u64, path: &str, directory: &str) -> RsSharedResult<()> {
+    fn validate_relative_path(repo_id: u64, path: &str, directory: &str) -> BpResult<()> {
         let path = Path::new(path);
         if path.as_os_str().is_empty()
             || path.to_string_lossy().contains('\\')
@@ -498,16 +464,16 @@ impl GitHubInstallation {
                 .components()
                 .any(|component| !matches!(component, std::path::Component::Normal(_)))
         {
-            return Err(RsSharedError::GitHub(RsGitHubError::InvalidContentPath {
+            return Err(BpError::GitHubInvalidContentPath {
                 repo_id,
                 path: path.display().to_string(),
                 directory: directory.to_owned(),
-            }));
+            });
         }
         Ok(())
     }
 
-    async fn repos(&self) -> RsSharedResult<Vec<GitHubRepo>> {
+    async fn repos(&self) -> BpResult<Vec<GitHubRepo>> {
         let mut repos = Vec::new();
         let mut page = 1;
         loop {
@@ -522,7 +488,7 @@ impl GitHubInstallation {
                     Some(&params),
                 )
                 .await
-                .map_err(|error| RsSharedError::GitHub(RsGitHubError::ListRepositories(error)))?;
+                .map_err(BpError::GitHubListRepositories)?;
             let received = response.repositories.len();
             repos.extend(response.repositories);
             if received < REPOS_PER_PAGE as usize {
@@ -533,21 +499,21 @@ impl GitHubInstallation {
         Ok(repos)
     }
 
-    async fn repo(&self, repo_id: u64) -> RsSharedResult<GitHubRepo> {
+    async fn repo(&self, repo_id: u64) -> BpResult<GitHubRepo> {
         self.client
             .get::<GitHubRepo, _, _>(format!("/repositories/{repo_id}"), None::<&()>)
             .await
             .map_err(|error| {
                 if Self::is_not_found(&error) {
-                    RsSharedError::GitHub(RsGitHubError::RepositoryNotFound {
+                    BpError::GitHubRepositoryNotFound {
                         repo_id,
                         source: error,
-                    })
+                    }
                 } else {
-                    RsSharedError::GitHub(RsGitHubError::GetRepository {
+                    BpError::GitHubGetRepository {
                         repo_id,
                         source: error,
-                    })
+                    }
                 }
             })
     }

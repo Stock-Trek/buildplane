@@ -8,7 +8,6 @@ use crate::{
         supporting_types::{BinanceOrderType, BinanceSelfTradeProtection},
     },
     encode::ByteEncoder,
-    error::ETResult,
     http::{HttpMethod, HttpRequest},
     new_types::{Milliseconds, UsageCount},
     rate_limited::RateLimitRestriction,
@@ -17,6 +16,7 @@ use crate::{
     ticker::Ticker,
     websocket_id::ETWebsocketId,
 };
+use buildplane_shared::errors::BpResult;
 use serde::{Deserialize, Serialize};
 use strum::Display;
 
@@ -197,7 +197,7 @@ impl ETHttpRequest for BinanceExchangeInfoRequest {
     fn http_method(&self) -> HttpMethod {
         HttpMethod::GET
     }
-    fn try_into_http(self, signer: &Signer) -> ETResult<HttpRequest> {
+    fn try_into_http(self, signer: &Signer) -> BpResult<HttpRequest> {
         BinanceRequestFactory::try_into_http(self, signer)
     }
 }
@@ -213,7 +213,7 @@ impl ETWebsocketRequest for BinanceExchangeInfoRequest {
         self,
         signer: &Signer,
         id: ETWebsocketId,
-    ) -> ETResult<(String, WebsocketResponseMatcher)> {
+    ) -> BpResult<(String, WebsocketResponseMatcher)> {
         BinanceRequestFactory::try_into_websocket(self, signer, id)
     }
 }

@@ -1,7 +1,5 @@
-use crate::{
-    error::{ETError, ETResult},
-    new_types::Milliseconds,
-};
+use crate::new_types::Milliseconds;
+use buildplane_shared::errors::{BpError, BpResult};
 use serde::Serialize;
 use std::fmt;
 
@@ -13,11 +11,11 @@ impl BinanceRecvWindow {
     pub const DEFAULT: Self = Self(Milliseconds(5000));
     pub const MAXIMUM: Milliseconds = Milliseconds(60_000);
 
-    pub fn try_new(recv_window: Milliseconds) -> ETResult<Self> {
+    pub fn try_new(recv_window: Milliseconds) -> BpResult<Self> {
         if Self::is_valid(recv_window) {
             Ok(Self(recv_window))
         } else {
-            Err(ETError::BadValue {
+            Err(BpError::BadValue {
                 name: "recv_window".into(),
                 value: recv_window.to_string(),
                 reason: format!("Out of bounds >{} <={}", Milliseconds::ZERO, Self::MAXIMUM),

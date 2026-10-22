@@ -2,7 +2,6 @@ use crate::{
     compacter::Compactor,
     constants::{LOCK_KEY, common_trading_pairs},
     env_config::EnvConfig,
-    error::{MduError, MduResult},
     job::{Job, JobOutcome},
     lock::LockGuard,
     s3::{Bucket, ObjectKey, S3},
@@ -10,6 +9,7 @@ use crate::{
 };
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
+use buildplane_shared::errors::{BpError, BpResult};
 use chrono::{DateTime, Utc};
 use tracing::{error, info, warn};
 
@@ -20,12 +20,12 @@ impl Orchestrator {
     ///
     /// This keeps the previous entry point available for callers that do not
     /// need to select a job explicitly.
-    pub async fn run(env_config: &EnvConfig) -> MduResult<()> {
+    pub async fn run(env_config: &EnvConfig) -> BpResult<()> {
         Self::run_job(env_config, &Job::Update).await.map(|_| ())
     }
 
     /// Acquire the global lock and execute one explicitly selected job.
-    pub async fn run_job(env_config: &EnvConfig, job: &Job) -> MduResult<JobOutcome> {
+    pub async fn run_job(env_config: &EnvConfig, job: &Job) -> BpResult<JobOutcome> {
         job.validate()?;
         info!("get s3 and transfer clients");
         let (s3_client, transfer_client) = S3::clients().await;
@@ -59,7 +59,7 @@ impl Orchestrator {
         bucket: &Bucket,
         job: &Job,
         scheduled_backfill_start: Option<DateTime<Utc>>,
-    ) -> MduResult<JobOutcome> {
+    ) -> BpResult<JobOutcome> {
         match job {
             Job::Update => {
                 Self::process_scheduled(
@@ -98,7 +98,7 @@ impl Orchestrator {
         transfer_client: &TransferClient,
         bucket: &Bucket,
         backfill_start: Option<DateTime<Utc>>,
-    ) -> MduResult<JobOutcome> {
+    ) -> BpResult<JobOutcome> {
         let updater = KlinesUpdater::try_new()?;
         let update_result = updater
             .update(s3_client, transfer_client, bucket, backfill_start)
@@ -114,7 +114,7 @@ impl Orchestrator {
             (Ok(()), Ok(())) => Ok(JobOutcome::default()),
             (Err(error), Ok(())) | (Ok(()), Err(error)) => Err(error),
             (Err(update_error), Err(compact_error)) => {
-                Err(MduError::multiple([update_error, compact_error]))
+                Err(BpError::multiple([update_error, compact_error]))
             }
         }
     }
@@ -123,7 +123,7 @@ impl Orchestrator {
         s3_client: &S3Client,
         transfer_client: &TransferClient,
         bucket: &Bucket,
-    ) -> MduResult<()> {
+    ) -> BpResult<()> {
         info!("compact all");
         let mut prefixes = common_trading_pairs()
             .into_iter()
@@ -149,7 +149,7 @@ impl Orchestrator {
         if errors.is_empty() {
             Ok(())
         } else {
-            Err(MduError::multiple(errors))
+            Err(BpError::multiple(errors))
         }
     }
 }

@@ -1,8 +1,5 @@
-use crate::{
-    artifacts::Artifacts,
-    error::{BaError, BaResult},
-    request::BuildRequest,
-};
+use crate::{artifacts::Artifacts, request::BuildRequest};
+use buildplane_shared::errors::{BpError, BpResult};
 use std::{path::PathBuf, time::Duration};
 use tokio::time::timeout;
 
@@ -22,7 +19,7 @@ impl Handler {
         }
     }
 
-    pub async fn handle(&self, request: BuildRequest) -> BaResult<()> {
+    pub async fn handle(&self, request: BuildRequest) -> BpResult<()> {
         tracing::info!(
             git_host = %request.git_host,
             git_provider = %request.git_provider,
@@ -44,6 +41,6 @@ impl Handler {
             artifacts.publish(&cwasm).await
         })
         .await
-        .unwrap_or(Err(BaError::Timeout(self.build_timeout)))
+        .unwrap_or(Err(BpError::BuildTimeout(self.build_timeout)))
     }
 }

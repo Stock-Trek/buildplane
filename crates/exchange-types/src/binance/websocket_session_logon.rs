@@ -3,13 +3,13 @@ use crate::{
         exchange::BinanceExchange, recv_window::BinanceRecvWindow, request::BinanceRequestFactory,
         response::BinanceResponse, supporting_types::BinanceWebsocketSessionResponse,
     },
-    error::ETResult,
     new_types::{Milliseconds, UsageCount},
     rate_limited::RateLimitRestriction,
     request::{ETRequest, ETWebsocketRequest, WebsocketResponseMatcher},
     signer::Signer,
     websocket_id::ETWebsocketId,
 };
+use buildplane_shared::errors::BpResult;
 use query_params::QueryParams;
 use serde::Serialize;
 use serde_with::skip_serializing_none;
@@ -76,7 +76,7 @@ impl ETWebsocketRequest for BinanceSessionLogonRequest {
         self,
         signer: &Signer,
         id: ETWebsocketId,
-    ) -> ETResult<(String, WebsocketResponseMatcher)> {
+    ) -> BpResult<(String, WebsocketResponseMatcher)> {
         BinanceRequestFactory::try_into_websocket(self, signer, id)
     }
 }

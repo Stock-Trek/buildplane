@@ -1,4 +1,4 @@
-use crate::{deadline::Deadline, env_vars::EnvVarConfig, errors::error::RsSharedResult};
+use crate::{deadline::Deadline, env_vars::EnvVarConfig, errors::BpResult};
 use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -57,7 +57,7 @@ impl Timeouts {
         name: &str,
         default_connect: Duration,
         default_operation: Duration,
-    ) -> RsSharedResult<Self> {
+    ) -> BpResult<Self> {
         Ok(Self {
             connect: Self::timeout(config, &format!("{name}_CONNECT_TIMEOUT"), default_connect)?,
             operation: Self::timeout(
@@ -68,7 +68,7 @@ impl Timeouts {
         })
     }
 
-    pub fn operation_timeout(self, deadline: Deadline) -> RsSharedResult<Duration> {
+    pub fn operation_timeout(self, deadline: Deadline) -> BpResult<Duration> {
         let remaining = deadline.remaining()?;
         Ok(match self.operation {
             Timeout::Disabled => remaining,
@@ -76,7 +76,7 @@ impl Timeouts {
         })
     }
 
-    fn timeout(config: &EnvVarConfig, key: &str, default: Duration) -> RsSharedResult<Timeout> {
+    fn timeout(config: &EnvVarConfig, key: &str, default: Duration) -> BpResult<Timeout> {
         let timeout = config.duration(key, default)?;
         Ok(NonZeroDuration::new(timeout).map_or(Timeout::Disabled, Timeout::Bounded))
     }

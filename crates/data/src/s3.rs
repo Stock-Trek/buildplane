@@ -1,4 +1,3 @@
-use crate::error::{MduError, MduResult};
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::{
     Client as S3Client,
@@ -6,6 +5,7 @@ use aws_sdk_s3::{
     types::{Delete, ObjectIdentifier},
 };
 use aws_sdk_s3_transfer_manager::{Client as TransferClient, io::InputStream};
+use buildplane_shared::errors::{BpError, BpResult};
 use bytes::Bytes;
 use std::{fmt, path::Path};
 use tracing::info;
@@ -106,7 +106,7 @@ impl S3 {
         s3_client: &S3Client,
         bucket: &Bucket,
         key: &ObjectKey,
-    ) -> MduResult<bool> {
+    ) -> BpResult<bool> {
         let target = Self::object_target(bucket, key);
         info!("checking for file {}", key);
         match s3_client
@@ -118,7 +118,7 @@ impl S3 {
         {
             Ok(_) => Ok(true),
             Err(SdkError::ServiceError(error)) if error.err().is_not_found() => Ok(false),
-            Err(error) => Err(MduError::s3("check object existence", target, error)),
+            Err(error) => Err(BpError::s3("check object existence", target, error)),
         }
     }
 
@@ -126,7 +126,7 @@ impl S3 {
         s3_client: &S3Client,
         bucket: &Bucket,
         key: &ObjectKey,
-    ) -> MduResult<u64> {
+    ) -> BpResult<u64> {
         let target = Self::object_target(bucket, key);
         info!("get size for file {}", key);
         let output = s3_client
@@ -135,7 +135,7 @@ impl S3 {
             .key(key.as_str())
             .send()
             .await
-            .map_err(|error| MduError::s3("read object metadata", target, error))?;
+            .map_err(|error| BpError::s3("read object metadata", target, error))?;
         Ok(output.content_length().unwrap_or_default().max(0) as u64)
     }
 
@@ -143,7 +143,7 @@ impl S3 {
         s3_client: &S3Client,
         bucket: &Bucket,
         prefix: &ObjectKey,
-    ) -> MduResult<Vec<ObjectKey>> {
+    ) -> BpResult<Vec<ObjectKey>> {
         let target = Self::object_target(bucket, prefix);
         info!("listing files with prefix {}", prefix);
         let mut files = Vec::new();
@@ -155,7 +155,7 @@ impl S3 {
             .send();
         while let Some(page_result) = paginator.next().await {
             let page =
-                page_result.map_err(|error| MduError::s3("list objects", target.clone(), error))?;
+                page_result.map_err(|error| BpError::s3("list objects", target.clone(), error))?;
             for object in page.contents() {
                 if let Some(key) = object.key() {
                     files.push(ObjectKey::new(key));
@@ -165,7 +165,7 @@ impl S3 {
         Ok(files)
     }
 
-    pub async fn delete(s3_client: &S3Client, bucket: &Bucket, key: &ObjectKey) -> MduResult<()> {
+    pub async fn delete(s3_client: &S3Client, bucket: &Bucket, key: &ObjectKey) -> BpResult<()> {
         let target = Self::object_target(bucket, key);
         s3_client
             .delete_object()
@@ -173,7 +173,7 @@ impl S3 {
             .key(key.as_str())
             .send()
             .await
-            .map_err(|error| MduError::s3("delete object", target, error))?;
+            .map_err(|error| BpError::s3("delete object", target, error))?;
         Ok(())
     }
 
@@ -182,7 +182,7 @@ impl S3 {
         bucket: &Bucket,
         source_key: &ObjectKey,
         destination_key: &ObjectKey,
-    ) -> MduResult<()> {
+    ) -> BpResult<()> {
         let target = Self::object_target(bucket, destination_key);
         info!("copy file {} to {}", source_key, destination_key);
         s3_client
@@ -195,7 +195,7 @@ impl S3 {
             .key(destination_key.as_str())
             .send()
             .await
-            .map_err(|error| MduError::s3("copy object", target, error))?;
+            .map_err(|error| BpError::s3("copy object", target, error))?;
         Ok(())
     }
 
@@ -203,7 +203,7 @@ impl S3 {
         s3_client: &S3Client,
         bucket: &Bucket,
         keys: &[ObjectKey],
-    ) -> MduResult<()> {
+    ) -> BpResult<()> {
         info!("delete files {:?}", keys);
         let mut errors = Vec::new();
         for chunk in keys.chunks(1000) {
@@ -215,7 +215,7 @@ impl S3 {
                     .build()
                 {
                     Ok(object) => objects.push(object),
-                    Err(error) => errors.push(MduError::s3_request(
+                    Err(error) => errors.push(BpError::s3_request(
                         "build delete identifier",
                         Self::object_target(bucket, key),
                         error,
@@ -228,7 +228,7 @@ impl S3 {
             let delete = match Delete::builder().set_objects(Some(objects)).build() {
                 Ok(delete) => delete,
                 Err(error) => {
-                    errors.push(MduError::s3_request(
+                    errors.push(BpError::s3_request(
                         "build delete request",
                         target.clone(),
                         error,
@@ -245,7 +245,7 @@ impl S3 {
             {
                 Ok(output) => output,
                 Err(error) => {
-                    errors.push(MduError::s3("delete objects", target.clone(), error));
+                    errors.push(BpError::s3("delete objects", target.clone(), error));
                     continue;
                 }
             };
@@ -263,13 +263,13 @@ impl S3 {
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                errors.push(MduError::S3DeleteObjects { target, failures });
+                errors.push(BpError::S3DeleteObjects { target, failures });
             }
         }
         if errors.is_empty() {
             Ok(())
         } else {
-            Err(MduError::multiple(errors))
+            Err(BpError::multiple(errors))
         }
     }
 
@@ -278,7 +278,7 @@ impl S3 {
         bucket: &Bucket,
         key: &ObjectKey,
         bytes: Bytes,
-    ) -> MduResult<()> {
+    ) -> BpResult<()> {
         let target = Self::object_target(bucket, key);
         info!("upload bytes for key {}", key);
         let stream = InputStream::from(bytes);
@@ -288,10 +288,10 @@ impl S3 {
             .key(key.as_str())
             .body(stream)
             .initiate()
-            .map_err(|error| MduError::s3("start upload", target.clone(), error))?
+            .map_err(|error| BpError::s3("start upload", target.clone(), error))?
             .join()
             .await
-            .map_err(|error| MduError::s3("upload object", target, error))?;
+            .map_err(|error| BpError::s3("upload object", target, error))?;
         Ok(())
     }
 
@@ -300,10 +300,10 @@ impl S3 {
         bucket: &Bucket,
         key: &ObjectKey,
         file_path: &Path,
-    ) -> MduResult<()> {
+    ) -> BpResult<()> {
         let target = Self::object_target(bucket, key);
         let stream = InputStream::from_path(file_path).map_err(|error| {
-            MduError::io(
+            BpError::io(
                 "open file for upload",
                 file_path.display().to_string(),
                 error,
@@ -315,10 +315,10 @@ impl S3 {
             .key(key.as_str())
             .body(stream)
             .initiate()
-            .map_err(|error| MduError::s3("start upload", target.clone(), error))?
+            .map_err(|error| BpError::s3("start upload", target.clone(), error))?
             .join()
             .await
-            .map_err(|error| MduError::s3("upload object", target, error))?;
+            .map_err(|error| BpError::s3("upload object", target, error))?;
         Ok(())
     }
 

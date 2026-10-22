@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+buildplane-shared = { path = "../shared" }
 lambda_runtime.workspace = true
 reqwest = { version = "0.12", default-features = false, features = ["multipart", "rustls-tls"] }
 serde.workspace = true

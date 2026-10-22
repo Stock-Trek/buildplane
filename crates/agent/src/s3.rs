@@ -11,7 +11,7 @@
 //! field contains the `${filename}` variable, which S3 replaces with the name
 //! of the uploaded file.
 
-use crate::error::{BaError, BaResult};
+use buildplane_shared::errors::{BpError, BpResult};
 use std::{
     collections::BTreeMap,
     path::{Component, Path},
@@ -37,14 +37,14 @@ pub struct SignedPost {
 }
 
 impl SignedPost {
-    pub fn new(url: String, fields: BTreeMap<String, String>, timeout: Duration) -> BaResult<Self> {
+    pub fn new(url: String, fields: BTreeMap<String, String>, timeout: Duration) -> BpResult<Self> {
         let key = fields.get(KEY_FIELD).ok_or_else(|| {
-            BaError::Config(format!(
+            BpError::BuildConfig(format!(
                 "SIGNED_POST_FIELDS must include a {KEY_FIELD} field containing {FILENAME_VARIABLE}"
             ))
         })?;
         if !key.contains(FILENAME_VARIABLE) {
-            return Err(BaError::Config(format!(
+            return Err(BpError::BuildConfig(format!(
                 "SIGNED_POST_FIELDS.{KEY_FIELD} must contain {FILENAME_VARIABLE} so artifacts do not overwrite each other"
             )));
         }
@@ -52,7 +52,9 @@ impl SignedPost {
         let client = reqwest::Client::builder()
             .timeout(timeout)
             .build()
-            .map_err(|source| BaError::Config(format!("failed to build HTTP client: {source}")))?;
+            .map_err(|source| {
+                BpError::BuildConfig(format!("failed to build HTTP client: {source}"))
+            })?;
 
         Ok(Self {
             url,
@@ -62,16 +64,16 @@ impl SignedPost {
     }
 
     /// Upload `path` using the configured pre-signed POST.
-    pub async fn upload(&self, path: &Path) -> BaResult<()> {
+    pub async fn upload(&self, path: &Path) -> BpResult<()> {
         let file_name = Self::file_name(path)?;
         self.upload_named(path, Path::new(&file_name)).await
     }
 
     /// Upload `path` using `name` as the S3 object name.
-    pub async fn upload_named(&self, path: &Path, name: &Path) -> BaResult<()> {
+    pub async fn upload_named(&self, path: &Path, name: &Path) -> BpResult<()> {
         let bytes = tokio::fs::read(path)
             .await
-            .map_err(|source| BaError::ReadArtifact {
+            .map_err(|source| BpError::BuildReadArtifact {
                 path: path.to_path_buf(),
                 source,
             })?;
@@ -80,7 +82,7 @@ impl SignedPost {
         let file = reqwest::multipart::Part::bytes(bytes)
             .file_name(file_name.clone())
             .mime_str("application/octet-stream")
-            .map_err(|source| BaError::BuildUploadRequest {
+            .map_err(|source| BpError::BuildUploadRequest {
                 path: path.to_path_buf(),
                 source,
             })?;
@@ -98,7 +100,7 @@ impl SignedPost {
             .multipart(form)
             .send()
             .await
-            .map_err(|source| BaError::UploadArtifact {
+            .map_err(|source| BpError::BuildUploadArtifact {
                 path: path.to_path_buf(),
                 source,
             })?;
@@ -106,7 +108,7 @@ impl SignedPost {
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
-            return Err(BaError::UploadRejected {
+            return Err(BpError::BuildUploadRejected {
                 path: path.to_path_buf(),
                 status: status.as_u16(),
                 body,
@@ -121,25 +123,25 @@ impl SignedPost {
         value.replace(FILENAME_VARIABLE, file_name)
     }
 
-    fn file_name(path: &Path) -> BaResult<String> {
+    fn file_name(path: &Path) -> BpResult<String> {
         path.file_name()
             .and_then(|name| name.to_str())
             .map(str::to_string)
-            .ok_or_else(|| BaError::Config(format!("artifact path {path:?} has no file name")))
+            .ok_or_else(|| BpError::BuildConfig(format!("artifact path {path:?} has no file name")))
     }
 
-    fn upload_name(path: &Path) -> BaResult<String> {
+    fn upload_name(path: &Path) -> BpResult<String> {
         let mut parts = Vec::new();
         for component in path.components() {
             match component {
                 Component::Normal(part) => {
                     let part = part.to_str().ok_or_else(|| {
-                        BaError::Config(format!("artifact name {path:?} is not valid UTF-8"))
+                        BpError::BuildConfig(format!("artifact name {path:?} is not valid UTF-8"))
                     })?;
                     parts.push(part);
                 }
                 _ => {
-                    return Err(BaError::Config(format!(
+                    return Err(BpError::BuildConfig(format!(
                         "artifact name {path:?} must be relative"
                     )));
                 }
@@ -147,7 +149,9 @@ impl SignedPost {
         }
 
         if parts.is_empty() {
-            return Err(BaError::Config(format!("artifact name {path:?} is empty")));
+            return Err(BpError::BuildConfig(format!(
+                "artifact name {path:?} is empty"
+            )));
         }
         Ok(parts.join("/"))
     }

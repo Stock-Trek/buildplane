@@ -3,7 +3,6 @@ use crate::{
         exchange::BinanceExchange, recv_window::BinanceRecvWindow, request::BinanceRequestFactory,
         response::BinanceResponse, supporting_types::BinanceOrderStatusResponse,
     },
-    error::ETResult,
     http::{HttpMethod, HttpRequest},
     new_types::{Milliseconds, UsageCount},
     rate_limited::RateLimitRestriction,
@@ -11,6 +10,7 @@ use crate::{
     signer::Signer,
     websocket_id::ETWebsocketId,
 };
+use buildplane_shared::errors::BpResult;
 use query_params::QueryParams;
 use serde::Serialize;
 use serde_with::skip_serializing_none;
@@ -76,7 +76,7 @@ impl ETHttpRequest for BinanceOrderStatusRequest {
     fn http_method(&self) -> HttpMethod {
         HttpMethod::GET
     }
-    fn try_into_http(self, signer: &Signer) -> ETResult<HttpRequest> {
+    fn try_into_http(self, signer: &Signer) -> BpResult<HttpRequest> {
         BinanceRequestFactory::try_into_http(self, signer)
     }
 }
@@ -92,7 +92,7 @@ impl ETWebsocketRequest for BinanceOrderStatusRequest {
         self,
         signer: &Signer,
         id: ETWebsocketId,
-    ) -> ETResult<(String, WebsocketResponseMatcher)> {
+    ) -> BpResult<(String, WebsocketResponseMatcher)> {
         BinanceRequestFactory::try_into_websocket(self, signer, id)
     }
 }

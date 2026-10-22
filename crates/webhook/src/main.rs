@@ -1,8 +1,5 @@
-use crate::{
-    context::RsWebhookContext,
-    error::{RsWebhookError, RsWebhookResult},
-    webhook_handler::WebhookHandler,
-};
+use crate::{context::RsWebhookContext, webhook_handler::WebhookHandler};
+use buildplane_shared::errors::{BpError, BpResult};
 use buildplane_shared::{
     env_vars::EnvVarConfig, metrics::descriptions::DescriptionsMetrics, tracing_setup::TracingSetup,
 };
@@ -14,7 +11,6 @@ mod aws;
 mod context;
 mod dedup;
 mod dto;
-mod error;
 mod event_response;
 mod infisical;
 mod responses;
@@ -23,7 +19,7 @@ mod webhook_handler;
 const DEFAULT_FUNCTION_NAME: &str = "buildplane-webhook";
 
 #[tokio::main]
-async fn main() -> RsWebhookResult<()> {
+async fn main() -> BpResult<()> {
     let config = EnvVarConfig::from_env();
     TracingSetup::setup(&config)?;
     let recorder = metrics_cloudwatch_embedded::Builder::new()
@@ -44,5 +40,5 @@ async fn main() -> RsWebhookResult<()> {
     };
     run_http(recorder, service_fn(handler))
         .await
-        .map_err(RsWebhookError::Run)
+        .map_err(BpError::External)
 }

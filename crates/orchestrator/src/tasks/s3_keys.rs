@@ -1,9 +1,5 @@
-use crate::errors::error::RsOrchestratorResult;
-use buildplane_shared::{
-    errors::{error::RsSharedError, invalid_message::RsInvalidMessageError},
-    git_ops::git_remote::GitHost,
-    sqs_message::SqsRefType,
-};
+use buildplane_shared::errors::BpResult;
+use buildplane_shared::{errors::BpError, git_ops::git_remote::GitHost, sqs_message::SqsRefType};
 use std::fmt::Display;
 
 const SOURCE_PREFIX: &str = "source/";
@@ -49,7 +45,7 @@ impl S3Keys {
         ref_name: &str,
         ref_type: SqsRefType,
         commit_hash: &str,
-    ) -> RsOrchestratorResult<String>
+    ) -> BpResult<String>
     where
         InstallationId: Display,
         RepoId: Display,
@@ -80,7 +76,7 @@ impl S3Keys {
         ref_name: &str,
         ref_type: SqsRefType,
         commit_hash: &str,
-    ) -> RsOrchestratorResult<String>
+    ) -> BpResult<String>
     where
         InstallationId: Display,
         RepoId: Display,
@@ -98,7 +94,7 @@ impl S3Keys {
         ref_name: &str,
         ref_type: SqsRefType,
         commit_hash: &str,
-    ) -> RsOrchestratorResult<String>
+    ) -> BpResult<String>
     where
         InstallationId: Display,
         RepoId: Display,
@@ -116,7 +112,7 @@ impl S3Keys {
         ref_name: &str,
         ref_type: SqsRefType,
         commit_hash: &str,
-    ) -> RsOrchestratorResult<String>
+    ) -> BpResult<String>
     where
         InstallationId: Display,
         RepoId: Display,
@@ -134,7 +130,7 @@ impl S3Keys {
         ref_name: &str,
         ref_type: SqsRefType,
         commit_hash: &str,
-    ) -> RsOrchestratorResult<String>
+    ) -> BpResult<String>
     where
         InstallationId: Display,
         RepoId: Display,
@@ -148,15 +144,13 @@ impl S3Keys {
 }
 
 impl S3Keys {
-    fn sanitize_path(value: &str) -> RsOrchestratorResult<String> {
+    fn sanitize_path(value: &str) -> BpResult<String> {
         if Self::is_valid_ref_name(value) {
             Ok(value.to_string())
         } else {
-            Err(RsSharedError::InvalidMessage(
-                RsInvalidMessageError::InvalidPath {
-                    value: value.to_string(),
-                },
-            ))?
+            Err(BpError::InvalidMessageInvalidPath {
+                value: value.to_string(),
+            })?
         }
     }
 

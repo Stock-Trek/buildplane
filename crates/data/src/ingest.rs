@@ -1,5 +1,4 @@
 use crate::{
-    error::{MduError, MduResult},
     parquet_writer::writer_properties,
     plan::Window,
     s3::{Bucket, ObjectKey, S3},
@@ -9,6 +8,7 @@ use arrow_array::{ArrayRef, Float64Array, Int64Array, RecordBatch};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
 use buildplane_exchange_types::klines::Kline;
+use buildplane_shared::errors::{BpError, BpResult};
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use parquet::arrow::ArrowWriter;
@@ -31,7 +31,7 @@ impl Ingest {
         bucket: &Bucket,
         updater: &dyn ExchangeUpdater,
         ingest: WindowIngest<'_>,
-    ) -> MduResult<()> {
+    ) -> BpResult<()> {
         let WindowIngest {
             trading_pair,
             window,
@@ -87,37 +87,37 @@ impl Ingest {
         })
     }
 
-    fn candle_field_to_f64<T>(field: &'static str, value: T) -> MduResult<f64>
+    fn candle_field_to_f64<T>(field: &'static str, value: T) -> BpResult<f64>
     where
         T: TryInto<f64>,
         T::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
     {
         value
             .try_into()
-            .map_err(|source| MduError::candle_conversion(field, source))
+            .map_err(|source| BpError::candle_conversion(field, source))
     }
 
-    fn candles_to_bytes(candles: &[Kline], schema: &SchemaRef) -> MduResult<Bytes> {
+    fn candles_to_bytes(candles: &[Kline], schema: &SchemaRef) -> BpResult<Bytes> {
         let open = candles
             .iter()
             .map(|k| Self::candle_field_to_f64("open", k.open))
-            .collect::<MduResult<Vec<_>>>()?;
+            .collect::<BpResult<Vec<_>>>()?;
         let high = candles
             .iter()
             .map(|k| Self::candle_field_to_f64("high", k.high))
-            .collect::<MduResult<Vec<_>>>()?;
+            .collect::<BpResult<Vec<_>>>()?;
         let low = candles
             .iter()
             .map(|k| Self::candle_field_to_f64("low", k.low))
-            .collect::<MduResult<Vec<_>>>()?;
+            .collect::<BpResult<Vec<_>>>()?;
         let close = candles
             .iter()
             .map(|k| Self::candle_field_to_f64("close", k.close))
-            .collect::<MduResult<Vec<_>>>()?;
+            .collect::<BpResult<Vec<_>>>()?;
         let volume = candles
             .iter()
             .map(|k| Self::candle_field_to_f64("volume", k.volume))
-            .collect::<MduResult<Vec<_>>>()?;
+            .collect::<BpResult<Vec<_>>>()?;
         let columns: Vec<ArrayRef> = vec![
             Arc::new(Int64Array::from_iter(candles.iter().map(|k| k.open_time.0))),
             Arc::new(Float64Array::from(open)),

@@ -1,10 +1,10 @@
 use crate::{
     constants::{PARQUET_SUFFIX, UPDATE_QUANTIZATION},
-    error::MduResult,
     quantized_time::{Quantization, QuantizedTime, TopOfHour, TopOfMonth},
     s3::ObjectKey,
     subfolders::SubFolders,
 };
+use buildplane_shared::errors::BpResult;
 use chrono::{DateTime, Datelike, TimeZone, Timelike, Utc};
 use std::collections::HashSet;
 
@@ -46,7 +46,7 @@ impl Planner {
         existing: &HashSet<String>,
         end_time: DateTime<Utc>,
         backfill_start: Option<DateTime<Utc>>,
-    ) -> MduResult<Vec<Window>> {
+    ) -> BpResult<Vec<Window>> {
         let backfill_start = backfill_start
             .map(|start| QuantizedTime::timestamp(start, UPDATE_QUANTIZATION))
             .transpose()?;
@@ -78,7 +78,7 @@ impl Planner {
         existing: &HashSet<String>,
         start: DateTime<Utc>,
         end_time: DateTime<Utc>,
-    ) -> MduResult<Vec<Window>> {
+    ) -> BpResult<Vec<Window>> {
         Self::plan_windows_between_with_overwrite(existing, start, end_time, false)
     }
 
@@ -93,7 +93,7 @@ impl Planner {
         start: DateTime<Utc>,
         end_time: DateTime<Utc>,
         force: bool,
-    ) -> MduResult<Vec<Window>> {
+    ) -> BpResult<Vec<Window>> {
         let start = QuantizedTime::timestamp(start, UPDATE_QUANTIZATION)?;
         Self::plan_windows_between_with_overwrite(existing, start, end_time, force)
     }
@@ -103,7 +103,7 @@ impl Planner {
         start: DateTime<Utc>,
         end_time: DateTime<Utc>,
         overwrite_existing: bool,
-    ) -> MduResult<Vec<Window>> {
+    ) -> BpResult<Vec<Window>> {
         let mut start = start;
         let mut windows = Vec::new();
         while start < end_time {
@@ -129,7 +129,7 @@ impl Planner {
     pub fn plan_compaction<I, K>(
         prefix: &ObjectKey,
         entries: I,
-    ) -> MduResult<Option<CompactionTarget>>
+    ) -> BpResult<Option<CompactionTarget>>
     where
         I: IntoIterator<Item = K>,
         K: AsRef<str>,
@@ -142,7 +142,7 @@ impl Planner {
         prefix: &ObjectKey,
         entries: I,
         suffix: &str,
-    ) -> MduResult<Option<CompactionTarget>>
+    ) -> BpResult<Option<CompactionTarget>>
     where
         I: IntoIterator<Item = K>,
         K: AsRef<str>,
@@ -169,7 +169,7 @@ impl Planner {
     }
 
     /// Expected source files for compacting `prefix`, or an empty list for a leaf path.
-    pub fn expected_compaction_sources(prefix: &ObjectKey) -> MduResult<Vec<ObjectKey>> {
+    pub fn expected_compaction_sources(prefix: &ObjectKey) -> BpResult<Vec<ObjectKey>> {
         Self::expected_compaction_sources_with_suffix(prefix, PARQUET_SUFFIX)
     }
 
@@ -177,7 +177,7 @@ impl Planner {
     pub fn expected_compaction_sources_with_suffix(
         prefix: &ObjectKey,
         suffix: &str,
-    ) -> MduResult<Vec<ObjectKey>> {
+    ) -> BpResult<Vec<ObjectKey>> {
         let expected_subfolders = SubFolders::subfolders_from_path(prefix.as_str())?;
         let separator = if prefix.as_str().ends_with('/') {
             ""
@@ -218,7 +218,7 @@ impl Planner {
     fn compacted_boundary(
         existing: &HashSet<String>,
         start_time: DateTime<Utc>,
-    ) -> MduResult<Option<DateTime<Utc>>> {
+    ) -> BpResult<Option<DateTime<Utc>>> {
         let compacted = Self::compacted_file_paths(start_time);
         let next_period_start = if existing.contains(&compacted[3]) {
             Self::next_year(start_time)?
@@ -274,23 +274,23 @@ impl Planner {
         }
     }
 
-    fn next_hour(timestamp: DateTime<Utc>) -> MduResult<DateTime<Utc>> {
+    fn next_hour(timestamp: DateTime<Utc>) -> BpResult<DateTime<Utc>> {
         let hour_start = QuantizedTime::timestamp(timestamp, Quantization::Hour(TopOfHour::One))?;
         QuantizedTime::next_top(hour_start, Quantization::Hour(TopOfHour::One))
     }
 
-    fn next_day(timestamp: DateTime<Utc>) -> MduResult<DateTime<Utc>> {
+    fn next_day(timestamp: DateTime<Utc>) -> BpResult<DateTime<Utc>> {
         let day_start = QuantizedTime::timestamp(timestamp, Quantization::Day)?;
         QuantizedTime::next_top(day_start, Quantization::Day)
     }
 
-    fn next_month(timestamp: DateTime<Utc>) -> MduResult<DateTime<Utc>> {
+    fn next_month(timestamp: DateTime<Utc>) -> BpResult<DateTime<Utc>> {
         let month_start =
             QuantizedTime::timestamp(timestamp, Quantization::Month(TopOfMonth::One))?;
         QuantizedTime::next_top(month_start, Quantization::Month(TopOfMonth::One))
     }
 
-    fn next_year(timestamp: DateTime<Utc>) -> MduResult<DateTime<Utc>> {
+    fn next_year(timestamp: DateTime<Utc>) -> BpResult<DateTime<Utc>> {
         let year_start = QuantizedTime::timestamp(timestamp, Quantization::Year)?;
         QuantizedTime::next_top(year_start, Quantization::Year)
     }

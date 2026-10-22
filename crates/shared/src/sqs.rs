@@ -1,10 +1,7 @@
 use crate::{
     deadline::Deadline,
     env_vars::EnvVarConfig,
-    errors::{
-        error::{RsSharedError, RsSharedResult},
-        sqs::{RsSqsError, SqsBatchFailure},
-    },
+    errors::{BpError, BpResult, SqsBatchFailure},
     metrics::sqs::SqsMetrics,
     sqs_message::SqsMessage,
     timeouts::Timeouts,
@@ -27,7 +24,7 @@ pub struct SqsConfig {
 }
 
 impl SqsConfig {
-    pub fn from_env(config: &EnvVarConfig) -> RsSharedResult<Self> {
+    pub fn from_env(config: &EnvVarConfig) -> BpResult<Self> {
         Ok(Self {
             queue_url: config.sqs_queue_url()?,
         })
@@ -54,7 +51,7 @@ impl Sqs {
         sdk_config: &SdkConfig,
         timeouts: Timeouts,
         config: &EnvVarConfig,
-    ) -> RsSharedResult<Self> {
+    ) -> BpResult<Self> {
         Ok(Self::new(
             SqsClient::new(sdk_config),
             timeouts,
@@ -70,11 +67,7 @@ impl Sqs {
     /// further batches are attempted and the messages in them are reported as
     /// unsent. If any message could not be sent, the returned error names each
     /// message and the reason it failed.
-    pub async fn send_batch(
-        &self,
-        messages: &[SqsMessage],
-        deadline: Deadline,
-    ) -> RsSharedResult<()> {
+    pub async fn send_batch(&self, messages: &[SqsMessage], deadline: Deadline) -> BpResult<()> {
         let bodies = messages
             .iter()
             .map(serde_json::to_string)
@@ -109,7 +102,7 @@ impl Sqs {
         } else {
             SqsMetrics::record_messages_sent(messages.len() - failures.len());
             SqsMetrics::record_messages_failed(failures.len());
-            Err(RsSharedError::Sqs(RsSqsError::PartialBatch { failures }))
+            Err(BpError::SqsPartialBatch { failures })
         }
     }
 
@@ -132,7 +125,7 @@ impl Sqs {
         {
             Ok(entries) => entries,
             Err(error) => {
-                return Self::batch_failures(messages, indices, "BuildError", error.to_string());
+                return Self::batch_failures(messages, indices, "BpError", error.to_string());
             }
         };
         let result = tokio::time::timeout(
@@ -189,17 +182,17 @@ impl Sqs {
 
     /// Splits the serialized message bodies into batches that respect both the
     /// entry count and the total payload size limits.
-    fn batch_indices(bodies: &[String]) -> RsSharedResult<Vec<Vec<usize>>> {
+    fn batch_indices(bodies: &[String]) -> BpResult<Vec<Vec<usize>>> {
         let mut batches = Vec::new();
         let mut current = Vec::new();
         let mut current_bytes = 0;
         for (index, body) in bodies.iter().enumerate() {
             let size = body.len();
             if size > SQS_MAX_BATCH_BYTES {
-                return Err(RsSharedError::Sqs(RsSqsError::MessageTooLarge {
+                return Err(BpError::SqsMessageTooLarge {
                     size,
                     limit: SQS_MAX_BATCH_BYTES,
-                }));
+                });
             }
             if !current.is_empty()
                 && (current.len() == SQS_MAX_BATCH_ENTRIES

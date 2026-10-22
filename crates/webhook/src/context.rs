@@ -2,13 +2,12 @@ use crate::{
     aws::Aws,
     dedup::DeliveryDedup,
     dto::event_converter::{EventConverter, EventConverters},
-    error::{RsWebhookError, RsWebhookResult},
     infisical::secrets::Secrets,
 };
 use aws_config::SdkConfig;
+use buildplane_shared::errors::{BpError, BpResult};
 use buildplane_shared::{
-    deadline::Deadline, env_vars::EnvVarConfig, errors::retryability::Retryability,
-    metrics::secret::SecretMetrics, timeouts::Timeouts,
+    deadline::Deadline, env_vars::EnvVarConfig, metrics::secret::SecretMetrics, timeouts::Timeouts,
 };
 use std::{
     sync::{
@@ -46,7 +45,7 @@ pub struct RsWebhookContext {
 }
 
 impl RsWebhookContext {
-    pub async fn new(config: &EnvVarConfig) -> RsWebhookResult<Self> {
+    pub async fn new(config: &EnvVarConfig) -> BpResult<Self> {
         let aws_timeouts = Aws::load_timeouts(config)?;
         let sdk_config = Aws::load_sdk_config(aws_timeouts).await;
         let aws = Aws::from_env(&sdk_config, aws_timeouts, config)?;
@@ -77,7 +76,7 @@ impl RsWebhookContext {
             context.deadline_buffer,
         );
         if let Err(error) = context.converters(deadline).await {
-            if error.retryability() == Retryability::Permanent {
+            if !error.is_retryable() {
                 return Err(error);
             }
             tracing::warn!("failed to load secrets during initialisation: {error}");
@@ -96,7 +95,7 @@ impl RsWebhookContext {
     /// Returns the current converters, loading secrets on first use. Failed
     /// loads are throttled by a jittered backoff so a flood of unauthenticated
     /// webhooks cannot amplify into unbounded Infisical and STS traffic.
-    pub async fn converters(&self, deadline: Deadline) -> RsWebhookResult<Converters> {
+    pub async fn converters(&self, deadline: Deadline) -> BpResult<Converters> {
         if let Some(converters) = self.converters.read().await.clone() {
             return Ok(converters);
         }
@@ -109,16 +108,13 @@ impl RsWebhookContext {
     /// rate limiting them stops forged webhooks from amplifying into a stream
     /// of outbound auth calls; callers should fall back to the cached
     /// converters (and reject the request) when `None` is returned.
-    pub async fn refresh_converters(
-        &self,
-        deadline: Deadline,
-    ) -> RsWebhookResult<Option<Converters>> {
+    pub async fn refresh_converters(&self, deadline: Deadline) -> BpResult<Option<Converters>> {
         match self
             .load_converters(deadline, LoadReason::SignatureRefresh)
             .await
         {
             Ok(converters) => Ok(Some(converters)),
-            Err(RsWebhookError::RefreshThrottled) => Ok(None),
+            Err(BpError::RefreshThrottled) => Ok(None),
             Err(error) => Err(error),
         }
     }
@@ -127,7 +123,7 @@ impl RsWebhookContext {
         &self,
         deadline: Deadline,
         reason: LoadReason,
-    ) -> RsWebhookResult<Converters> {
+    ) -> BpResult<Converters> {
         let _guard = self.acquire_load_lock().await;
 
         if reason == LoadReason::CacheMiss {
@@ -135,12 +131,12 @@ impl RsWebhookContext {
                 return Ok(converters);
             }
         } else if self.refreshed_recently().await {
-            return Err(RsWebhookError::RefreshThrottled);
+            return Err(BpError::RefreshThrottled);
         }
 
         if let Some(retry_after) = self.remaining_backoff().await {
             SecretMetrics::record_secret_load_backoff_hit();
-            return Err(RsWebhookError::SecretsUnavailable { retry_after });
+            return Err(BpError::SecretsUnavailable { retry_after });
         }
 
         SecretMetrics::record_secret_load_attempt();
@@ -155,17 +151,17 @@ impl RsWebhookContext {
             Err(error) => {
                 SecretMetrics::record_secret_load_failure(error.error_type());
                 tracing::warn!("failed to load secrets: {error}");
-                if error.retryability() == Retryability::Permanent {
+                if !error.is_retryable() {
                     return Err(error);
                 }
                 let retry_after = self.jittered_backoff();
                 *self.backoff_until.lock().await = Some(Instant::now() + retry_after);
-                Err(RsWebhookError::SecretsUnavailable { retry_after })
+                Err(BpError::SecretsUnavailable { retry_after })
             }
         }
     }
 
-    async fn try_load(&self, deadline: Deadline) -> RsWebhookResult<Converters> {
+    async fn try_load(&self, deadline: Deadline) -> BpResult<Converters> {
         let secrets = Secrets::load(&self.sdk_config, self.timeouts, deadline, &self.env).await?;
         Ok(Arc::new(EventConverters::all(&secrets, &self.env)?))
     }

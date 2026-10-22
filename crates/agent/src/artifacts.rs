@@ -1,8 +1,5 @@
-use crate::{
-    error::{BaError, BaResult},
-    s3::SignedPost,
-    source::Source,
-};
+use crate::{s3::SignedPost, source::Source};
+use buildplane_shared::errors::{BpError, BpResult};
 use std::{
     fs as std_fs,
     io::{self, Cursor, Write},
@@ -40,8 +37,8 @@ impl Artifacts {
         source_get_url: String,
         source_dir: PathBuf,
         build_cache_dir: PathBuf,
-    ) -> BaResult<Self> {
-        let build_dir = tempfile::tempdir().map_err(BaError::CreateBuildDirectory)?;
+    ) -> BpResult<Self> {
+        let build_dir = tempfile::tempdir().map_err(BpError::BuildCreateBuildDirectory)?;
         Ok(Self {
             signed_post,
             source_get_url,
@@ -51,7 +48,7 @@ impl Artifacts {
         })
     }
 
-    pub async fn compile(&self) -> BaResult<PathBuf> {
+    pub async fn compile(&self) -> BpResult<PathBuf> {
         self.prepare_workspace()?;
         self.unpack_source().await?;
         let target_dir = self.prepare_target_dir().await?;
@@ -59,16 +56,16 @@ impl Artifacts {
         self.compile_wasm(&wasm).await
     }
 
-    fn prepare_workspace(&self) -> BaResult<()> {
+    fn prepare_workspace(&self) -> BpResult<()> {
         let workspace = self.build_dir.path();
         if !self.source_dir.join("Cargo.toml").is_file() {
-            return Err(BaError::Config(format!(
+            return Err(BpError::BuildConfig(format!(
                 "build workspace source {} does not contain Cargo.toml",
                 self.source_dir.display()
             )));
         }
 
-        std_fs::create_dir_all(workspace).map_err(|source| BaError::PrepareWorkspace {
+        std_fs::create_dir_all(workspace).map_err(|source| BpError::BuildPrepareWorkspace {
             path: workspace.to_path_buf(),
             source,
         })?;
@@ -79,17 +76,17 @@ impl Artifacts {
             }
             let to = workspace.join(entry);
             copy_path(&from, &to)
-                .map_err(|source| BaError::CopyWorkspaceEntry { path: from, source })?;
+                .map_err(|source| BpError::BuildCopyWorkspaceEntry { path: from, source })?;
         }
         Ok(())
     }
 
-    async fn unpack_source(&self) -> BaResult<()> {
+    async fn unpack_source(&self) -> BpResult<()> {
         let source = Source::download(&self.source_get_url).await?;
         source.extract(self.build_dir.path())
     }
 
-    async fn build_wasm(&self, target_dir: &Path) -> BaResult<PathBuf> {
+    async fn build_wasm(&self, target_dir: &Path) -> BpResult<PathBuf> {
         let workspace = self.build_dir.path();
         let manifest = workspace.join(WASM_MANIFEST);
         let module = target_dir
@@ -112,13 +109,13 @@ impl Artifacts {
             .kill_on_drop(true)
             .status()
             .await
-            .map_err(|source| BaError::CompileArtifact {
+            .map_err(|source| BpError::BuildCompileArtifact {
                 path: module.clone(),
                 source,
             })?;
 
         if !status.success() {
-            return Err(BaError::CompileArtifactFailed {
+            return Err(BpError::BuildCompileArtifactFailed {
                 path: module,
                 status,
             });
@@ -137,16 +134,16 @@ impl Artifacts {
     /// The prebuilt target directory baked into the image is copied into a
     /// fresh temporary directory every time, so cargo never sees artifacts
     /// produced by user code from an earlier invocation.
-    async fn prepare_target_dir(&self) -> BaResult<TempDir> {
+    async fn prepare_target_dir(&self) -> BpResult<TempDir> {
         let cache_root = self.build_cache_dir.clone();
-        std_fs::create_dir_all(&cache_root).map_err(|source| BaError::PrepareBuildCache {
+        std_fs::create_dir_all(&cache_root).map_err(|source| BpError::BuildPrepareBuildCache {
             path: cache_root.clone(),
             source,
         })?;
         let target_dir = tempfile::Builder::new()
             .prefix("buildplane-target-")
             .tempdir_in(&cache_root)
-            .map_err(|source| BaError::PrepareBuildCache {
+            .map_err(|source| BpError::BuildPrepareBuildCache {
                 path: cache_root,
                 source,
             })?;
@@ -158,9 +155,9 @@ impl Artifacts {
             tokio::task::spawn_blocking(move || copy_path(&from, &to))
                 .await
                 .map_err(|source| {
-                    BaError::Config(format!("failed to prepare build cache: {source}"))
+                    BpError::BuildConfig(format!("failed to prepare build cache: {source}"))
                 })?
-                .map_err(|source| BaError::CopyBuildCache {
+                .map_err(|source| BpError::BuildCopyBuildCache {
                     path: target_dir.path().to_path_buf(),
                     source,
                 })?;
@@ -169,7 +166,7 @@ impl Artifacts {
         Ok(target_dir)
     }
 
-    async fn compile_wasm(&self, module: &Path) -> BaResult<PathBuf> {
+    async fn compile_wasm(&self, module: &Path) -> BpResult<PathBuf> {
         let output = self.build_dir.path().join(CWASM_ARTIFACT_FILE);
         let status = Command::new(WASMTIME)
             .arg("compile")
@@ -181,13 +178,13 @@ impl Artifacts {
             .kill_on_drop(true)
             .status()
             .await
-            .map_err(|source| BaError::CompileArtifact {
+            .map_err(|source| BpError::BuildCompileArtifact {
                 path: module.to_path_buf(),
                 source,
             })?;
 
         if !status.success() {
-            return Err(BaError::CompileArtifactFailed {
+            return Err(BpError::BuildCompileArtifactFailed {
                 path: module.to_path_buf(),
                 status,
             });
@@ -196,18 +193,18 @@ impl Artifacts {
         Ok(output)
     }
 
-    pub async fn publish(&self, cwasm: &Path) -> BaResult<()> {
+    pub async fn publish(&self, cwasm: &Path) -> BpResult<()> {
         self.signed_post.upload(cwasm).await?;
         let root = self.build_dir.path().join(USER_GENERATED_DIR);
         let files = Self::user_generated_files(&root).await?;
         let archive = Self::source_archive(&root, &files)?;
         let archive_path = self.build_dir.path().join(USER_GENERATED_ARCHIVE);
-        fs::write(&archive_path, archive)
-            .await
-            .map_err(|source| BaError::WriteSourceArchive {
+        fs::write(&archive_path, archive).await.map_err(|source| {
+            BpError::BuildWriteSourceArchive {
                 path: archive_path.clone(),
                 source,
-            })?;
+            }
+        })?;
         self.signed_post
             .upload_named(&archive_path, Path::new(USER_GENERATED_ARCHIVE))
             .await?;
@@ -215,12 +212,12 @@ impl Artifacts {
         Ok(())
     }
 
-    fn source_archive(root: &Path, files: &[PathBuf]) -> BaResult<Vec<u8>> {
+    fn source_archive(root: &Path, files: &[PathBuf]) -> BpResult<Vec<u8>> {
         let mut archive = ZipWriter::new(Cursor::new(Vec::new()));
         let options = SimpleFileOptions::default().compression_method(CompressionMethod::Deflated);
         for file in files {
             let relative = file.strip_prefix(root).map_err(|_| {
-                BaError::Config(format!(
+                BpError::BuildConfig(format!(
                     "artifact path {} is outside {USER_GENERATED_DIR}",
                     file.display()
                 ))
@@ -228,7 +225,7 @@ impl Artifacts {
             let name = relative
                 .to_str()
                 .ok_or_else(|| {
-                    BaError::Config(format!(
+                    BpError::BuildConfig(format!(
                         "artifact path {} is not valid UTF-8",
                         file.display()
                     ))
@@ -236,29 +233,29 @@ impl Artifacts {
                 .replace('\\', "/");
             archive
                 .start_file(name, options)
-                .map_err(BaError::CreateSourceArchive)?;
-            let contents = std_fs::read(file).map_err(|source| BaError::ReadArtifact {
+                .map_err(BpError::BuildCreateSourceArchive)?;
+            let contents = std_fs::read(file).map_err(|source| BpError::BuildReadArtifact {
                 path: file.clone(),
                 source,
             })?;
             archive
                 .write_all(&contents)
-                .map_err(|source| BaError::WriteSourceArchive {
+                .map_err(|source| BpError::BuildWriteSourceArchive {
                     path: file.clone(),
                     source,
                 })?;
         }
         Ok(archive
             .finish()
-            .map_err(BaError::CreateSourceArchive)?
+            .map_err(BpError::BuildCreateSourceArchive)?
             .into_inner())
     }
 
-    async fn user_generated_files(root: &Path) -> BaResult<Vec<PathBuf>> {
+    async fn user_generated_files(root: &Path) -> BpResult<Vec<PathBuf>> {
         let root =
             fs::canonicalize(root)
                 .await
-                .map_err(|source| BaError::ReadArtifactDirectory {
+                .map_err(|source| BpError::BuildReadArtifactDirectory {
                     path: root.to_path_buf(),
                     source,
                 })?;
@@ -266,38 +263,33 @@ impl Artifacts {
         let mut pending = vec![root.clone()];
         while let Some(directory) = pending.pop() {
             let mut entries = fs::read_dir(&directory).await.map_err(|source| {
-                BaError::ReadArtifactDirectory {
+                BpError::BuildReadArtifactDirectory {
                     path: directory.clone(),
                     source,
                 }
             })?;
-            while let Some(entry) =
-                entries
-                    .next_entry()
-                    .await
-                    .map_err(|source| BaError::ReadArtifactDirectory {
+            while let Some(entry) = entries.next_entry().await.map_err(|source| {
+                BpError::BuildReadArtifactDirectory {
+                    path: directory.clone(),
+                    source,
+                }
+            })? {
+                let path = entry.path();
+                let file_type = entry.file_type().await.map_err(|source| {
+                    BpError::BuildReadArtifactDirectory {
                         path: directory.clone(),
                         source,
-                    })?
-            {
-                let path = entry.path();
-                let file_type =
-                    entry
-                        .file_type()
-                        .await
-                        .map_err(|source| BaError::ReadArtifactDirectory {
-                            path: directory.clone(),
-                            source,
-                        })?;
+                    }
+                })?;
                 let resolved =
                     fs::canonicalize(&path)
                         .await
-                        .map_err(|source| BaError::ReadArtifact {
+                        .map_err(|source| BpError::BuildReadArtifact {
                             path: path.clone(),
                             source,
                         })?;
                 if !resolved.starts_with(&root) {
-                    return Err(BaError::Config(format!(
+                    return Err(BpError::BuildConfig(format!(
                         "artifact path {} resolves outside {USER_GENERATED_DIR}",
                         path.display()
                     )));
@@ -306,13 +298,13 @@ impl Artifacts {
                 let target =
                     fs::metadata(&resolved)
                         .await
-                        .map_err(|source| BaError::ReadArtifact {
+                        .map_err(|source| BpError::BuildReadArtifact {
                             path: path.clone(),
                             source,
                         })?;
                 if target.is_dir() {
                     if file_type.is_symlink() {
-                        return Err(BaError::Config(format!(
+                        return Err(BpError::BuildConfig(format!(
                             "artifact path {} is a symlinked directory",
                             path.display()
                         )));
@@ -321,7 +313,7 @@ impl Artifacts {
                 } else if target.is_file() {
                     files.push(path);
                 } else {
-                    return Err(BaError::Config(format!(
+                    return Err(BpError::BuildConfig(format!(
                         "artifact path {} is not a regular file or directory",
                         path.display()
                     )));

@@ -1,4 +1,4 @@
-use crate::{TBError, TBResult};
+use crate::{BpError, BpResult};
 use rust_decimal::{Decimal, RoundingStrategy, prelude::FromPrimitive};
 
 #[derive(Debug, Clone, Copy)]
@@ -27,30 +27,30 @@ impl TradingPrecision {
         self,
         base: f64,
         strategy: RoundingStrategy,
-    ) -> TBResult<Decimal> {
+    ) -> BpResult<Decimal> {
         Self::to_valid_decimal(base, self.base_limit, strategy)
     }
     pub(crate) fn to_valid_base_market(
         self,
         base: f64,
         strategy: RoundingStrategy,
-    ) -> TBResult<Decimal> {
+    ) -> BpResult<Decimal> {
         Self::to_valid_decimal(base, self.base_market, strategy)
     }
     pub(crate) fn to_valid_quote(
         self,
         quote: f64,
         strategy: RoundingStrategy,
-    ) -> TBResult<Decimal> {
+    ) -> BpResult<Decimal> {
         Self::to_valid_decimal(quote, self.quote, strategy)
     }
     fn to_valid_decimal(
         value: f64,
         min_max_step: MinMaxStep,
         strategy: RoundingStrategy,
-    ) -> TBResult<Decimal> {
+    ) -> BpResult<Decimal> {
         let MinMaxStep { min, max, step } = min_max_step;
-        let value_as_decimal = Decimal::from_f64(value).ok_or_else(|| TBError::InvalidValue {
+        let value_as_decimal = Decimal::from_f64(value).ok_or_else(|| BpError::InvalidValue {
             name: "Trading value".into(),
             value: value.to_string(),
         })?;
@@ -81,7 +81,7 @@ mod tests {
     fn non_finite_values_return_an_error() {
         for value in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
             let result = precision().to_valid_quote(value, RoundingStrategy::MidpointNearestEven);
-            assert!(matches!(result, Err(TBError::InvalidValue { .. })));
+            assert!(matches!(result, Err(BpError::InvalidValue { .. })));
         }
     }
 

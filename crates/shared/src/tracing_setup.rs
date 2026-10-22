@@ -1,20 +1,16 @@
 use crate::{
     env_vars::EnvVarConfig,
-    errors::{
-        config::RsConfigError,
-        error::{RsSharedError, RsSharedResult},
-    },
+    errors::{BpError, BpResult},
 };
 use tracing_subscriber::{EnvFilter, fmt::Subscriber};
 
 pub struct TracingSetup;
 
 impl TracingSetup {
-    pub fn setup(config: &EnvVarConfig) -> RsSharedResult<()> {
+    pub fn setup(config: &EnvVarConfig) -> BpResult<()> {
         let filter = match config.log_filter()? {
-            Some(directives) => EnvFilter::try_new(&directives).map_err(|error| {
-                RsSharedError::Config(RsConfigError::invalid_source(EnvFilter::DEFAULT_ENV, error))
-            })?,
+            Some(directives) => EnvFilter::try_new(&directives)
+                .map_err(|error| BpError::config_invalid_source(EnvFilter::DEFAULT_ENV, error))?,
             None => EnvFilter::new("info"),
         };
         let subscriber = Subscriber::builder()

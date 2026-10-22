@@ -1,9 +1,9 @@
 use crate::{
     constants::{PARQUET_SUFFIX, common_trading_pairs},
-    error::{MduError, MduResult},
     s3::ObjectKey,
 };
 use buildplane_exchange_types::urls::TradingMode;
+use buildplane_shared::errors::{BpError, BpResult};
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Deserializer, Serialize, de};
 use serde_json::{Map, Value};
@@ -49,13 +49,13 @@ impl Job {
     ///
     /// A payload without an explicit mode is rejected rather than defaulting to
     /// a scheduled update.
-    pub fn from_value(value: Value) -> MduResult<Self> {
+    pub fn from_value(value: Value) -> BpResult<Self> {
         let job = Self::parse_value(value)?;
         job.validate()?;
         Ok(job)
     }
 
-    fn parse_value(value: Value) -> MduResult<Self> {
+    fn parse_value(value: Value) -> BpResult<Self> {
         match value {
             Value::String(mode) => Self::from_mode(&mode, Map::new()),
             Value::Object(mut object) => {
@@ -63,12 +63,12 @@ impl Job {
                     .into_iter()
                     .filter(|key| object.contains_key(*key));
                 let Some(tag_key) = tag_keys.next() else {
-                    return Err(MduError::InvalidJob {
+                    return Err(BpError::InvalidJob {
                         message: "job payload must include one of mode, job, or action".to_string(),
                     });
                 };
                 if tag_keys.next().is_some() {
-                    return Err(MduError::InvalidJob {
+                    return Err(BpError::InvalidJob {
                         message: "job payload must include only one of mode, job, or action"
                             .to_string(),
                     });
@@ -78,7 +78,7 @@ impl Job {
                     Value::String(mode) => Self::from_mode(&mode, object),
                     Value::Object(nested) => {
                         if nested.len() != 1 {
-                            return Err(MduError::InvalidJob {
+                            return Err(BpError::InvalidJob {
                                 message: "a nested job mode must contain exactly one entry"
                                     .to_string(),
                             });
@@ -90,19 +90,19 @@ impl Job {
                                 Self::from_mode(&mode, object)
                             }
                             Value::Null => Self::from_mode(&mode, object),
-                            _ => Err(MduError::InvalidJob {
+                            _ => Err(BpError::InvalidJob {
                                 message: format!(
                                     "nested mode {mode} must contain an object payload"
                                 ),
                             }),
                         }
                     }
-                    other => Err(MduError::InvalidJob {
+                    other => Err(BpError::InvalidJob {
                         message: format!("job mode must be a string, got {other}"),
                     }),
                 }
             }
-            other => Err(MduError::InvalidJob {
+            other => Err(BpError::InvalidJob {
                 message: format!("job payload must be an object, got {other}"),
             }),
         }
@@ -117,7 +117,7 @@ impl Job {
     }
 
     /// Validate the job before any S3 or exchange work starts.
-    pub fn validate(&self) -> MduResult<()> {
+    pub fn validate(&self) -> BpResult<()> {
         match self {
             Self::Update => Ok(()),
             Self::Backfill(backfill) => backfill.validate(),
@@ -125,14 +125,14 @@ impl Job {
         }
     }
 
-    fn from_mode(mode: &str, object: Map<String, Value>) -> MduResult<Self> {
+    fn from_mode(mode: &str, object: Map<String, Value>) -> BpResult<Self> {
         let mode = mode.trim().to_ascii_lowercase().replace('-', "_");
         match mode.as_str() {
             "update" | "scheduled" | "scheduled_update" | "update_all" => {
                 if object.is_empty() {
                     Ok(Self::Update)
                 } else {
-                    Err(MduError::InvalidJob {
+                    Err(BpError::InvalidJob {
                         message: format!(
                             "update job does not accept fields: {}",
                             object.keys().cloned().collect::<Vec<_>>().join(", ")
@@ -142,15 +142,15 @@ impl Job {
             }
             "backfill" => serde_json::from_value(Value::Object(object))
                 .map(Self::Backfill)
-                .map_err(|error| MduError::InvalidJob {
+                .map_err(|error| BpError::InvalidJob {
                     message: format!("invalid backfill job: {error}"),
                 }),
             "compact" => serde_json::from_value(Value::Object(object))
                 .map(Self::Compact)
-                .map_err(|error| MduError::InvalidJob {
+                .map_err(|error| BpError::InvalidJob {
                     message: format!("invalid compact job: {error}"),
                 }),
-            other => Err(MduError::InvalidJob {
+            other => Err(BpError::InvalidJob {
                 message: format!("unknown job mode {other}; expected update, backfill, or compact"),
             }),
         }
@@ -190,9 +190,9 @@ impl BackfillJob {
         }
     }
 
-    pub fn validate(&self) -> MduResult<()> {
+    pub fn validate(&self) -> BpResult<()> {
         if self.start >= self.end {
-            return Err(MduError::InvalidBackfillRange {
+            return Err(BpError::InvalidBackfillRange {
                 start: self.start,
                 end: self.end,
             });
@@ -200,7 +200,7 @@ impl BackfillJob {
         self.pair.resolve().map(|_| ())
     }
 
-    pub fn resolve(&self) -> MduResult<ResolvedTradingPair> {
+    pub fn resolve(&self) -> BpResult<ResolvedTradingPair> {
         self.pair.resolve()
     }
 }
@@ -221,21 +221,19 @@ impl CompactJob {
     }
 
     /// Normalize the target into the prefix expected by the compactor.
-    pub fn prefix(&self) -> MduResult<ObjectKey> {
+    pub fn prefix(&self) -> BpResult<ObjectKey> {
         let target = self.target.trim();
         if target.is_empty() {
-            return Err(MduError::InvalidJob {
+            return Err(BpError::InvalidJob {
                 message: "compact target cannot be empty".to_string(),
             });
         }
         let prefix = if target.ends_with('/') {
             target.to_string()
         } else if target.ends_with(PARQUET_SUFFIX) {
-            let (prefix, _) = target
-                .rsplit_once('/')
-                .ok_or_else(|| MduError::InvalidJob {
-                    message: format!("compact file target {target} has no parent prefix"),
-                })?;
+            let (prefix, _) = target.rsplit_once('/').ok_or_else(|| BpError::InvalidJob {
+                message: format!("compact file target {target} has no parent prefix"),
+            })?;
             format!("{prefix}/")
         } else {
             format!("{target}/")
@@ -260,10 +258,10 @@ impl TradingPairPath {
         &self.0
     }
 
-    pub fn resolve(&self) -> MduResult<ResolvedTradingPair> {
+    pub fn resolve(&self) -> BpResult<ResolvedTradingPair> {
         let normalized = self.0.trim().trim_matches('/').replace([':', '\\'], "/");
         if normalized.is_empty() {
-            return Err(MduError::InvalidTradingPairPath {
+            return Err(BpError::InvalidTradingPairPath {
                 pair: self.0.clone(),
             });
         }
@@ -282,7 +280,7 @@ impl TradingPairPath {
                 }
             }
         }
-        Err(MduError::UnsupportedTradingPair {
+        Err(BpError::UnsupportedTradingPair {
             pair: self.0.clone(),
         })
     }

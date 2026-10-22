@@ -1,25 +1,23 @@
 use crate::{
-    dto::github::github_event_converter::GitHubEventConverter, error::RsWebhookResult,
-    event_response::EventResponse, infisical::secrets::Secrets,
+    dto::github::github_event_converter::GitHubEventConverter, event_response::EventResponse,
+    infisical::secrets::Secrets,
 };
 use buildplane_shared::env_vars::EnvVarConfig;
+use buildplane_shared::errors::BpResult;
 use lambda_http::Request;
 
 pub trait EventConverter: Send + Sync {
-    fn new(secrets: &Secrets, config: &EnvVarConfig) -> RsWebhookResult<Self>
+    fn new(secrets: &Secrets, config: &EnvVarConfig) -> BpResult<Self>
     where
         Self: Sized;
 
-    fn event_response(&self, event: &Request) -> RsWebhookResult<EventResponse>;
+    fn event_response(&self, event: &Request) -> BpResult<EventResponse>;
 }
 
 pub struct EventConverters;
 
 impl EventConverters {
-    pub fn all(
-        secrets: &Secrets,
-        config: &EnvVarConfig,
-    ) -> RsWebhookResult<Vec<Box<dyn EventConverter>>> {
+    pub fn all(secrets: &Secrets, config: &EnvVarConfig) -> BpResult<Vec<Box<dyn EventConverter>>> {
         Ok(vec![Box::new(GitHubEventConverter::new(secrets, config)?)])
     }
 }

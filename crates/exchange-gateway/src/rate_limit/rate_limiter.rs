@@ -1,11 +1,9 @@
-use crate::{
-    error::{EGError, EGResult},
-    rate_limit::rate_limiter_state::RateLimiterState,
-};
+use crate::rate_limit::rate_limiter_state::RateLimiterState;
 use buildplane_exchange_types::{
     new_types::{Nanoseconds, UsageCount},
     rate_limited::RateUsage,
 };
+use buildplane_shared::errors::{BpError, BpResult};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -23,18 +21,18 @@ impl RateLimiter {
             rate_limiters: Arc::new(Mutex::new(states.to_vec())),
         }
     }
-    pub fn did_acquire(&self, cost: UsageCount) -> EGResult<()> {
+    pub fn did_acquire(&self, cost: UsageCount) -> BpResult<()> {
         let mut limiters_guard = self
             .rate_limiters
             .lock()
-            .map_err(|_| EGError::MutexPoisoned)?;
+            .map_err(|_| BpError::PoisonedLock)?;
         let lowest_exceeded_limit = limiters_guard
             .iter()
             .filter(|limiter| limiter.cost_exceeds_capacity(cost))
             .min_by_key(|limiter| limiter.capacity_per_interval())
             .map(|limiter| (limiter.capacity_per_interval(), limiter.interval_nanos()));
         if let Some((capacity, interval_nanos)) = lowest_exceeded_limit {
-            return Err(EGError::RequestExceedsRateLimit {
+            return Err(BpError::RequestExceedsRateLimit {
                 cost,
                 capacity,
                 interval_nanos,
@@ -51,31 +49,31 @@ impl RateLimiter {
         }
         Ok(())
     }
-    pub fn remaining_capacity(&self) -> EGResult<HashMap<Nanoseconds, UsageCount>> {
+    pub fn remaining_capacity(&self) -> BpResult<HashMap<Nanoseconds, UsageCount>> {
         let mut limiters_guard = self
             .rate_limiters
             .lock()
-            .map_err(|_| EGError::MutexPoisoned)?;
+            .map_err(|_| BpError::PoisonedLock)?;
         Ok(limiters_guard
             .iter_mut()
             .map(|limiter| (limiter.interval_nanos(), limiter.remaining_capacity()))
             .collect())
     }
-    pub fn refund(&self, cost: UsageCount) -> EGResult<()> {
+    pub fn refund(&self, cost: UsageCount) -> BpResult<()> {
         let mut limiters_guard = self
             .rate_limiters
             .lock()
-            .map_err(|_| EGError::MutexPoisoned)?;
+            .map_err(|_| BpError::PoisonedLock)?;
         for limiter in limiters_guard.iter_mut() {
             limiter.refund(cost);
         }
         Ok(())
     }
-    pub fn set_usage(&self, interval_usage: &HashMap<Nanoseconds, RateUsage>) -> EGResult<()> {
+    pub fn set_usage(&self, interval_usage: &HashMap<Nanoseconds, RateUsage>) -> BpResult<()> {
         let mut limiters_guard = self
             .rate_limiters
             .lock()
-            .map_err(|_| EGError::MutexPoisoned)?;
+            .map_err(|_| BpError::PoisonedLock)?;
         for (interval_nanos, rate_usage) in interval_usage {
             let mut matched_existing = false;
             for limiter in limiters_guard.iter_mut() {
@@ -97,18 +95,18 @@ impl RateLimiter {
         }
         Ok(())
     }
-    pub fn is_throttled(&self) -> EGResult<bool> {
+    pub fn is_throttled(&self) -> BpResult<bool> {
         let limiters_guard = self
             .rate_limiters
             .lock()
-            .map_err(|_| EGError::MutexPoisoned)?;
+            .map_err(|_| BpError::PoisonedLock)?;
         Ok(limiters_guard.iter().any(RateLimiterState::is_throttled))
     }
-    pub fn throttle(&self, retry_after: Duration) -> EGResult<()> {
+    pub fn throttle(&self, retry_after: Duration) -> BpResult<()> {
         let mut limiters_guard = self
             .rate_limiters
             .lock()
-            .map_err(|_| EGError::MutexPoisoned)?;
+            .map_err(|_| BpError::PoisonedLock)?;
         for limiter in limiters_guard.iter_mut() {
             limiter.throttle_after(retry_after);
         }

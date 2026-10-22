@@ -1,7 +1,6 @@
 use crate::{
     clients::client::{HttpClient, WebsocketClient},
     connector::Connector,
-    error::{EGError, EGResult},
     panic_guard::PanicUtils,
     submission::Submission,
 };
@@ -11,6 +10,7 @@ use buildplane_exchange_types::{
     rate_limited::RateLimit,
     request::{ETHttpRequest, ETWebsocketRequest},
 };
+use buildplane_shared::errors::{BpError, BpResult};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -19,7 +19,7 @@ use std::{
 use tokio::{sync::mpsc::UnboundedSender, task::JoinHandle};
 use tracing::{debug, warn};
 
-type ClockSyncFailureCallback = Arc<dyn Fn(&EGError) + Send + Sync>;
+type ClockSyncFailureCallback = Arc<dyn Fn(&BpError) + Send + Sync>;
 type SharedClockSyncFailureCallback = Arc<Mutex<Option<ClockSyncFailureCallback>>>;
 
 pub struct AutoResyncConnector<Exchange, Client> {
@@ -41,13 +41,13 @@ enum ClockSyncCommand {
 impl<Exchange, Client> AutoResyncConnector<Exchange, Client> {
     async fn clock_sync_loop<F, Fut>(
         frequency: Duration,
-        first_sync_sender: tokio::sync::oneshot::Sender<EGResult<()>>,
+        first_sync_sender: tokio::sync::oneshot::Sender<BpResult<()>>,
         receiver: tokio::sync::mpsc::UnboundedReceiver<ClockSyncCommand>,
         failure_callback: SharedClockSyncFailureCallback,
         sync_clock_fn: F,
     ) where
         F: Fn() -> Fut + Send + 'static,
-        Fut: Future<Output = EGResult<()>> + Send + 'static,
+        Fut: Future<Output = BpResult<()>> + Send + 'static,
     {
         let panic_callback = failure_callback.clone();
         let result = PanicUtils::catch_panic_async(Self::clock_sync_loop_inner(
@@ -60,20 +60,20 @@ impl<Exchange, Client> AutoResyncConnector<Exchange, Client> {
         .await;
         if let Err(payload) = result {
             // Surface the panic before letting it propagate so the task never dies silently.
-            Self::report_failure(&panic_callback, &EGError::AutoResyncClockPanicked);
+            Self::report_failure(&panic_callback, &BpError::AutoResyncClockPanicked);
             std::panic::resume_unwind(payload);
         }
     }
 
     async fn clock_sync_loop_inner<F, Fut>(
         mut frequency: Duration,
-        first_sync_sender: tokio::sync::oneshot::Sender<EGResult<()>>,
+        first_sync_sender: tokio::sync::oneshot::Sender<BpResult<()>>,
         mut receiver: tokio::sync::mpsc::UnboundedReceiver<ClockSyncCommand>,
         failure_callback: SharedClockSyncFailureCallback,
         sync_clock_fn: F,
     ) where
         F: Fn() -> Fut + Send + 'static,
-        Fut: Future<Output = EGResult<()>> + Send + 'static,
+        Fut: Future<Output = BpResult<()>> + Send + 'static,
     {
         let first_sync_result = sync_clock_fn().await;
         if let Err(Err(error)) = first_sync_sender.send(first_sync_result) {
@@ -99,7 +99,7 @@ impl<Exchange, Client> AutoResyncConnector<Exchange, Client> {
         }
     }
 
-    fn report_failure(failure_callback: &SharedClockSyncFailureCallback, error: &EGError) {
+    fn report_failure(failure_callback: &SharedClockSyncFailureCallback, error: &BpError) {
         warn!(error = %error, "auto-resync clock sync failed");
         let callback = match failure_callback.lock() {
             Ok(callback) => callback.clone(),
@@ -124,18 +124,18 @@ where
             failure_callback: Arc::new(Mutex::new(None)),
         }
     }
-    pub fn duration_since_last_sync(&self) -> EGResult<Option<Duration>> {
+    pub fn duration_since_last_sync(&self) -> BpResult<Option<Duration>> {
         self.connector.duration_since_last_sync()
     }
-    pub fn remaining_rate_limit_capacity(&self) -> EGResult<HashMap<RateLimit, UsageCount>> {
+    pub fn remaining_rate_limit_capacity(&self) -> BpResult<HashMap<RateLimit, UsageCount>> {
         self.connector.remaining_rate_limit_capacity()
     }
-    pub fn server_time_estimate(&self) -> EGResult<Milliseconds> {
+    pub fn server_time_estimate(&self) -> BpResult<Milliseconds> {
         self.connector.server_time_estimate()
     }
     pub fn on_clock_sync_failure<F>(&self, callback: F)
     where
-        F: Fn(&EGError) + Send + Sync + 'static,
+        F: Fn(&BpError) + Send + Sync + 'static,
     {
         let mut guard = match self.failure_callback.lock() {
             Ok(guard) => guard,
@@ -143,11 +143,11 @@ where
         };
         *guard = Some(Arc::new(callback));
     }
-    pub async fn stop_clock_sync(&self) -> EGResult<()> {
+    pub async fn stop_clock_sync(&self) -> BpResult<()> {
         let handle = self
             .resync_handle
             .lock()
-            .map_err(|_| EGError::MutexPoisoned)?
+            .map_err(|_| BpError::PoisonedLock)?
             .take();
         let Some(handle) = handle else { return Ok(()) };
         debug!("stopping auto-resync clock sync");
@@ -155,7 +155,7 @@ where
         drop(handle.sender); // let the loop drain
         match handle.join.await {
             Ok(()) => Ok(()),
-            Err(e) if e.is_panic() => Err(EGError::AutoResyncClockPanicked),
+            Err(e) if e.is_panic() => Err(BpError::AutoResyncClockPanicked),
             Err(_) => Ok(()),
         }
     }
@@ -163,20 +163,20 @@ where
         &self,
         frequency: Duration,
         sync_clock_fn: F,
-    ) -> EGResult<()>
+    ) -> BpResult<()>
     where
         F: Fn() -> Fut + Send + 'static,
-        Fut: Future<Output = EGResult<()>> + Send + 'static,
+        Fut: Future<Output = BpResult<()>> + Send + 'static,
     {
         if frequency < Duration::from_mins(1) {
-            return Err(EGError::InvalidSyncFrequency);
+            return Err(BpError::InvalidSyncFrequency);
         }
         let (first_sync_sender, first_sync_receiver) = tokio::sync::oneshot::channel();
         {
             let mut resync_handle = self
                 .resync_handle
                 .lock()
-                .map_err(|_| EGError::MutexPoisoned)?;
+                .map_err(|_| BpError::PoisonedLock)?;
             if let Some(handle) = resync_handle.as_ref() {
                 if handle.join.is_finished()
                     || handle
@@ -185,7 +185,7 @@ where
                         .is_err()
                 {
                     *resync_handle = None;
-                    return Err(EGError::AutoResyncClockStopped);
+                    return Err(BpError::AutoResyncClockStopped);
                 }
                 debug!(?frequency, "updating auto-resync clock sync frequency");
                 return Ok(());
@@ -203,7 +203,7 @@ where
         }
         match first_sync_receiver.await {
             Ok(result) => result,
-            Err(_) => Err(EGError::AutoResyncClockPanicked),
+            Err(_) => Err(BpError::AutoResyncClockPanicked),
         }
     }
 }
@@ -226,10 +226,10 @@ where
     Exchange: ETExchange,
     Client: HttpClient,
 {
-    pub async fn sync_clock_http(&self) -> EGResult<()> {
+    pub async fn sync_clock_http(&self) -> BpResult<()> {
         self.connector.sync_clock_http().await
     }
-    pub async fn set_clock_sync_frequency_http(&self, frequency: Duration) -> EGResult<()>
+    pub async fn set_clock_sync_frequency_http(&self, frequency: Duration) -> BpResult<()>
     where
         Exchange: Send + Sync + 'static,
         Exchange::ServerTimeRequestHttp: Send,
@@ -245,7 +245,7 @@ where
     pub fn submit_http<'connector, Request>(
         &'connector self,
         request: Request,
-    ) -> EGResult<Submission<'connector, Request, Request::Response, Request::VerificationRequest>>
+    ) -> BpResult<Submission<'connector, Request, Request::Response, Request::VerificationRequest>>
     where
         Request: ETHttpRequest<Exchange = Exchange> + Send + 'connector,
         Exchange: Sync,
@@ -260,19 +260,19 @@ where
     Exchange: ETExchange,
     Client: WebsocketClient,
 {
-    pub async fn connect(&self) -> EGResult<()> {
+    pub async fn connect(&self) -> BpResult<()> {
         self.connector.connect().await
     }
-    pub fn is_connected(&self) -> EGResult<bool> {
+    pub fn is_connected(&self) -> BpResult<bool> {
         self.connector.is_connected()
     }
-    pub async fn disconnect(&self) -> EGResult<()> {
+    pub async fn disconnect(&self) -> BpResult<()> {
         self.connector.disconnect().await
     }
-    pub async fn sync_clock_websocket(&self) -> EGResult<()> {
+    pub async fn sync_clock_websocket(&self) -> BpResult<()> {
         self.connector.sync_clock_websocket().await
     }
-    pub async fn set_clock_sync_frequency_websocket(&self, frequency: Duration) -> EGResult<()>
+    pub async fn set_clock_sync_frequency_websocket(&self, frequency: Duration) -> BpResult<()>
     where
         Exchange: Send + Sync + 'static,
         Exchange::ServerTimeRequestWebsocket: Send,
@@ -288,7 +288,7 @@ where
     pub fn submit_websocket<'connector, Request>(
         &'connector self,
         request: Request,
-    ) -> EGResult<Submission<'connector, Request, Request::Response, Request::VerificationRequest>>
+    ) -> BpResult<Submission<'connector, Request, Request::Response, Request::VerificationRequest>>
     where
         Request: ETWebsocketRequest<Exchange = Exchange> + Send + 'connector,
         Exchange: Sync,
@@ -314,7 +314,7 @@ mod tests {
     fn sync_counter(
         counter: Arc<AtomicUsize>,
         notify: UnboundedSender<()>,
-    ) -> impl Fn() -> std::future::Ready<EGResult<()>> {
+    ) -> impl Fn() -> std::future::Ready<BpResult<()>> {
         move || {
             counter.fetch_add(1, Ordering::SeqCst);
             let _ = notify.send(());
@@ -390,7 +390,7 @@ mod tests {
         let (_command_sender, command_receiver) = unbounded_channel();
         let (failure_sender, mut failure_receiver) = unbounded_channel();
         let failure_callback: SharedClockSyncFailureCallback =
-            Arc::new(Mutex::new(Some(Arc::new(move |error: &EGError| {
+            Arc::new(Mutex::new(Some(Arc::new(move |error: &BpError| {
                 let _ = failure_sender.send(error.to_string());
             }))));
         let (first_sync_sender, first_sync_receiver) = tokio::sync::oneshot::channel();
@@ -399,17 +399,17 @@ mod tests {
             first_sync_sender,
             command_receiver,
             failure_callback,
-            || std::future::ready(Err(EGError::NotConnected)),
+            || std::future::ready(Err(BpError::NotConnected)),
         ));
 
         let first_sync_result = first_sync_receiver.await.unwrap();
-        assert!(matches!(first_sync_result, Err(EGError::NotConnected)));
+        assert!(matches!(first_sync_result, Err(BpError::NotConnected)));
         assert!(failure_receiver.try_recv().is_err());
 
         tokio::time::advance(Duration::from_mins(30)).await;
         assert_eq!(
             failure_receiver.recv().await.unwrap(),
-            EGError::NotConnected.to_string()
+            BpError::NotConnected.to_string()
         );
 
         join.abort();
@@ -420,7 +420,7 @@ mod tests {
         let (_command_sender, command_receiver) = unbounded_channel();
         let (failure_sender, mut failure_receiver) = unbounded_channel();
         let failure_callback: SharedClockSyncFailureCallback =
-            Arc::new(Mutex::new(Some(Arc::new(move |error: &EGError| {
+            Arc::new(Mutex::new(Some(Arc::new(move |error: &BpError| {
                 let _ = failure_sender.send(error.to_string());
             }))));
         let (first_sync_sender, first_sync_receiver) = tokio::sync::oneshot::channel();
@@ -430,12 +430,12 @@ mod tests {
             first_sync_sender,
             command_receiver,
             failure_callback,
-            || std::future::ready(Err(EGError::NotConnected)),
+            || std::future::ready(Err(BpError::NotConnected)),
         ));
 
         assert_eq!(
             failure_receiver.recv().await.unwrap(),
-            EGError::NotConnected.to_string()
+            BpError::NotConnected.to_string()
         );
 
         join.abort();
@@ -446,7 +446,7 @@ mod tests {
         let (_command_sender, command_receiver) = unbounded_channel();
         let (failure_sender, mut failure_receiver) = unbounded_channel();
         let failure_callback: SharedClockSyncFailureCallback =
-            Arc::new(Mutex::new(Some(Arc::new(move |error: &EGError| {
+            Arc::new(Mutex::new(Some(Arc::new(move |error: &BpError| {
                 let _ = failure_sender.send(error.to_string());
             }))));
         let (first_sync_sender, first_sync_receiver) = tokio::sync::oneshot::channel();
@@ -455,12 +455,12 @@ mod tests {
             first_sync_sender,
             command_receiver,
             failure_callback,
-            || -> std::future::Ready<EGResult<()>> { panic!("sync clock panicked") },
+            || -> std::future::Ready<BpResult<()>> { panic!("sync clock panicked") },
         ));
 
         assert_eq!(
             failure_receiver.recv().await.unwrap(),
-            EGError::AutoResyncClockPanicked.to_string()
+            BpError::AutoResyncClockPanicked.to_string()
         );
         assert!(first_sync_receiver.await.is_err());
         assert!(join.await.unwrap_err().is_panic());

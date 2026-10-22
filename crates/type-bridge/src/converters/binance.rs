@@ -1,5 +1,5 @@
 use crate::{
-    Converter, MinMaxStep, TBError, TBExchangeInfo, TBResult, TickerMapping, TradingPrecision,
+    BpError, BpResult, Converter, MinMaxStep, TBExchangeInfo, TickerMapping, TradingPrecision,
     asset_limits::TBAssetLimits,
 };
 use bimap::BiHashMap;
@@ -64,19 +64,19 @@ impl Converter for BinanceConverter {
     fn ticker_mapping(&self) -> &TickerMapping {
         &self.ticker_mapping
     }
-    fn set_trading_precision(&self, trading_precision: TradingPrecision) -> TBResult<()> {
+    fn set_trading_precision(&self, trading_precision: TradingPrecision) -> BpResult<()> {
         self.trading_precision
             .set(trading_precision)
-            .map_err(|_| TBError::PoisonedLock)
+            .map_err(|_| BpError::PoisonedLock)
     }
     fn asset_limits_request(
         &self,
         trading_pair: &TradingPair,
         cex_preferences: &CexPreferences,
-    ) -> TBResult<Self::AssetLimitsRequest> {
+    ) -> BpResult<Self::AssetLimitsRequest> {
         let symbol = match self.ticker_mapping().symbol(trading_pair) {
             None => {
-                return Err(TBError::Missing(format!(
+                return Err(BpError::TypeBridgeMissing(format!(
                     "Symbol for trading pair: {:?}",
                     trading_pair
                 )));
@@ -90,7 +90,7 @@ impl Converter for BinanceConverter {
         .ok();
         Ok(request)
     }
-    fn exchange_info_request(&self) -> TBResult<Self::ExchangeInfoRequest> {
+    fn exchange_info_request(&self) -> BpResult<Self::ExchangeInfoRequest> {
         Ok(BinanceExchangeInfoRequest::Permissions {
             permissions: BinanceExchangeInfoPermissions::List(vec![
                 BinanceExchangeInfoPermission::SPOT,
@@ -102,9 +102,9 @@ impl Converter for BinanceConverter {
         &self,
         order_request: OrderRequest<AssetId, f64>,
         cex_preferences: &CexPreferences,
-    ) -> TBResult<Self::OrderRequest> {
+    ) -> BpResult<Self::OrderRequest> {
         let Some(trading_precision) = self.trading_precision.get() else {
-            return Err(TBError::Missing("Trading Precision".into()));
+            return Err(BpError::TypeBridgeMissing("Trading Precision".into()));
         };
         let precise =
             self.try_convert_precise(order_request, cex_preferences, *trading_precision)?;
@@ -239,7 +239,7 @@ impl Converter for BinanceConverter {
     fn asset_limits_response(
         &self,
         response: BinanceResponse<BinanceAssetLimitsResponse>,
-    ) -> TBResult<TBAssetLimits> {
+    ) -> BpResult<TBAssetLimits> {
         if let BinanceResponsePayload::Success(payload) = response.payload {
             let ticker_mapping = self.ticker_mapping();
             let mut asset_limits = HashMap::new();
@@ -255,13 +255,13 @@ impl Converter for BinanceConverter {
             }
             Ok(TBAssetLimits { asset_limits })
         } else {
-            Err(TBError::BadResponse(format!("{:?}", response)))
+            Err(BpError::BadResponse(format!("{:?}", response)))
         }
     }
     fn exchange_info_response(
         &self,
         response: Self::ExchangeInfoResponse,
-    ) -> TBResult<TBExchangeInfo> {
+    ) -> BpResult<TBExchangeInfo> {
         if let BinanceResponsePayload::Success(payload) = response.payload {
             let asset_tickers = self.ticker_mapping();
             let mut trading_precisions = HashMap::new();
@@ -287,10 +287,10 @@ impl Converter for BinanceConverter {
             }
             Ok(TBExchangeInfo { trading_precisions })
         } else {
-            Err(TBError::BadResponse(format!("{:?}", response)))
+            Err(BpError::BadResponse(format!("{:?}", response)))
         }
     }
-    fn order_response(&self, response: Self::OrderResponse) -> TBResult<OrderResponse> {
+    fn order_response(&self, response: Self::OrderResponse) -> BpResult<OrderResponse> {
         if let BinanceResponsePayload::Success(payload) = response.payload {
             let BinanceSpotOrderResponse {
                 clientOrderId,
@@ -320,7 +320,7 @@ impl Converter for BinanceConverter {
                 status,
             })
         } else {
-            Err(TBError::BadResponse(format!("{:?}", response)))
+            Err(BpError::BadResponse(format!("{:?}", response)))
         }
     }
 }
@@ -361,7 +361,7 @@ impl BinanceConverter {
             symbol_separator: None,
         }
     }
-    fn binance_base_limit(filters: &Vec<BinanceSymbolFilter>) -> TBResult<MinMaxStep> {
+    fn binance_base_limit(filters: &Vec<BinanceSymbolFilter>) -> BpResult<MinMaxStep> {
         for filter in filters {
             if let BinanceSymbolFilter::LOT_SIZE {
                 minQty,
@@ -376,7 +376,9 @@ impl BinanceConverter {
                 });
             }
         }
-        Err(TBError::Missing("LOT_SIZE filter in symbol filters".into()))
+        Err(BpError::TypeBridgeMissing(
+            "LOT_SIZE filter in symbol filters".into(),
+        ))
     }
     fn binance_base_market(
         filters: &Vec<BinanceSymbolFilter>,
@@ -399,7 +401,7 @@ impl BinanceConverter {
         }
         base_limit
     }
-    fn binance_quote(filters: &Vec<BinanceSymbolFilter>) -> TBResult<MinMaxStep> {
+    fn binance_quote(filters: &Vec<BinanceSymbolFilter>) -> BpResult<MinMaxStep> {
         for filter in filters {
             if let BinanceSymbolFilter::PRICE_FILTER {
                 maxPrice,
@@ -414,6 +416,8 @@ impl BinanceConverter {
                 });
             }
         }
-        Err(TBError::Missing("PRICE_FILTER in symbol filters".into()))
+        Err(BpError::TypeBridgeMissing(
+            "PRICE_FILTER in symbol filters".into(),
+        ))
     }
 }

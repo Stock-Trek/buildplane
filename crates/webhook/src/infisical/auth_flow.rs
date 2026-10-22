@@ -1,9 +1,6 @@
-use crate::{
-    error::{RsWebhookError, RsWebhookResult},
-    infisical::{
-        aws_auth::{InfisicalAwsAuthRequest, InfisicalTokenResponse},
-        secrets::InfisicalSecretsResponse,
-    },
+use crate::infisical::{
+    aws_auth::{InfisicalAwsAuthRequest, InfisicalTokenResponse},
+    secrets::InfisicalSecretsResponse,
 };
 use aws_config::{Region, SdkConfig};
 use aws_credential_types::{Credentials, provider::ProvideCredentials};
@@ -13,11 +10,8 @@ use aws_sigv4::http_request::{
 };
 use aws_smithy_runtime_api::client::identity::Identity;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use buildplane_shared::{
-    deadline::Deadline,
-    errors::{error::RsSharedError, timeout::RsTimeoutError},
-    timeouts::Timeouts,
-};
+use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_shared::{deadline::Deadline, timeouts::Timeouts};
 use http::{HeaderMap, HeaderName, HeaderValue, Method};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -52,7 +46,7 @@ impl InfisicalAwsAuth {
         identity_id: &str,
         project_id: &str,
         environment: &str,
-    ) -> RsWebhookResult<HashMap<String, String>> {
+    ) -> BpResult<HashMap<String, String>> {
         let region = Self::region(sdk_config);
         let credentials = self.credentials(sdk_config, deadline).await?;
         let endpoint = Self::endpoint(&region);
@@ -97,19 +91,15 @@ impl InfisicalAwsAuth {
             .unwrap_or_else(|| Region::from_static("us-east-1"))
     }
 
-    async fn credentials(
-        &self,
-        config: &SdkConfig,
-        deadline: Deadline,
-    ) -> RsWebhookResult<Credentials> {
+    async fn credentials(&self, config: &SdkConfig, deadline: Deadline) -> BpResult<Credentials> {
         let provider = config
             .credentials_provider()
-            .ok_or_else(|| RsWebhookError::MissingCredentials)?;
+            .ok_or_else(|| BpError::MissingCredentials)?;
         self.within_deadline(deadline, "InfisicalAwsAuth provide_credentials", async {
             provider
                 .provide_credentials()
                 .await
-                .map_err(RsWebhookError::InvalidCredentials)
+                .map_err(BpError::Credentials)
         })
         .await
     }
@@ -118,14 +108,12 @@ impl InfisicalAwsAuth {
         &self,
         deadline: Deadline,
         operation: &'static str,
-        future: impl std::future::Future<Output = RsWebhookResult<T>>,
-    ) -> RsWebhookResult<T> {
+        future: impl std::future::Future<Output = BpResult<T>>,
+    ) -> BpResult<T> {
         let timeout = self.timeouts.operation_timeout(deadline)?;
-        tokio::time::timeout(timeout, future).await.map_err(|_| {
-            RsWebhookError::Shared(RsSharedError::Timeout(RsTimeoutError::Operation {
-                operation,
-            }))
-        })?
+        tokio::time::timeout(timeout, future)
+            .await
+            .map_err(|_| BpError::TimeoutOperation { operation })?
     }
 
     fn endpoint(region: &Region) -> String {
@@ -174,14 +162,14 @@ impl InfisicalAwsAuth {
         endpoint: &'a str,
         headers: &'a BTreeMap<String, String>,
         body: &'a str,
-    ) -> RsWebhookResult<SigningInstructions> {
+    ) -> BpResult<SigningInstructions> {
         let signable_request = SignableRequest::new(
             Method::POST.as_str(),
             endpoint,
             headers.iter().map(|(k, v)| (k.as_str(), v.as_str())),
             SignableBody::Bytes(body.as_bytes()),
         )
-        .map_err(RsWebhookError::Signing)?;
+        .map_err(BpError::Signing)?;
         let mut signing_settings = SigningSettings::default();
         signing_settings.payload_checksum_kind = PayloadChecksumKind::XAmzSha256;
         let signing_params = SigningParams::V4(
@@ -192,10 +180,10 @@ impl InfisicalAwsAuth {
                 .time(SystemTime::now())
                 .settings(signing_settings)
                 .build()
-                .map_err(RsWebhookError::SigningParams)?,
+                .map_err(BpError::SigningParams)?,
         );
         let (instructions, _signature) = sign(signable_request, &signing_params)
-            .map_err(RsWebhookError::Signing)?
+            .map_err(BpError::Signing)?
             .into_parts();
         Ok(instructions)
     }
@@ -208,11 +196,11 @@ impl InfisicalAwsAuth {
         endpoint: &str,
         unsigned_headers: &BTreeMap<String, String>,
         body_len: usize,
-    ) -> RsWebhookResult<BTreeMap<String, String>> {
+    ) -> BpResult<BTreeMap<String, String>> {
         let mut header_map = HeaderMap::new();
         for (key, value) in unsigned_headers {
-            let name = HeaderName::from_str(key).map_err(RsWebhookError::InvalidHeaderName)?;
-            let value = HeaderValue::from_str(value).map_err(RsWebhookError::InvalidHeaderValue)?;
+            let name = HeaderName::from_str(key).map_err(BpError::InvalidHeaderName)?;
+            let value = HeaderValue::from_str(value).map_err(BpError::InvalidHeaderValue)?;
             header_map.insert(name, value);
         }
         // Signing container. Never sent, built purely to allow aws-sigv4 to create signed headers
@@ -220,7 +208,7 @@ impl InfisicalAwsAuth {
             .method(http::Method::POST)
             .uri(endpoint)
             .body(())
-            .map_err(RsWebhookError::Http)?;
+            .map_err(BpError::Http)?;
         *temp_signing_request.headers_mut() = header_map;
         instructions.apply_to_request_http1x(&mut temp_signing_request);
         // read headers back out
@@ -230,11 +218,11 @@ impl InfisicalAwsAuth {
             .map(|(k, v)| {
                 let value = v
                     .to_str()
-                    .map_err(RsWebhookError::InvalidHeaderValueStr)?
+                    .map_err(BpError::InvalidHeaderValueStr)?
                     .to_string();
                 Ok((k.as_str().to_string(), value))
             })
-            .collect::<RsWebhookResult<BTreeMap<String, String>>>()?;
+            .collect::<BpResult<BTreeMap<String, String>>>()?;
         signed_headers.insert(HEADER_CONTENT_LENGTH_KEY.into(), body_len.to_string());
         Ok(signed_headers)
     }
@@ -246,10 +234,10 @@ impl InfisicalAwsAuth {
         body: &str,
         identity_id: &str,
         deadline: Deadline,
-    ) -> RsWebhookResult<InfisicalTokenResponse> {
+    ) -> BpResult<InfisicalTokenResponse> {
         let iam_http_request_method = Method::POST.to_string();
         let iam_request_headers =
-            BASE64.encode(serde_json::to_vec(&headers).map_err(RsWebhookError::Serde)?);
+            BASE64.encode(serde_json::to_vec(&headers).map_err(BpError::Serde)?);
         let iam_request_body = BASE64.encode(body.as_bytes());
         let params = InfisicalAwsAuthRequest {
             identity_id: identity_id.into(),
@@ -268,12 +256,12 @@ impl InfisicalAwsAuth {
                 .json(&params)
                 .send()
                 .await
-                .map_err(RsWebhookError::Reqwest)?
+                .map_err(BpError::Reqwest)?
                 .error_for_status()
-                .map_err(RsWebhookError::Reqwest)?
+                .map_err(BpError::Reqwest)?
                 .json::<InfisicalTokenResponse>()
                 .await
-                .map_err(RsWebhookError::Reqwest)
+                .map_err(BpError::Reqwest)
         })
         .await
     }
@@ -285,7 +273,7 @@ impl InfisicalAwsAuth {
         project_id: &str,
         environment: &str,
         deadline: Deadline,
-    ) -> RsWebhookResult<InfisicalSecretsResponse> {
+    ) -> BpResult<InfisicalSecretsResponse> {
         let url = format!(
             "{}/{}?projectId={}&environment={}&viewSecretValue=true",
             infisical_base_url.trim_end_matches("/"),
@@ -299,12 +287,12 @@ impl InfisicalAwsAuth {
                 .bearer_auth(access_token)
                 .send()
                 .await
-                .map_err(RsWebhookError::Reqwest)?
+                .map_err(BpError::Reqwest)?
                 .error_for_status()
-                .map_err(RsWebhookError::Reqwest)?
+                .map_err(BpError::Reqwest)?
                 .json::<InfisicalSecretsResponse>()
                 .await
-                .map_err(RsWebhookError::Reqwest)
+                .map_err(BpError::Reqwest)
         })
         .await
     }

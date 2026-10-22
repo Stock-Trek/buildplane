@@ -1,14 +1,11 @@
 use crate::{
     context::{Converters, RsWebhookContext},
-    error::{RsWebhookError, RsWebhookResult},
     event_response::EventResponse,
     responses::Responses,
 };
+use buildplane_shared::errors::{BpError, BpResult};
 use buildplane_shared::{
-    deadline::Deadline,
-    errors::{error::RsSharedError, retryability::Retryability},
-    metrics::event::EventMetrics,
-    metrics::route::RouteMetrics,
+    deadline::Deadline, metrics::event::EventMetrics, metrics::route::RouteMetrics,
     request_context::RequestContext,
 };
 use http::{Response, StatusCode};
@@ -23,17 +20,14 @@ struct WebhookOutcome {
 }
 
 impl WebhookOutcome {
-    fn success(response: RsWebhookResult<Response<Body>>) -> RsWebhookResult<Self> {
+    fn success(response: BpResult<Response<Body>>) -> BpResult<Self> {
         Ok(Self {
             response: response?,
             error_type: None,
         })
     }
 
-    fn failure(
-        error_type: &'static str,
-        response: RsWebhookResult<Response<Body>>,
-    ) -> RsWebhookResult<Self> {
+    fn failure(error_type: &'static str, response: BpResult<Response<Body>>) -> BpResult<Self> {
         Ok(Self {
             response: response?,
             error_type: Some(error_type),
@@ -48,7 +42,7 @@ impl WebhookHandler {
         &self,
         context: &RsWebhookContext,
         event: Request,
-    ) -> RsWebhookResult<Response<Body>> {
+    ) -> BpResult<Response<Body>> {
         let metrics = RouteMetrics::start(WEBHOOK_ROUTE);
         let result = self.handle_request(context, event).await;
         match result {
@@ -66,20 +60,18 @@ impl WebhookHandler {
                 }
                 Ok(response)
             }
-            Err(RsWebhookError::SecretsUnavailable { retry_after }) => {
+            Err(BpError::SecretsUnavailable { retry_after }) => {
                 let status = StatusCode::SERVICE_UNAVAILABLE;
                 metrics.record_error_status("secrets_unavailable", status.as_u16());
                 Responses::service_unavailable(retry_after)
             }
-            Err(error)
-                if error.retryability() == Retryability::Permanent && error.is_client_error() =>
-            {
+            Err(error) if !error.is_retryable() && error.is_client_error() => {
                 tracing::error!("rejecting permanently failing webhook request: {error}");
                 let status = StatusCode::BAD_REQUEST;
                 metrics.record_error_status(error.error_type(), status.as_u16());
                 Responses::bad_request()
             }
-            Err(error) if error.retryability() == Retryability::Permanent => {
+            Err(error) if !error.is_retryable() => {
                 tracing::error!("webhook request failed with a permanent server error: {error}");
                 let status = StatusCode::INTERNAL_SERVER_ERROR;
                 metrics.record_error_status(error.error_type(), status.as_u16());
@@ -99,7 +91,7 @@ impl WebhookHandler {
         &self,
         context: &RsWebhookContext,
         event: Request,
-    ) -> RsWebhookResult<WebhookOutcome> {
+    ) -> BpResult<WebhookOutcome> {
         let request_context = RequestContext {
             context,
             deadline: Deadline::new(event.lambda_context().deadline(), context.deadline_buffer()),
@@ -111,7 +103,7 @@ impl WebhookHandler {
         &self,
         request_context: RequestContext<&RsWebhookContext>,
         event: Request,
-    ) -> RsWebhookResult<WebhookOutcome> {
+    ) -> BpResult<WebhookOutcome> {
         let converters = request_context
             .context
             .converters(request_context.deadline)
@@ -148,7 +140,7 @@ impl WebhookHandler {
         request_context: &RequestContext<&RsWebhookContext>,
         converters: &Converters,
         event: &Request,
-    ) -> RsWebhookResult<EventResponse> {
+    ) -> BpResult<EventResponse> {
         let mut ignored = false;
         let mut unauthorized = false;
         for converter in converters.iter() {
@@ -172,13 +164,13 @@ impl WebhookHandler {
                         .await;
                     match send_result {
                         Ok(()) => return Ok(EventResponse::Accept(messages)),
-                        Err(RsSharedError::Sqs(error)) if error.any_sent(messages.len()) => {
+                        Err(error) if error.any_sent(messages.len()) => {
                             tracing::warn!(
                                 "SQS queued part of the delivery; accepting it and reporting the remainder: {error}"
                             );
                             return Ok(EventResponse::Accept(messages));
                         }
-                        Err(error) if error.retryability() == Retryability::Permanent => {
+                        Err(error) if !error.is_retryable() => {
                             if let Some(delivery_id) = delivery_id {
                                 request_context.context.dedup().forget(delivery_id);
                             }
@@ -189,7 +181,7 @@ impl WebhookHandler {
                             if let Some(delivery_id) = delivery_id {
                                 request_context.context.dedup().forget(delivery_id);
                             }
-                            return Err(RsWebhookError::Shared(error));
+                            return Err(error);
                         }
                     }
                 }
@@ -199,15 +191,15 @@ impl WebhookHandler {
                 Ok(EventResponse::Unauthorized) => unauthorized = true,
                 Ok(EventResponse::WrongGitProvider) => continue,
                 Ok(EventResponse::Rejected) => return Ok(EventResponse::Rejected),
-                Err(RsWebhookError::Serde(error)) => {
+                Err(BpError::Serde(error)) => {
                     tracing::warn!("rejecting malformed payload: {error}");
                     return Ok(EventResponse::Rejected);
                 }
-                Err(RsWebhookError::InvalidHost(url)) => {
+                Err(BpError::HostInvalid { host: url }) => {
                     tracing::warn!("rejecting payload with unparseable host URL: {url:?}");
                     return Ok(EventResponse::Rejected);
                 }
-                Err(RsWebhookError::HostNotAllowed(url)) => {
+                Err(BpError::HostNotAllowed { host: url }) => {
                     tracing::warn!("rejecting payload from disallowed host: {url:?}");
                     return Ok(EventResponse::Rejected);
                 }
@@ -223,7 +215,7 @@ impl WebhookHandler {
         })
     }
 
-    fn respond(response: EventResponse) -> RsWebhookResult<WebhookOutcome> {
+    fn respond(response: EventResponse) -> BpResult<WebhookOutcome> {
         match response {
             EventResponse::Accept(_) => WebhookOutcome::success(Responses::accepted()),
             EventResponse::Pong => WebhookOutcome::success(Responses::ok("pong")),

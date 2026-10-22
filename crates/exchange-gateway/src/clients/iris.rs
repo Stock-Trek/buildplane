@@ -1,10 +1,9 @@
 use crate::{
-    clients::client::WebsocketClient,
-    error::{EGError, EGResult},
-    panic_guard::PanicUtils,
+    clients::client::WebsocketClient, panic_guard::PanicUtils,
     websocket_listener::WebsocketListener,
 };
 use async_trait::async_trait;
+use buildplane_shared::errors::{BpError, BpResult};
 use futures_timer::Delay;
 use iris::{Client as IrisClient, Config as IrisConfig, ConnectionError, Listener as IrisListener};
 use std::{
@@ -28,7 +27,7 @@ impl IrisWebsocketClient {
         );
         Self { client }
     }
-    async fn send_message_with_delay<D>(&self, message: String, delay: D) -> EGResult<()>
+    async fn send_message_with_delay<D>(&self, message: String, delay: D) -> BpResult<()>
     where
         D: Future<Output = ()> + Send + 'static,
     {
@@ -37,36 +36,36 @@ impl IrisWebsocketClient {
         poll_fn(move |cx| match send.as_mut().poll(cx) {
             Poll::Ready(result) => Poll::Ready(result.map_err(Self::map_send_error)),
             Poll::Pending => match delay.as_mut().poll(cx) {
-                Poll::Ready(()) => Poll::Ready(Err(EGError::send_unknown(EGError::TimedOut))),
+                Poll::Ready(()) => Poll::Ready(Err(BpError::send_unknown(BpError::TimedOut))),
                 Poll::Pending => Poll::Pending,
             },
         })
         .await
     }
-    fn map_send_error(error: ConnectionError) -> EGError {
+    fn map_send_error(error: ConnectionError) -> BpError {
         match error {
             ConnectionError::ConnectionClosed | ConnectionError::SendMessage(_) => {
-                EGError::send_not_sent_external(error)
+                BpError::send_not_sent_external(error)
             }
-            error => EGError::send_unknown_external(error),
+            error => BpError::send_unknown_external(error),
         }
     }
 }
 
 #[async_trait]
 impl WebsocketClient for IrisWebsocketClient {
-    async fn connect(&self) -> EGResult<()> {
-        self.client.connect().await.map_err(EGError::external)
+    async fn connect(&self) -> BpResult<()> {
+        self.client.connect().await.map_err(BpError::external)
     }
     fn is_connected(&self) -> bool {
         self.client.is_connected()
     }
-    async fn send(&self, message: String, timeout: Duration) -> EGResult<()> {
+    async fn send(&self, message: String, timeout: Duration) -> BpResult<()> {
         self.send_message_with_delay(message, Delay::new(timeout))
             .await
     }
-    async fn disconnect(&self) -> EGResult<()> {
-        self.client.disconnect().await.map_err(EGError::external)
+    async fn disconnect(&self) -> BpResult<()> {
+        self.client.disconnect().await.map_err(BpError::external)
     }
 }
 
@@ -89,7 +88,7 @@ impl IrisListener<serde_json::Value> for IrisListenerAdapter {
         let _ = match PanicUtils::catch_panic_async(future).await {
             Ok(result) => result,
             Err(payload) => {
-                let error = EGError::CallbackPanicked(PanicUtils::panic_message(payload.as_ref()));
+                let error = BpError::CallbackPanicked(PanicUtils::panic_message(payload.as_ref()));
                 error!(error = %error, "websocket on_message callback panicked");
                 Ok(())
             }

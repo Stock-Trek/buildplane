@@ -5,7 +5,6 @@ use crate::{
         request::BinanceRequestFactory,
         response::{BinanceResponse, BinanceResponsePayload},
     },
-    error::{ETError, ETResult},
     http::{HttpMethod, HttpRequest},
     klines::{Kline, KlinesHttpRequest, KlinesResponse, KlinesWebsocketRequest},
     new_types::{Milliseconds, UsageCount},
@@ -14,6 +13,7 @@ use crate::{
     signer::Signer,
     websocket_id::ETWebsocketId,
 };
+use buildplane_shared::errors::{BpError, BpResult};
 use query_params::QueryParams;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -105,10 +105,10 @@ impl KlinesHttpRequest<BinanceResponse<BinanceKlinesResponse>> for BinanceKlines
 impl KlinesWebsocketRequest<BinanceResponse<BinanceKlinesResponse>> for BinanceKlinesRequest {}
 
 impl KlinesResponse for BinanceResponse<BinanceKlinesResponse> {
-    fn klines(&self) -> ETResult<Vec<Kline>> {
+    fn klines(&self) -> BpResult<Vec<Kline>> {
         match &self.payload {
             BinanceResponsePayload::Failure(_) => {
-                Err(ETError::BadResponse("Failure in klines response".into()))
+                Err(BpError::BadResponse("Failure in klines response".into()))
             }
             BinanceResponsePayload::Success(payload) => {
                 let mut result = Vec::new();
@@ -123,7 +123,7 @@ impl KlinesResponse for BinanceResponse<BinanceKlinesResponse> {
 }
 
 impl TryFrom<&BinanceKlineResponse> for Kline {
-    type Error = ETError;
+    type Error = BpError;
     fn try_from(value: &BinanceKlineResponse) -> Result<Self, Self::Error> {
         let open_time = value.0;
         let close_time = value.6;
@@ -147,8 +147,8 @@ impl TryFrom<&BinanceKlineResponse> for Kline {
 }
 
 impl BinanceKlineResponse {
-    fn str_to_decimal(name: &str, value: &str) -> ETResult<Decimal> {
-        Decimal::from_str_exact(value).map_err(|e| ETError::BadValue {
+    fn str_to_decimal(name: &str, value: &str) -> BpResult<Decimal> {
+        Decimal::from_str_exact(value).map_err(|e| BpError::BadValue {
             name: name.into(),
             value: value.into(),
             reason: e.to_string(),
@@ -188,7 +188,7 @@ impl ETHttpRequest for BinanceKlinesRequest {
     fn http_method(&self) -> HttpMethod {
         HttpMethod::GET
     }
-    fn try_into_http(self, signer: &Signer) -> ETResult<HttpRequest> {
+    fn try_into_http(self, signer: &Signer) -> BpResult<HttpRequest> {
         BinanceRequestFactory::try_into_http(self, signer)
     }
 }
@@ -204,7 +204,7 @@ impl ETWebsocketRequest for BinanceKlinesRequest {
         self,
         signer: &Signer,
         id: ETWebsocketId,
-    ) -> ETResult<(String, WebsocketResponseMatcher)> {
+    ) -> BpResult<(String, WebsocketResponseMatcher)> {
         BinanceRequestFactory::try_into_websocket(self, signer, id)
     }
 }

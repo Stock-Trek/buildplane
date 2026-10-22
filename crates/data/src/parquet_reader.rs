@@ -1,8 +1,6 @@
-use crate::{
-    error::MduError,
-    s3::{Bucket, ObjectKey},
-};
+use crate::s3::{Bucket, ObjectKey};
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
+use buildplane_shared::errors::BpError;
 use bytes::Bytes;
 use futures::{FutureExt, future::BoxFuture};
 use parquet::{
@@ -49,7 +47,7 @@ impl ParquetReader {
             .range(range_header)
             .initiate()
             .map_err(|error| {
-                ParquetError::External(Box::new(MduError::s3(
+                ParquetError::External(Box::new(BpError::s3(
                     "start ranged download",
                     target.clone(),
                     error,
@@ -58,7 +56,7 @@ impl ParquetReader {
         let mut data = Vec::with_capacity((range.end - range.start) as usize);
         while let Some(chunk) = handle.body_mut().next().await {
             let chunk = chunk.map_err(|error| {
-                ParquetError::External(Box::new(MduError::s3(
+                ParquetError::External(Box::new(BpError::s3(
                     "read ranged download",
                     target.clone(),
                     error,

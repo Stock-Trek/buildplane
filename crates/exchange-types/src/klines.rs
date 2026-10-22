@@ -1,9 +1,9 @@
 use crate::{
-    error::ETResult,
     new_types::Milliseconds,
     request::{ETHttpRequest, ETWebsocketRequest},
     response::{ETHttpResponse, ETWebsocketResponse},
 };
+use buildplane_shared::errors::BpResult;
 use rust_decimal::Decimal;
 
 pub trait KlinesHttpRequest<Response>: ETHttpRequest<Response = Response>
@@ -19,7 +19,7 @@ where
 }
 
 pub trait KlinesResponse {
-    fn klines(&self) -> ETResult<Vec<Kline>>;
+    fn klines(&self) -> BpResult<Vec<Kline>>;
 }
 
 pub struct Kline {
