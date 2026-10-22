@@ -90,9 +90,9 @@ impl IrisListener<serde_json::Value> for IrisListenerAdapter {
         let future = self.delegate.on_message(message);
         let _ = match PanicUtils::catch_panic_async(future).await {
             Ok(result) => result,
-            Err(payload) => {
+            Err(panic) => {
                 let error = BpError::Connector(ConnectorError::CallbackPanicked(
-                    PanicUtils::panic_message(payload.as_ref()),
+                    panic.message().to_string(),
                 ));
                 error!(error = %error, "websocket on_message callback panicked");
                 Ok(())

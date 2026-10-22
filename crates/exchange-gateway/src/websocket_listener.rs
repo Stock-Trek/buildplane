@@ -116,9 +116,9 @@ impl ResponseHandler {
     fn handle(&self, response: &serde_json::Value) -> BpResult<bool> {
         let is_handled = match PanicUtils::catch_panic(|| (self.filter)(response)) {
             Ok(is_handled) => is_handled,
-            Err(payload) => {
+            Err(panic) => {
                 let error = BpError::Connector(ConnectorError::CallbackPanicked(
-                    PanicUtils::panic_message(payload.as_ref()),
+                    panic.message().to_string(),
                 ));
                 let mut state = self
                     .state

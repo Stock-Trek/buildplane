@@ -121,11 +121,11 @@ impl BpError {
 
     pub fn exchange<E>(operation: &'static str, source: E) -> Self
     where
-        E: Into<Box<dyn std::error::Error + Send + Sync>>,
+        E: Into<BpError>,
     {
         Self::Exchange(ExchangeError::Exchange {
             operation,
-            source: source.into(),
+            source: Box::new(source.into()),
         })
     }
 

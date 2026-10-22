@@ -3,7 +3,6 @@ use crate::{
     new_types::Seconds,
     protocol::Protocol,
 };
-use std::error::Error as StdError;
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
@@ -29,7 +28,7 @@ pub enum ExchangeError {
     Exchange {
         operation: &'static str,
         #[source]
-        source: Box<dyn StdError + Send + Sync>,
+        source: Box<BpError>,
     },
     #[error("Cannot find a symbol for trading pair {trading_pair}")]
     MissingSymbol { trading_pair: String },
@@ -63,9 +62,7 @@ impl ExchangeError {
     pub fn retryability(&self) -> Retryability {
         match self {
             Self::Response { retryability, .. } => *retryability,
-            Self::Exchange { source, .. } => source
-                .downcast_ref::<BpError>()
-                .map_or(Retryability::Retryable, BpError::retryability),
+            Self::Exchange { source, .. } => source.retryability(),
             _ => Retryability::Permanent,
         }
     }
