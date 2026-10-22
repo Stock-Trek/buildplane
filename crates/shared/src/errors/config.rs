@@ -19,8 +19,6 @@ pub enum ConfigError {
     },
     #[error("invalid configuration: {0}")]
     Build(String),
-    #[error("EnvVar: {0}")]
-    EnvVar(#[from] std::env::VarError),
 }
 
 impl ConfigError {
