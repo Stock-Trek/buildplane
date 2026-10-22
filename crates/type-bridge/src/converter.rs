@@ -33,7 +33,6 @@ pub trait Converter {
 
     fn capabilities(&self) -> &Vec<CexCapability>;
     fn ticker_mapping(&self) -> &TickerMapping;
-    fn set_trading_precision(&self, trading_precision: TradingPrecision) -> BpResult<()>;
     fn asset_limits_request(
         &self,
         trading_pair: &TradingPair,
@@ -43,6 +42,7 @@ pub trait Converter {
     fn order_request(
         &self,
         order_request: OrderRequest<AssetId, f64>,
+        trading_precision: TradingPrecision,
         cex_preferences: &CexPreferences,
     ) -> BpResult<Self::OrderRequest>;
     fn asset_limits_response(&self, response: Self::AssetLimitsResponse)
