@@ -35,19 +35,21 @@ pub struct KlinesUpdater {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct UpdateOutcome {
     pub windows_ingested: usize,
-    pub windows_skipped: usize,
+    pub windows_compacted: usize,
+    pub windows_incomplete: usize,
+    pub windows_deadline: usize,
 }
 
 impl UpdateOutcome {
     fn record(&mut self, outcome: IngestOutcome) {
         match outcome {
             IngestOutcome::Ingested => self.windows_ingested += 1,
-            IngestOutcome::SkippedIncomplete { .. } => self.windows_skipped += 1,
+            IngestOutcome::SkippedIncomplete { .. } => self.windows_incomplete += 1,
         }
     }
 
-    fn record_skipped(&mut self, windows: usize) {
-        self.windows_skipped += windows;
+    fn record_compacted(&mut self, windows: usize) {
+        self.windows_compacted += windows;
         MarketDataMetrics::record_ingest_skipped(INGEST_SKIP_REASON_COMPACTED, windows);
     }
 
@@ -55,13 +57,15 @@ impl UpdateOutcome {
     /// the interrupted unit so the run is still reported as incomplete.
     fn record_deadline(&mut self, remaining_windows: usize) {
         let skipped = remaining_windows.max(1);
-        self.windows_skipped += skipped;
+        self.windows_deadline += skipped;
         MarketDataMetrics::record_ingest_skipped(INGEST_SKIP_REASON_DEADLINE, skipped);
     }
 
     fn merge(&mut self, other: Self) {
         self.windows_ingested += other.windows_ingested;
-        self.windows_skipped += other.windows_skipped;
+        self.windows_compacted += other.windows_compacted;
+        self.windows_incomplete += other.windows_incomplete;
+        self.windows_deadline += other.windows_deadline;
     }
 }
 
@@ -221,11 +225,11 @@ impl KlinesUpdater {
             backfill.end,
             backfill.force,
         )?;
-        let window_count = plan.windows.len() + plan.windows_skipped;
-        let compacted_skips = plan.windows_skipped;
+        let window_count = plan.windows.len() + plan.windows_compacted;
+        let compacted_skips = plan.windows_compacted;
         let schema = Ingest::schema();
         let mut outcome = UpdateOutcome::default();
-        outcome.record_skipped(plan.windows_skipped);
+        outcome.record_compacted(plan.windows_compacted);
         for skip in &plan.skipped_compacted {
             if backfill.force {
                 warn!(
@@ -260,11 +264,12 @@ impl KlinesUpdater {
             outcome.record(ingest_outcome);
         }
         info!(
-            "backfill {:?} completed {} window(s): {} ingested, {} skipped; {} compacted window(s) skipped",
+            "backfill {:?} completed {} window(s): {} ingested, {} incomplete, {} deadline-truncated; {} compacted window(s) skipped",
             resolved.trading_pair,
             window_count,
             outcome.windows_ingested,
-            outcome.windows_skipped,
+            outcome.windows_incomplete,
+            outcome.windows_deadline,
             compacted_skips
         );
         Ok(outcome)
@@ -431,7 +436,7 @@ impl KlinesUpdater {
             .collect::<HashSet<_>>();
         let plan = plan::Planner::plan_windows_with_skipped(&existing, *end_time, *backfill_start)?;
         let mut outcome = UpdateOutcome::default();
-        outcome.record_skipped(plan.windows_skipped);
+        outcome.record_compacted(plan.windows_compacted);
         for (index, window) in plan.windows.iter().enumerate() {
             if !deadline.has_remaining() {
                 warn!("stopping update of {:?} before deadline", trading_pair);
@@ -461,17 +466,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_skipped_windows_contribute_to_the_outcome() {
+    fn all_skip_reasons_are_counted_separately() {
         let mut outcome = UpdateOutcome::default();
         outcome.record(IngestOutcome::SkippedIncomplete {
             expected: 6,
             received: 4,
         });
-        outcome.record_skipped(3);
+        outcome.record_compacted(3);
         outcome.record_deadline(2);
 
         assert_eq!(outcome.windows_ingested, 0);
-        assert_eq!(outcome.windows_skipped, 6);
+        assert_eq!(outcome.windows_compacted, 3);
+        assert_eq!(outcome.windows_incomplete, 1);
+        assert_eq!(outcome.windows_deadline, 2);
     }
 
     #[test]
@@ -479,6 +486,6 @@ mod tests {
         let mut outcome = UpdateOutcome::default();
         outcome.record_deadline(0);
 
-        assert_eq!(outcome.windows_skipped, 1);
+        assert_eq!(outcome.windows_deadline, 1);
     }
 }

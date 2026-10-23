@@ -377,14 +377,20 @@ pub struct ResolvedTradingPair {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
 pub struct JobOutcome {
     pub windows_ingested: usize,
-    pub windows_skipped: usize,
+    pub windows_compacted: usize,
+    pub windows_incomplete: usize,
+    pub windows_deadline: usize,
     pub compaction_targets: usize,
     pub incomplete: bool,
 }
 
 impl JobOutcome {
+    pub fn is_incomplete(&self) -> bool {
+        self.incomplete || self.windows_incomplete > 0 || self.windows_deadline > 0
+    }
+
     pub fn status(&self) -> &'static str {
-        if self.incomplete || self.windows_skipped > 0 {
+        if self.is_incomplete() {
             "incomplete"
         } else {
             "ok"
@@ -661,11 +667,27 @@ mod tests {
     }
 
     #[test]
-    fn outcome_status_reflects_skipped_windows_and_explicit_incompleteness() {
+    fn outcome_status_distinguishes_compacted_incomplete_and_deadline_windows() {
         assert_eq!(JobOutcome::default().status(), "ok");
         assert_eq!(
             JobOutcome {
-                windows_skipped: 2,
+                windows_compacted: 2,
+                ..JobOutcome::default()
+            }
+            .status(),
+            "ok"
+        );
+        assert_eq!(
+            JobOutcome {
+                windows_incomplete: 2,
+                ..JobOutcome::default()
+            }
+            .status(),
+            "incomplete"
+        );
+        assert_eq!(
+            JobOutcome {
+                windows_deadline: 2,
                 ..JobOutcome::default()
             }
             .status(),

@@ -47,7 +47,7 @@ async fn function_handler(
     match &result {
         Ok(outcome) => MarketDataMetrics::record_job_success(
             job.mode(),
-            outcome.incomplete || outcome.windows_skipped > 0,
+            outcome.is_incomplete(),
             started_at.elapsed(),
         ),
         Err(error) => MarketDataMetrics::record_job_error(
@@ -61,7 +61,9 @@ async fn function_handler(
         "status": outcome.status(),
         "mode": job.mode(),
         "windows_ingested": outcome.windows_ingested,
-        "windows_skipped": outcome.windows_skipped,
+        "windows_compacted": outcome.windows_compacted,
+        "windows_incomplete": outcome.windows_incomplete,
+        "windows_deadline": outcome.windows_deadline,
         "compaction_targets": outcome.compaction_targets,
     }))
 }
