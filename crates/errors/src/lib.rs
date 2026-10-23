@@ -33,7 +33,7 @@ pub use rate_limit::RateLimitError;
 pub use retryability::Retryability;
 pub use secrets::SecretsError;
 pub use sqs::{SqsBatchFailure, SqsError};
-pub use storage::StorageError;
+pub use storage::{S3DeleteObjectFailure, StorageError};
 pub use system::SystemError;
 pub use timeout::TimeoutError;
 pub use validation::ValidationError;

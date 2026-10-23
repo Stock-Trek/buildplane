@@ -41,6 +41,21 @@ impl Retryability {
         }
     }
 
+    pub fn from_s3_error_code(code: &str) -> Retryability {
+        if code.starts_with("Invalid")
+            || code.starts_with("NoSuch")
+            || code.ends_with("NotFound")
+            || matches!(
+                code,
+                "AccessDenied" | "NotImplemented" | "ObjectLockConfigurationNotFoundError"
+            )
+        {
+            Retryability::Permanent
+        } else {
+            Retryability::Retryable
+        }
+    }
+
     pub fn from_io_error(error: impl Borrow<std::io::Error>) -> Retryability {
         let error = error.borrow();
         match error.kind() {
@@ -246,5 +261,39 @@ mod tests {
         assert!(!Retryability::Retryable.is_permanent());
         assert!(Retryability::Permanent.is_permanent());
         assert!(!Retryability::Permanent.is_retryable());
+    }
+
+    #[test]
+    fn permanent_s3_error_codes_are_not_retried() {
+        for code in [
+            "AccessDenied",
+            "InvalidArgument",
+            "NoSuchBucket",
+            "NoSuchKey",
+            "NotImplemented",
+            "ObjectLockConfigurationNotFoundError",
+        ] {
+            assert_eq!(
+                Retryability::from_s3_error_code(code),
+                Retryability::Permanent,
+                "{code}"
+            );
+        }
+    }
+
+    #[test]
+    fn transient_s3_error_codes_are_retried() {
+        for code in [
+            "InternalError",
+            "RequestTimeout",
+            "ServiceUnavailable",
+            "SlowDown",
+        ] {
+            assert_eq!(
+                Retryability::from_s3_error_code(code),
+                Retryability::Retryable,
+                "{code}"
+            );
+        }
     }
 }
