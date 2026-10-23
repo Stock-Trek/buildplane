@@ -128,9 +128,12 @@ impl ConnectorError {
 
 impl From<BpError> for ConnectorError {
     fn from(source: BpError) -> Self {
-        Self::Send {
-            failure: SendFailure::NotSent,
-            source: Box::new(source),
+        match source {
+            BpError::Connector(error) => error,
+            source => Self::Send {
+                failure: SendFailure::Unknown,
+                source: Box::new(source),
+            },
         }
     }
 }
@@ -162,5 +165,25 @@ mod tests {
     #[test]
     fn non_send_errors_have_no_send_failure() {
         assert_eq!(ConnectorError::NotConnected.send_failure(), None);
+    }
+
+    #[test]
+    fn converting_a_bp_error_does_not_claim_the_request_was_not_sent() {
+        let converted = ConnectorError::from(source());
+
+        assert_eq!(converted.send_failure(), Some(SendFailure::Unknown));
+        assert!(
+            !converted
+                .send_failure()
+                .is_some_and(SendFailure::is_not_sent)
+        );
+    }
+
+    #[test]
+    fn converting_an_existing_connector_error_preserves_it() {
+        let converted = ConnectorError::from(BpError::Connector(ConnectorError::NotConnected));
+
+        assert!(matches!(converted, ConnectorError::NotConnected));
+        assert_eq!(converted.send_failure(), None);
     }
 }
