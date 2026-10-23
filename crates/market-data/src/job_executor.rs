@@ -14,9 +14,9 @@ use buildplane_metrics::market_data::MarketDataMetrics;
 use buildplane_time::deadline::Deadline;
 use tracing::{error, info, warn};
 
-pub struct Orchestrator;
+pub struct JobExecutor;
 
-impl Orchestrator {
+impl JobExecutor {
     /// Acquire the global lock and execute one explicitly selected job.
     pub async fn run_job(
         env_config: &EnvConfig,
