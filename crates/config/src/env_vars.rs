@@ -8,6 +8,7 @@ use std::{
     path::PathBuf,
     time::Duration,
 };
+use tracing_subscriber::EnvFilter;
 use url::Url;
 
 const AWS_ENDPOINT_URL_S3: &str = "AWS_ENDPOINT_URL_S3";
@@ -80,10 +81,19 @@ pub struct EnvVarConfig {
 }
 
 impl EnvVarConfig {
-    pub fn from_env() -> Self {
-        Self {
+    /// Captures and validates the process environment.
+    ///
+    /// Every recognised variable that is present is parsed eagerly, so an
+    /// invalid value fails at startup instead of on the first request that
+    /// happens to read it. Required variables are validated when they are set;
+    /// each service still decides which required variables it needs when it
+    /// builds its typed configuration.
+    pub fn from_env() -> BpResult<Self> {
+        let config = Self {
             vars: std::env::vars_os().collect(),
-        }
+        };
+        config.validate()?;
+        Ok(config)
     }
 
     pub fn from_map<I, K, V>(vars: I) -> Self
@@ -98,6 +108,109 @@ impl EnvVarConfig {
                 .map(|(key, value)| (key.into(), value.into()))
                 .collect(),
         }
+    }
+
+    /// Validates every recognised environment variable that is present.
+    ///
+    /// Defaults are valid by construction, so variables that are absent are
+    /// left for the service-specific configuration to require or default.
+    pub fn validate(&self) -> BpResult<()> {
+        self.lambda_function_name("")?;
+        if let Some(directives) = self.log_filter()? {
+            EnvFilter::try_new(&directives)
+                .map_err(|error| BpError::config_invalid_source(EnvFilter::DEFAULT_ENV, error))?;
+        }
+        self.backfill_start()?;
+        self.deadline_buffer()?;
+        self.validate_if_present(GITHUB_APP_ID, || self.github_app_id())?;
+        self.validate_if_present(GITHUB_APP_PRIVATE_KEY, || self.github_app_private_key())?;
+        self.github_enterprise_allowed_hosts()?;
+        self.github_max_cached_installations()?;
+        self.git_max_directory_depth()?;
+        self.git_max_directory_files()?;
+        self.git_max_directory_bytes()?;
+        self.validate_if_present(SQS_QUEUE_URL, || self.sqs_queue_url())?;
+        self.sqs_dedup_max_messages()?;
+        self.sqs_dedup_ttl()?;
+        self.sqs_process_concurrency()?;
+        self.validate_if_present(S3_BUCKET, || self.s3_bucket())?;
+        self.validate_if_present(S3_BUCKET_USER_ARTIFACTS, || self.s3_bucket_user_artifacts())?;
+        self.s3_max_source_archive_size_bytes()?;
+        self.s3_max_artifact_size_bytes()?;
+        self.s3_signed_url_expiry()?;
+        self.aws_endpoint_url_s3()?;
+        self.build_agent_build_cache_dir()?;
+        self.validate_if_present(BUILD_AGENT_FUNCTION_NAME, || {
+            self.build_agent_function_name()
+        })?;
+        self.build_agent_source_dir()?;
+        self.build_agent_max_extracted_source_size_bytes()?;
+        self.build_agent_source_download_timeout()?;
+        self.build_agent_timeout()?;
+        self.webhook_dedup_max_deliveries()?;
+        self.webhook_dedup_ttl()?;
+        self.webhook_refresh_cooldown()?;
+        self.webhook_secret_failure_backoff()?;
+        self.webhook_cold_start_refresh_timeout()?;
+        self.validate_if_present(INFISICAL_IDENTITY_ID, || self.infisical_identity_id())?;
+        self.validate_if_present(INFISICAL_PROJECT_ID, || self.infisical_project_id())?;
+        self.validate_if_present(INFISICAL_ENVIRONMENT, || self.infisical_environment())?;
+        self.validate_if_present(INFISICAL_BASE_URL, || self.infisical_base_url())?;
+        for key in [
+            "AWS_CONNECT_TIMEOUT_SECS",
+            "AWS_OPERATION_TIMEOUT_SECS",
+            "GITHUB_CONNECT_TIMEOUT_SECS",
+            "GITHUB_OPERATION_TIMEOUT_SECS",
+        ] {
+            self.validate_if_present(key, || self.duration(key, Duration::ZERO).map(drop))?;
+        }
+        self.validate_url_overrides()?;
+        Ok(())
+    }
+
+    fn validate_url_overrides(&self) -> BpResult<()> {
+        for (key, value) in &self.vars {
+            let Some(key) = key.to_str() else {
+                continue;
+            };
+            let allowed_schemes = if key.ends_with("_HTTP_REAL") || key.ends_with("_HTTP_PAPER") {
+                &["http", "https"][..]
+            } else if key.ends_with("_WEBSOCKET_REAL") || key.ends_with("_WEBSOCKET_PAPER") {
+                &["ws", "wss"][..]
+            } else {
+                continue;
+            };
+            let value = value
+                .to_str()
+                .ok_or_else(|| BpError::config_not_unicode(key))?;
+            if value.is_empty() {
+                return Err(BpError::config_empty(key));
+            }
+            let url =
+                Url::parse(value).map_err(|error| BpError::config_invalid_source(key, error))?;
+            if !allowed_schemes.contains(&url.scheme()) {
+                return Err(BpError::config_invalid(
+                    key,
+                    format!(
+                        "must use one of the schemes {}, got \"{}\"",
+                        allowed_schemes.join(", "),
+                        url.scheme()
+                    ),
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_if_present<T>(
+        &self,
+        key: &str,
+        accessor: impl FnOnce() -> BpResult<T>,
+    ) -> BpResult<()> {
+        if self.vars.contains_key(OsStr::new(key)) {
+            accessor()?;
+        }
+        Ok(())
     }
 
     pub fn lambda_function_name(&self, default: &str) -> BpResult<String> {
@@ -453,6 +566,52 @@ impl EnvVarConfig {
 mod tests {
     use super::*;
     use buildplane_errors::ConfigError;
+
+    #[test]
+    fn validate_rejects_invalid_values_for_present_variables() {
+        let config = EnvVarConfig::from_map([
+            (BUILD_AGENT_TIMEOUT_SECS, "not a number"),
+            (S3_SIGNED_URL_EXPIRY_SECS, "0"),
+            (INFISICAL_BASE_URL, "http://infisical.test"),
+            ("AWS_CONNECT_TIMEOUT_SECS", "soon"),
+        ]);
+
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn validate_accepts_valid_values_and_absent_required_variables() {
+        let config = EnvVarConfig::from_map([
+            (BUILD_AGENT_TIMEOUT_SECS, "120"),
+            (S3_SIGNED_URL_EXPIRY_SECS, "60"),
+            (INFISICAL_BASE_URL, "https://infisical.test"),
+            ("AWS_CONNECT_TIMEOUT_SECS", "10"),
+            ("BP_URL_TEST_HTTP_REAL", "https://example.test/api"),
+            ("BP_URL_TEST_WEBSOCKET_REAL", "wss://example.test/ws"),
+            ("RUST_LOG", "info,buildplane_config=debug"),
+        ]);
+
+        config.validate().unwrap();
+    }
+
+    #[test]
+    fn validate_rejects_invalid_url_overrides() {
+        let config = EnvVarConfig::from_map([("BP_URL_TEST_HTTP_REAL", "not a url")]);
+
+        assert!(config.validate().is_err());
+
+        let config =
+            EnvVarConfig::from_map([("BP_URL_TEST_WEBSOCKET_REAL", "https://example.test")]);
+
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn validate_rejects_invalid_log_filters() {
+        let config = EnvVarConfig::from_map([("RUST_LOG", "not a valid [directive")]);
+
+        assert!(config.validate().is_err());
+    }
 
     #[test]
     fn required_reports_missing_variable_name() {

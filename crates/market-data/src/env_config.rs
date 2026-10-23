@@ -6,6 +6,7 @@ use std::time::Duration;
 
 const DEFAULT_LAMBDA_FUNCTION_NAME: &str = "buildplane-market-data";
 
+#[derive(Clone)]
 pub struct EnvConfig {
     pub s3_bucket: Bucket,
     pub lambda_function_name: String,

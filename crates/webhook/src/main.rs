@@ -20,7 +20,7 @@ const DEFAULT_FUNCTION_NAME: &str = "buildplane-webhook";
 
 #[tokio::main]
 async fn main() -> BpResult<()> {
-    let config = EnvVarConfig::from_env();
+    let config = EnvVarConfig::from_env()?;
     TracingSetup::setup(&config)?;
     let recorder = metrics_cloudwatch_embedded::Builder::new()
         .cloudwatch_namespace("buildplane/webhook")

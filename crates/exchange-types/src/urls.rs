@@ -13,7 +13,7 @@ pub trait Urls {
         protocol: Protocol,
         trading_mode: TradingMode,
     ) -> BpResult<String> {
-        self.env_var_or_default_with(&EnvVarConfig::from_env(), prefix, protocol, trading_mode)
+        self.env_var_or_default_with(&EnvVarConfig::from_env()?, prefix, protocol, trading_mode)
     }
 
     fn env_var_or_default_with(
