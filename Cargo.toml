@@ -18,7 +18,7 @@ aws-sdk-s3 = "1"
 aws-sdk-s3-transfer-manager = "0.2"
 aws-sdk-sqs = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"] }
 aws-sigv4 = "1"
-aws-smithy-runtime-api = "1"
+aws-smithy-runtime-api = { version = "1", features = ["client", "http-1x"] }
 axum = "0.8"
 base64 = "0.23"
 bimap = "0.6"
