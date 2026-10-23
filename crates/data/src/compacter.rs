@@ -116,6 +116,8 @@ impl Compactor {
                 return Ok(());
             }
         };
+        let expected_files =
+            plan::Planner::expected_compaction_sources_with_suffix(prefix, suffix)?;
         if !expected_subfolders.is_empty() {
             let compacted_file = plan::Planner::compacted_file_path(prefix, suffix);
             let staged_file = Self::staged_file_path(&compacted_file);
@@ -125,13 +127,13 @@ impl Compactor {
                     compacted_file
                 );
                 S3::delete(s3_client, bucket, &staged_file).await?;
-                Self::delete_compacted_sources(s3_client, bucket, prefix, suffix).await?;
+                Self::delete_sources(s3_client, bucket, prefix, &expected_files).await?;
                 return Ok(());
             }
             if S3::has_file(s3_client, bucket, &staged_file).await? {
                 info!("publishing staged compacted file {}", staged_file);
                 S3::copy_file(s3_client, bucket, &staged_file, &compacted_file).await?;
-                Self::delete_compacted_sources(s3_client, bucket, prefix, suffix).await?;
+                Self::delete_sources(s3_client, bucket, prefix, &expected_files).await?;
                 S3::delete(s3_client, bucket, &staged_file).await?;
                 return Ok(());
             }
@@ -161,8 +163,6 @@ impl Compactor {
         } else {
             subfolders_files
         };
-        let expected_files =
-            plan::Planner::expected_compaction_sources_with_suffix(prefix, suffix)?;
         let missing = expected_files
             .iter()
             .filter(|expected| !subfolders_files.files.contains(*expected))
@@ -196,7 +196,6 @@ impl Compactor {
             prefix,
             &target.source_files,
             &target.compacted_file,
-            suffix,
         )
         .await?;
         Ok(())
@@ -206,56 +205,17 @@ impl Compactor {
         ObjectKey::new(format!("{}{}", compacted_file, STAGING_SUFFIX))
     }
 
-    async fn delete_compacted_sources(
-        s3_client: &S3Client,
-        bucket: &Bucket,
-        prefix: &ObjectKey,
-        suffix: &str,
-    ) -> BpResult<()> {
-        let subfolders_files = Self::subfolders_files(s3_client, bucket, prefix, suffix).await?;
-        Box::pin(Self::delete_sources(
-            s3_client,
-            bucket,
-            prefix,
-            suffix,
-            subfolders_files,
-        ))
-        .await
-    }
-
     async fn delete_sources(
         s3_client: &S3Client,
         bucket: &Bucket,
         prefix: &ObjectKey,
-        suffix: &str,
-        subfolders_files: SubfoldersFiles,
+        files: &[ObjectKey],
     ) -> BpResult<()> {
-        if !subfolders_files.files.is_empty() {
-            info!(
-                "deleting {} source files under {}",
-                subfolders_files.files.len(),
-                prefix
-            );
-            S3::delete_all(s3_client, bucket, &subfolders_files.files).await?;
+        if files.is_empty() {
+            return Ok(());
         }
-        for subfolder in &subfolders_files.subfolders {
-            let subfolder_full_path = ObjectKey::new(format!("{}{}", prefix, subfolder));
-            if let Err(error) = SubFolders::subfolders_from_path(subfolder_full_path.as_str()) {
-                warn!("skipping malformed path {}: {error}", subfolder_full_path);
-                continue;
-            }
-            let subfolders_files =
-                Self::subfolders_files(s3_client, bucket, &subfolder_full_path, suffix).await?;
-            Box::pin(Self::delete_sources(
-                s3_client,
-                bucket,
-                &subfolder_full_path,
-                suffix,
-                subfolders_files,
-            ))
-            .await?;
-        }
-        Ok(())
+        info!("deleting {} source files under {}", files.len(), prefix);
+        S3::delete_all(s3_client, bucket, files).await
     }
 
     async fn subfolders_files(
@@ -307,7 +267,6 @@ impl Compactor {
         prefix: &ObjectKey,
         files: &[ObjectKey],
         compacted_file: &ObjectKey,
-        suffix: &str,
     ) -> BpResult<()> {
         info!("compact files {:?} to {}", files, compacted_file);
         if files.is_empty() {
@@ -320,11 +279,11 @@ impl Compactor {
                 "no non-empty data to compact for {:?}; removing empty files",
                 files
             );
-            Self::delete_compacted_sources(s3_client, bucket, prefix, suffix).await?;
+            Self::delete_sources(s3_client, bucket, prefix, files).await?;
             return Ok(());
         }
         S3::copy_file(s3_client, bucket, &staged_file, compacted_file).await?;
-        Self::delete_compacted_sources(s3_client, bucket, prefix, suffix).await?;
+        Self::delete_sources(s3_client, bucket, prefix, files).await?;
         S3::delete(s3_client, bucket, &staged_file).await?;
         Ok(())
     }
