@@ -9,7 +9,7 @@ const BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES: &str =
 const BUILD_AGENT_SOURCE_DIR: &str = "BUILD_AGENT_SOURCE_DIR";
 const BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS: &str = "BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS";
 const BUILD_AGENT_TIMEOUT_SECS: &str = "BUILD_AGENT_TIMEOUT_SECS";
-const FAILURE_PUBLISH_BUDGET: &str = "FAILURE_PUBLISH_BUDGET";
+const FAILURE_PUBLISH_BUDGET_SECS: &str = "FAILURE_PUBLISH_BUDGET_SECS";
 const RUST_LOG: &str = "RUST_LOG";
 const S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES: &str = "S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES";
 
@@ -52,10 +52,10 @@ impl AgentConfig {
                 "must be greater than zero",
             ));
         }
-        let failure_publish_budget = vars.required_duration_secs(FAILURE_PUBLISH_BUDGET)?;
+        let failure_publish_budget = vars.required_duration_secs(FAILURE_PUBLISH_BUDGET_SECS)?;
         if failure_publish_budget.is_zero() {
             return Err(BpError::config_invalid(
-                FAILURE_PUBLISH_BUDGET,
+                FAILURE_PUBLISH_BUDGET_SECS,
                 "must be greater than zero",
             ));
         }
@@ -84,7 +84,7 @@ mod tests {
         (RUST_LOG, "info"),
         (AWS_LAMBDA_FUNCTION_NAME, "buildplane-agent"),
         (BUILD_AGENT_TIMEOUT_SECS, "300"),
-        (FAILURE_PUBLISH_BUDGET, "30"),
+        (FAILURE_PUBLISH_BUDGET_SECS, "30"),
         (BUILD_AGENT_SOURCE_DIR, "/var/task"),
         (BUILD_AGENT_BUILD_CACHE_DIR, "/tmp/buildplane-build-cache"),
         (BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS, "60"),
@@ -139,9 +139,9 @@ mod tests {
         let mut values = REQUIRED.to_vec();
         let budget_index = values
             .iter()
-            .position(|(name, _)| *name == FAILURE_PUBLISH_BUDGET)
+            .position(|(name, _)| *name == FAILURE_PUBLISH_BUDGET_SECS)
             .unwrap();
-        values[budget_index] = (FAILURE_PUBLISH_BUDGET, "0");
+        values[budget_index] = (FAILURE_PUBLISH_BUDGET_SECS, "0");
         assert!(AgentConfig::from_vars(&vars(&values)).is_err());
 
         let mut values = REQUIRED.to_vec();
