@@ -5,7 +5,7 @@ use buildplane_messages::build_request::{BuildOutcome, BuildRequest};
 use buildplane_metrics::{build::BuildMetrics, descriptions::DescriptionsMetrics};
 use lambda_runtime::{LambdaEvent, service_fn};
 use metrics_cloudwatch_embedded::lambda::service::run;
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 
 mod artifacts;
 mod config;
@@ -30,6 +30,7 @@ async fn main() -> BpResult<()> {
     );
     let handler = Handler::with_source_limits(
         config.build_timeout,
+        config.failure_publish_budget,
         config.source_dir,
         config.build_cache_dir,
         source_limits,
@@ -50,7 +51,13 @@ struct BuildAgent;
 impl BuildAgent {
     async fn handle(handler: Handler, event: LambdaEvent<BuildRequest>) -> BpResult<BuildOutcome> {
         let started_at = Instant::now();
-        match handler.handle(event.payload).await {
+        let deadline = Instant::now()
+            + event
+                .context
+                .deadline()
+                .duration_since(SystemTime::now())
+                .unwrap_or_default();
+        match handler.handle(event.payload, deadline).await {
             Ok(()) => {
                 BuildMetrics::record_success(started_at.elapsed());
                 Ok(BuildOutcome::success())

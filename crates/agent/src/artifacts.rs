@@ -277,7 +277,19 @@ impl Artifacts {
 
     pub async fn publish_failure(&self, error: &BpError) -> BpResult<()> {
         let source_result = self.publish_source().await;
+        if let Err(source_error) = &source_result {
+            tracing::error!(
+                error = %source_error,
+                "failed to publish source archive for failed build"
+            );
+        }
         let output_result = self.publish_compile_output(error).await;
+        if let Err(output_error) = &output_result {
+            tracing::error!(
+                error = %output_error,
+                "failed to publish compile output for failed build"
+            );
+        }
         output_result?;
         source_result
     }
