@@ -10,6 +10,8 @@ const AWS_ENDPOINT_URL_S3: &str = "AWS_ENDPOINT_URL_S3";
 const AWS_LAMBDA_FUNCTION_NAME: &str = "AWS_LAMBDA_FUNCTION_NAME";
 const AWS_OPERATION_TIMEOUT_SECS: &str = "AWS_OPERATION_TIMEOUT_SECS";
 const BUILD_AGENT_FUNCTION_NAME: &str = "BUILD_AGENT_FUNCTION_NAME";
+const BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS: &str = "BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS";
+const BUILD_AGENT_TIMEOUT_SECS: &str = "BUILD_AGENT_TIMEOUT_SECS";
 const DEADLINE_BUFFER_SECS: &str = "DEADLINE_BUFFER_SECS";
 const GITHUB_APP_ID: &str = "GITHUB_APP_ID";
 const GITHUB_APP_PRIVATE_KEY: &str = "GITHUB_APP_PRIVATE_KEY";
@@ -31,6 +33,7 @@ const SQS_PROCESS_CONCURRENCY: &str = "SQS_PROCESS_CONCURRENCY";
 const SQS_QUEUE_URL: &str = "SQS_QUEUE_URL";
 
 const MAX_SIGNED_URL_EXPIRY: Duration = Duration::from_secs(7 * 24 * 60 * 60);
+const SIGNED_POST_UPLOAD_MARGIN_SECS: u64 = 5 * 60;
 
 #[derive(Debug, Clone)]
 pub struct GitHubConfig {
@@ -83,12 +86,42 @@ impl OrchestratorConfig {
             HostAllowlist::from_hosts(vars.required_csv(GITHUB_ENTERPRISE_ALLOWED_HOSTS)?)?;
 
         let endpoint_url = vars.required_url(AWS_ENDPOINT_URL_S3, &["http", "https"])?;
+        let build_agent_timeout = vars.required_duration_secs(BUILD_AGENT_TIMEOUT_SECS)?;
+        if build_agent_timeout.is_zero() {
+            return Err(BpError::config_invalid(
+                BUILD_AGENT_TIMEOUT_SECS,
+                "must be greater than zero",
+            ));
+        }
+        let source_download_timeout =
+            vars.required_duration_secs(BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS)?;
+        if source_download_timeout.is_zero() {
+            return Err(BpError::config_invalid(
+                BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS,
+                "must be greater than zero",
+            ));
+        }
+        let minimum_signed_post_expiry = build_agent_timeout
+            .checked_add(source_download_timeout)
+            .and_then(|expiry| {
+                expiry.checked_add(Duration::from_secs(SIGNED_POST_UPLOAD_MARGIN_SECS))
+            })
+            .ok_or_else(|| {
+                BpError::config_invalid(
+                    S3_SIGNED_URL_EXPIRY_SECS,
+                    "minimum signed POST lifetime overflows the duration",
+                )
+            })?;
         let signed_url_expiry = vars.required_duration_secs(S3_SIGNED_URL_EXPIRY_SECS)?;
-        if signed_url_expiry.is_zero() || signed_url_expiry > MAX_SIGNED_URL_EXPIRY {
+        if signed_url_expiry.is_zero()
+            || signed_url_expiry > MAX_SIGNED_URL_EXPIRY
+            || signed_url_expiry < minimum_signed_post_expiry
+        {
             return Err(BpError::config_invalid(
                 S3_SIGNED_URL_EXPIRY_SECS,
                 format!(
-                    "must be between 1 and {} seconds (7 days)",
+                    "must be at least {} seconds (build agent timeout plus source download timeout plus upload margin) and at most {} seconds (7 days)",
+                    minimum_signed_post_expiry.as_secs(),
                     MAX_SIGNED_URL_EXPIRY.as_secs()
                 ),
             ));
@@ -132,9 +165,11 @@ mod tests {
     use super::*;
     use std::num::NonZeroU64;
 
-    const REQUIRED: [(&str, &str); 24] = [
+    const REQUIRED: [(&str, &str); 26] = [
         (RUST_LOG, "info"),
         (AWS_LAMBDA_FUNCTION_NAME, "buildplane-orchestrator"),
+        (BUILD_AGENT_TIMEOUT_SECS, "300"),
+        (BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS, "60"),
         (DEADLINE_BUFFER_SECS, "5"),
         (AWS_CONNECT_TIMEOUT_SECS, "10"),
         (AWS_OPERATION_TIMEOUT_SECS, "120"),
@@ -179,6 +214,41 @@ mod tests {
         );
         assert_eq!(config.sqs_process_concurrency.get(), 10);
         assert_eq!(config.deadline_buffer, Duration::from_secs(5));
+        assert_eq!(config.s3.signed_url_expiry, Duration::from_secs(3600));
+    }
+
+    #[test]
+    fn signed_post_expiry_covers_the_build_and_upload_window() {
+        let minimum = Duration::from_secs(300 + 60 + SIGNED_POST_UPLOAD_MARGIN_SECS);
+
+        let mut values = REQUIRED.to_vec();
+        let index = values
+            .iter()
+            .position(|(name, _)| *name == S3_SIGNED_URL_EXPIRY_SECS)
+            .unwrap();
+        values[index] = (S3_SIGNED_URL_EXPIRY_SECS, "659");
+        assert!(OrchestratorConfig::from_vars(&vars(&values)).is_err());
+
+        values[index] = (S3_SIGNED_URL_EXPIRY_SECS, "660");
+        let config = OrchestratorConfig::from_vars(&vars(&values)).unwrap();
+        assert_eq!(config.s3.signed_url_expiry, minimum);
+    }
+
+    #[test]
+    fn build_agent_durations_must_be_positive() {
+        for (name, value) in [
+            (BUILD_AGENT_TIMEOUT_SECS, "0"),
+            (BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS, "0"),
+        ] {
+            let mut values = REQUIRED.to_vec();
+            let index = values
+                .iter()
+                .position(|(required, _)| *required == name)
+                .unwrap();
+            values[index] = (name, value);
+
+            assert!(OrchestratorConfig::from_vars(&vars(&values)).is_err());
+        }
     }
 
     #[test]
@@ -214,6 +284,7 @@ mod tests {
             (S3_SIGNED_URL_EXPIRY_SECS, "0"),
             (S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES, "0"),
             (S3_MAX_ARTIFACT_SIZE_BYTES, "0"),
+            (S3_SIGNED_URL_EXPIRY_SECS, "604801"),
             (AWS_ENDPOINT_URL_S3, "ftp://minio.example.test"),
             (GITHUB_ENTERPRISE_ALLOWED_HOSTS, "not a host!"),
             (RUST_LOG, "not a valid [directive"),
