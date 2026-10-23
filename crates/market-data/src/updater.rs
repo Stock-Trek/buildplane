@@ -169,7 +169,8 @@ impl KlinesUpdater {
     ///
     /// Missing windows are always filled. With `force`, windows that already
     /// have a leaf file are fetched again and overwritten. Compacted periods are
-    /// skipped because rebuilding their roll-ups belongs to compaction.
+    /// skipped because rebuilding their roll-ups belongs to compaction; compacted
+    /// skips are counted and logged so an ignored correction is never silent.
     pub async fn backfill(
         &self,
         s3_client: &S3Client,
@@ -214,9 +215,23 @@ impl KlinesUpdater {
             backfill.force,
         )?;
         let window_count = plan.windows.len() + plan.windows_skipped;
+        let compacted_skips = plan.windows_skipped;
         let schema = Ingest::schema();
         let mut outcome = UpdateOutcome::default();
         outcome.record_skipped(plan.windows_skipped);
+        for skip in &plan.skipped_compacted {
+            if backfill.force {
+                warn!(
+                    "forced backfill {:?} skipped {} window(s) between {} and {} because {} is already compacted; compacted roll-ups cannot be overwritten by a backfill",
+                    resolved.trading_pair, skip.windows, skip.start, skip.end, skip.compacted_file
+                );
+            } else {
+                info!(
+                    "backfill {:?} skipped {} already compacted window(s) between {} and {} ({})",
+                    resolved.trading_pair, skip.windows, skip.start, skip.end, skip.compacted_file
+                );
+            }
+        }
         for (index, window) in plan.windows.iter().enumerate() {
             if let Err(error) = deadline.remaining() {
                 warn!("stopping backfill before deadline: {error}");
@@ -238,8 +253,12 @@ impl KlinesUpdater {
             outcome.record(ingest_outcome);
         }
         info!(
-            "backfill {:?} completed {} window(s): {} ingested, {} skipped",
-            resolved.trading_pair, window_count, outcome.windows_ingested, outcome.windows_skipped
+            "backfill {:?} completed {} window(s): {} ingested, {} skipped; {} compacted window(s) skipped",
+            resolved.trading_pair,
+            window_count,
+            outcome.windows_ingested,
+            outcome.windows_skipped,
+            compacted_skips
         );
         Ok(outcome)
     }
