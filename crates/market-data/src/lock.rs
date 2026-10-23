@@ -500,3 +500,351 @@ impl Drop for LockGuard {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aws_sdk_s3::{
+        config::{BehaviorVersion, Credentials, Region, retry::RetryConfig},
+        primitives::SdkBody,
+    };
+    use aws_smithy_runtime_api::client::{
+        http::{
+            HttpClient, HttpConnector, HttpConnectorFuture, HttpConnectorSettings,
+            SharedHttpConnector,
+        },
+        orchestrator::{HttpRequest, HttpResponse},
+        result::ConnectorError,
+        runtime_components::RuntimeComponents,
+    };
+    use http::Response;
+    use std::collections::VecDeque;
+
+    const ETAG_1: &str = "\"etag-1\"";
+    const ETAG_2: &str = "\"etag-2\"";
+
+    #[derive(Clone, Debug)]
+    struct FakeHttpClient {
+        responses: Arc<Mutex<VecDeque<HttpResponse>>>,
+        requests: Arc<Mutex<Vec<HttpRequest>>>,
+    }
+
+    impl FakeHttpClient {
+        fn new(responses: Vec<HttpResponse>) -> Self {
+            Self {
+                responses: Arc::new(Mutex::new(responses.into())),
+                requests: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+    }
+
+    impl HttpConnector for FakeHttpClient {
+        fn call(&self, request: HttpRequest) -> HttpConnectorFuture {
+            self.requests
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(request);
+            let response = self
+                .responses
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .pop_front();
+            HttpConnectorFuture::new(async move {
+                response
+                    .ok_or_else(|| ConnectorError::other("no fake response available".into(), None))
+            })
+        }
+    }
+
+    impl HttpClient for FakeHttpClient {
+        fn http_connector(
+            &self,
+            _settings: &HttpConnectorSettings,
+            _components: &RuntimeComponents,
+        ) -> SharedHttpConnector {
+            SharedHttpConnector::new(self.clone())
+        }
+    }
+
+    fn s3_response(status: u16, headers: &[(&str, &str)], body: &str) -> HttpResponse {
+        let mut response = Response::builder().status(status);
+        for (name, value) in headers {
+            response = response.header(*name, *value);
+        }
+        response
+            .body(SdkBody::from(body.to_owned()))
+            .unwrap()
+            .try_into()
+            .unwrap()
+    }
+
+    fn put_response(e_tag: Option<&str>) -> HttpResponse {
+        match e_tag {
+            Some(e_tag) => s3_response(200, &[("etag", e_tag)], ""),
+            None => s3_response(200, &[], ""),
+        }
+    }
+
+    fn delete_response() -> HttpResponse {
+        s3_response(204, &[], "")
+    }
+
+    fn precondition_failed_response() -> HttpResponse {
+        s3_response(412, &[], "")
+    }
+
+    fn s3_client(responses: Vec<HttpResponse>) -> (S3Client, FakeHttpClient) {
+        let http_client = FakeHttpClient::new(responses);
+        let config = aws_sdk_s3::config::Builder::new()
+            .behavior_version(BehaviorVersion::latest())
+            .region(Region::new("us-east-1"))
+            .credentials_provider(Credentials::new(
+                "test-key",
+                "test-secret",
+                None,
+                None,
+                "test",
+            ))
+            .retry_config(RetryConfig::disabled())
+            .http_client(http_client.clone())
+            .build();
+        (S3Client::from_conf(config), http_client)
+    }
+
+    fn bucket() -> Bucket {
+        Bucket::new("test-bucket")
+    }
+
+    fn key() -> ObjectKey {
+        ObjectKey::new("locks/market-data")
+    }
+
+    fn request_body(request: &HttpRequest) -> String {
+        String::from_utf8(request.body().bytes().unwrap_or_default().to_vec()).unwrap()
+    }
+
+    fn requests(http_client: &FakeHttpClient) -> std::sync::MutexGuard<'_, Vec<HttpRequest>> {
+        http_client
+            .requests
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    #[tokio::test]
+    async fn acquire_and_release_use_conditional_requests() {
+        let (s3_client, http_client) =
+            s3_client(vec![put_response(Some(ETAG_1)), delete_response()]);
+        let mut guard = LockGuard::acquire(&s3_client, &bucket(), &key())
+            .await
+            .unwrap();
+
+        guard.release().await.unwrap();
+        guard.release().await.unwrap();
+
+        let requests = requests(&http_client);
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0].method(), "PUT");
+        assert_eq!(requests[0].headers().get("if-none-match"), Some("*"));
+        assert!(request_body(&requests[0]).starts_with("locked:"));
+        assert_eq!(requests[1].method(), "DELETE");
+        assert_eq!(requests[1].headers().get("if-match"), Some(ETAG_1));
+    }
+
+    #[tokio::test]
+    async fn acquire_reports_contention_when_lock_is_held() {
+        let (s3_client, http_client) = s3_client(vec![
+            precondition_failed_response(),
+            s3_response(404, &[], ""),
+        ]);
+
+        let error = LockGuard::acquire_until(&s3_client, &bucket(), &key(), Instant::now())
+            .await
+            .err()
+            .expect("lock acquisition should fail");
+
+        assert!(matches!(
+            error,
+            BpError::Data(DataError::LockContention { .. })
+        ));
+        let requests = requests(&http_client);
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0].method(), "PUT");
+        assert_eq!(requests[1].method(), "HEAD");
+    }
+
+    #[tokio::test]
+    async fn stale_lock_is_removed_before_acquiring() {
+        let stale_last_modified = (Utc::now() - chrono::Duration::hours(1))
+            .format("%a, %d %b %Y %H:%M:%S GMT")
+            .to_string();
+        let (s3_client, http_client) = s3_client(vec![
+            precondition_failed_response(),
+            s3_response(
+                200,
+                &[("etag", ETAG_1), ("last-modified", &stale_last_modified)],
+                "",
+            ),
+            delete_response(),
+            put_response(Some(ETAG_2)),
+            delete_response(),
+        ]);
+
+        let mut guard = LockGuard::acquire(&s3_client, &bucket(), &key())
+            .await
+            .unwrap();
+        guard.release().await.unwrap();
+
+        let requests = requests(&http_client);
+        assert_eq!(requests.len(), 5);
+        assert_eq!(requests[0].method(), "PUT");
+        assert_eq!(requests[1].method(), "HEAD");
+        assert_eq!(requests[2].method(), "DELETE");
+        assert_eq!(requests[2].headers().get("if-match"), Some(ETAG_1));
+        assert_eq!(requests[3].method(), "PUT");
+        assert_eq!(requests[4].method(), "DELETE");
+        assert_eq!(requests[4].headers().get("if-match"), Some(ETAG_2));
+    }
+
+    #[tokio::test]
+    async fn acquire_reads_etag_from_head_when_put_response_omits_it() {
+        let (s3_client, http_client) = s3_client(vec![
+            put_response(None),
+            s3_response(200, &[("etag", ETAG_1)], ""),
+            delete_response(),
+        ]);
+
+        let mut guard = LockGuard::acquire(&s3_client, &bucket(), &key())
+            .await
+            .unwrap();
+        guard.release().await.unwrap();
+
+        let requests = requests(&http_client);
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[0].method(), "PUT");
+        assert_eq!(requests[1].method(), "HEAD");
+        assert_eq!(requests[2].method(), "DELETE");
+        assert_eq!(requests[2].headers().get("if-match"), Some(ETAG_1));
+    }
+
+    #[tokio::test]
+    async fn acquire_fails_when_lock_has_no_etag() {
+        let (s3_client, http_client) = s3_client(vec![
+            put_response(None),
+            s3_response(200, &[], ""),
+            s3_response(200, &[("etag", ETAG_1)], ""),
+        ]);
+
+        let error = LockGuard::acquire(&s3_client, &bucket(), &key())
+            .await
+            .err()
+            .expect("lock acquisition should fail");
+
+        assert!(matches!(
+            error,
+            BpError::Data(DataError::MissingLockETag { .. })
+        ));
+        let requests = requests(&http_client);
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[0].method(), "PUT");
+        assert_eq!(requests[1].method(), "HEAD");
+        assert_eq!(requests[2].method(), "GET");
+    }
+
+    #[tokio::test]
+    async fn renew_uses_current_etag() {
+        let (s3_client, http_client) = s3_client(vec![put_response(Some(ETAG_2))]);
+
+        let e_tag = LockGuard::renew(&s3_client, &bucket(), &key(), ETAG_1)
+            .await
+            .unwrap();
+
+        assert_eq!(e_tag.as_deref(), Some(ETAG_2));
+        let requests = requests(&http_client);
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].method(), "PUT");
+        assert_eq!(requests[0].headers().get("if-match"), Some(ETAG_1));
+        assert!(request_body(&requests[0]).starts_with("locked:"));
+    }
+
+    #[tokio::test]
+    async fn renew_returns_none_when_lock_was_taken_over() {
+        let (s3_client, _http_client) = s3_client(vec![precondition_failed_response()]);
+
+        let e_tag = LockGuard::renew(&s3_client, &bucket(), &key(), ETAG_1)
+            .await
+            .unwrap();
+
+        assert_eq!(e_tag, None);
+    }
+
+    #[tokio::test]
+    async fn release_does_not_delete_a_lost_lock() {
+        let (s3_client, http_client) = s3_client(vec![]);
+        let mut guard = LockGuard {
+            s3_client,
+            bucket: bucket(),
+            key: key(),
+            state: Arc::new(Mutex::new(LockState {
+                e_tag: ETAG_1.to_string(),
+                released: false,
+                lost: true,
+            })),
+            heartbeat: None,
+        };
+
+        guard.release().await.unwrap();
+
+        assert!(requests(&http_client).is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn heartbeat_renews_lock_and_release_uses_new_etag() {
+        let (s3_client, http_client) = s3_client(vec![
+            put_response(Some(ETAG_1)),
+            put_response(Some(ETAG_2)),
+            delete_response(),
+        ]);
+        let mut guard = LockGuard::acquire(&s3_client, &bucket(), &key())
+            .await
+            .unwrap();
+
+        tokio::task::yield_now().await;
+        tokio::time::advance(RENEW_INTERVAL + Duration::from_secs(1)).await;
+        for _ in 0..100 {
+            if requests(&http_client).len() >= 2 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        guard.release().await.unwrap();
+
+        let requests = requests(&http_client);
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[1].method(), "PUT");
+        assert_eq!(requests[1].headers().get("if-match"), Some(ETAG_1));
+        assert_eq!(requests[2].method(), "DELETE");
+        assert_eq!(requests[2].headers().get("if-match"), Some(ETAG_2));
+    }
+
+    #[tokio::test]
+    async fn dropping_guard_releases_lock() {
+        let (s3_client, http_client) =
+            s3_client(vec![put_response(Some(ETAG_1)), delete_response()]);
+        let guard = LockGuard::acquire(&s3_client, &bucket(), &key())
+            .await
+            .unwrap();
+
+        drop(guard);
+        for _ in 0..100 {
+            if requests(&http_client).len() >= 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        let requests = requests(&http_client);
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[1].method(), "DELETE");
+        assert_eq!(requests[1].headers().get("if-match"), Some(ETAG_1));
+    }
+}
