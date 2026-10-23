@@ -19,7 +19,7 @@ const BUILD_AGENT_BUILD_CACHE_DIR: &str = "BUILD_AGENT_BUILD_CACHE_DIR";
 const BUILD_AGENT_FUNCTION_NAME: &str = "BUILD_AGENT_FUNCTION_NAME";
 const BUILD_AGENT_SOURCE_DIR: &str = "BUILD_AGENT_SOURCE_DIR";
 const BUILD_AGENT_TIMEOUT_SECS: &str = "BUILD_AGENT_TIMEOUT_SECS";
-const DEADLINE_BUFFER: &str = "DEADLINE_BUFFER";
+const DEADLINE_BUFFER_SECS: &str = "DEADLINE_BUFFER_SECS";
 const ENTERPRISE_ALLOWED_HOSTS: &str = "GITHUB_ENTERPRISE_ALLOWED_HOSTS";
 const GITHUB_APP_ID: &str = "GITHUB_APP_ID";
 const GITHUB_APP_PRIVATE_KEY: &str = "GITHUB_APP_PRIVATE_KEY";
@@ -36,16 +36,16 @@ const S3_BUCKET: &str = "S3_BUCKET";
 const S3_BUCKET_USER_ARTIFACTS: &str = "S3_BUCKET_USER_ARTIFACTS";
 const S3_MAX_ARTIFACT_SIZE_BYTES: &str = "S3_MAX_ARTIFACT_SIZE_BYTES";
 const S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES: &str = "S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES";
-pub const S3_SIGNED_URL_EXPIRY: &str = "S3_SIGNED_URL_EXPIRY";
+pub const S3_SIGNED_URL_EXPIRY_SECS: &str = "S3_SIGNED_URL_EXPIRY_SECS";
 const SQS_DEDUP_MAX_MESSAGES: &str = "SQS_DEDUP_MAX_MESSAGES";
-const SQS_DEDUP_TTL: &str = "SQS_DEDUP_TTL";
+const SQS_DEDUP_TTL_SECS: &str = "SQS_DEDUP_TTL_SECS";
 const SQS_PROCESS_CONCURRENCY: &str = "SQS_PROCESS_CONCURRENCY";
 const SQS_QUEUE_URL: &str = "SQS_QUEUE_URL";
-const WEBHOOK_COLD_START_REFRESH_TIMEOUT: &str = "WEBHOOK_COLD_START_REFRESH_TIMEOUT";
+const WEBHOOK_COLD_START_REFRESH_TIMEOUT_SECS: &str = "WEBHOOK_COLD_START_REFRESH_TIMEOUT_SECS";
 const WEBHOOK_DEDUP_MAX_DELIVERIES: &str = "WEBHOOK_DEDUP_MAX_DELIVERIES";
-const WEBHOOK_DEDUP_TTL: &str = "WEBHOOK_DEDUP_TTL";
-const WEBHOOK_REFRESH_COOLDOWN: &str = "WEBHOOK_REFRESH_COOLDOWN";
-const WEBHOOK_SECRET_FAILURE_BACKOFF: &str = "WEBHOOK_SECRET_FAILURE_BACKOFF";
+const WEBHOOK_DEDUP_TTL_SECS: &str = "WEBHOOK_DEDUP_TTL_SECS";
+const WEBHOOK_REFRESH_COOLDOWN_SECS: &str = "WEBHOOK_REFRESH_COOLDOWN_SECS";
+const WEBHOOK_SECRET_FAILURE_BACKOFF_SECS: &str = "WEBHOOK_SECRET_FAILURE_BACKOFF_SECS";
 
 const DEFAULT_BUILD_AGENT_BUILD_CACHE_DIR: &str = "/tmp/buildplane-build-cache";
 const DEFAULT_BUILD_AGENT_SOURCE_DIR: &str = "/var/task";
@@ -113,7 +113,7 @@ impl EnvVarConfig {
     }
 
     pub fn deadline_buffer(&self) -> BpResult<Duration> {
-        self.duration(DEADLINE_BUFFER, DEFAULT_DEADLINE_BUFFER)
+        self.duration(DEADLINE_BUFFER_SECS, DEFAULT_DEADLINE_BUFFER)
     }
 
     pub fn github_app_id(&self) -> BpResult<u64> {
@@ -180,7 +180,7 @@ impl EnvVarConfig {
     }
 
     pub fn sqs_dedup_ttl(&self) -> BpResult<Duration> {
-        self.duration(SQS_DEDUP_TTL, DEFAULT_SQS_DEDUP_TTL)
+        self.duration(SQS_DEDUP_TTL_SECS, DEFAULT_SQS_DEDUP_TTL)
     }
 
     pub fn sqs_process_concurrency(&self) -> BpResult<NonZeroUsize> {
@@ -213,10 +213,10 @@ impl EnvVarConfig {
     }
 
     pub fn s3_signed_url_expiry(&self) -> BpResult<Duration> {
-        let expiry = self.duration(S3_SIGNED_URL_EXPIRY, DEFAULT_S3_SIGNED_URL_EXPIRY)?;
+        let expiry = self.duration(S3_SIGNED_URL_EXPIRY_SECS, DEFAULT_S3_SIGNED_URL_EXPIRY)?;
         if expiry.is_zero() || expiry > MAX_SIGNED_URL_EXPIRY {
             return Err(BpError::config_invalid(
-                S3_SIGNED_URL_EXPIRY,
+                S3_SIGNED_URL_EXPIRY_SECS,
                 format!(
                     "must be between 1 and {} seconds (7 days)",
                     MAX_SIGNED_URL_EXPIRY.as_secs()
@@ -260,23 +260,26 @@ impl EnvVarConfig {
     }
 
     pub fn webhook_dedup_ttl(&self) -> BpResult<Duration> {
-        self.duration(WEBHOOK_DEDUP_TTL, DEFAULT_WEBHOOK_DEDUP_TTL)
+        self.duration(WEBHOOK_DEDUP_TTL_SECS, DEFAULT_WEBHOOK_DEDUP_TTL)
     }
 
     pub fn webhook_refresh_cooldown(&self) -> BpResult<Duration> {
-        self.duration(WEBHOOK_REFRESH_COOLDOWN, DEFAULT_WEBHOOK_REFRESH_COOLDOWN)
+        self.duration(
+            WEBHOOK_REFRESH_COOLDOWN_SECS,
+            DEFAULT_WEBHOOK_REFRESH_COOLDOWN,
+        )
     }
 
     pub fn webhook_secret_failure_backoff(&self) -> BpResult<Duration> {
         self.duration(
-            WEBHOOK_SECRET_FAILURE_BACKOFF,
+            WEBHOOK_SECRET_FAILURE_BACKOFF_SECS,
             DEFAULT_WEBHOOK_SECRET_FAILURE_BACKOFF,
         )
     }
 
     pub fn webhook_cold_start_refresh_timeout(&self) -> BpResult<Duration> {
         self.duration(
-            WEBHOOK_COLD_START_REFRESH_TIMEOUT,
+            WEBHOOK_COLD_START_REFRESH_TIMEOUT_SECS,
             DEFAULT_WEBHOOK_COLD_START_REFRESH_TIMEOUT,
         )
     }
@@ -372,11 +375,15 @@ impl EnvVarConfig {
     /// Read an environment variable by name without applying any parsing.
     ///
     /// This is for values whose names are only known at runtime, such as the
-    /// per-exchange URL overrides. Missing and empty values are reported as
-    /// [`ConfigError::Missing`](crate::errors::ConfigError::Missing).
+    /// per-exchange URL overrides. Missing values are reported as
+    /// [`ConfigError::Missing`](crate::errors::ConfigError::Missing) and empty
+    /// values as [`ConfigError::Empty`](crate::errors::ConfigError::Empty).
     pub fn required(&self, name: &str) -> BpResult<String> {
-        self.optional(name)
-            .and_then(|value| value.ok_or_else(|| BpError::config_missing(name)))
+        match self.raw(name)? {
+            Some(value) if value.is_empty() => Err(BpError::config_empty(name)),
+            Some(value) => Ok(value),
+            None => Err(BpError::config_missing(name)),
+        }
     }
 
     pub fn required_lossy(&self, name: &str) -> BpResult<String> {
@@ -438,7 +445,7 @@ mod tests {
     }
 
     #[test]
-    fn required_treats_empty_variable_as_missing() {
+    fn required_reports_empty_variable_as_empty() {
         let config = EnvVarConfig::from_map([("BUILDPLANE_TEST_EMPTY_ENV_VAR", "")]);
 
         let error = config
@@ -447,7 +454,7 @@ mod tests {
 
         assert!(matches!(
             &error,
-            BpError::Config(ConfigError::Missing { name })
+            BpError::Config(ConfigError::Empty { name })
                 if name == "BUILDPLANE_TEST_EMPTY_ENV_VAR"
         ));
     }
@@ -520,6 +527,51 @@ mod tests {
             config.build_agent_build_cache_dir().unwrap(),
             PathBuf::from("/var/cache/agent")
         );
+    }
+
+    #[test]
+    fn duration_variables_use_secs_suffix() {
+        let config = EnvVarConfig::from_map([
+            ("DEADLINE_BUFFER_SECS", "1"),
+            ("S3_SIGNED_URL_EXPIRY_SECS", "2"),
+            ("SQS_DEDUP_TTL_SECS", "3"),
+            ("WEBHOOK_COLD_START_REFRESH_TIMEOUT_SECS", "4"),
+            ("WEBHOOK_DEDUP_TTL_SECS", "5"),
+            ("WEBHOOK_REFRESH_COOLDOWN_SECS", "6"),
+            ("WEBHOOK_SECRET_FAILURE_BACKOFF_SECS", "7"),
+        ]);
+
+        assert_eq!(config.deadline_buffer().unwrap(), Duration::from_secs(1));
+        assert_eq!(
+            config.s3_signed_url_expiry().unwrap(),
+            Duration::from_secs(2)
+        );
+        assert_eq!(config.sqs_dedup_ttl().unwrap(), Duration::from_secs(3));
+        assert_eq!(
+            config.webhook_cold_start_refresh_timeout().unwrap(),
+            Duration::from_secs(4)
+        );
+        assert_eq!(config.webhook_dedup_ttl().unwrap(), Duration::from_secs(5));
+        assert_eq!(
+            config.webhook_refresh_cooldown().unwrap(),
+            Duration::from_secs(6)
+        );
+        assert_eq!(
+            config.webhook_secret_failure_backoff().unwrap(),
+            Duration::from_secs(7)
+        );
+    }
+
+    #[test]
+    fn empty_duration_reports_empty() {
+        let config = EnvVarConfig::from_map([("DEADLINE_BUFFER_SECS", "")]);
+
+        let error = config.deadline_buffer().unwrap_err();
+
+        assert!(matches!(
+            &error,
+            BpError::Config(ConfigError::Empty { name }) if name == "DEADLINE_BUFFER_SECS"
+        ));
     }
 
     #[test]

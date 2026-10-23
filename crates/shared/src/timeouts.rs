@@ -59,10 +59,14 @@ impl Timeouts {
         default_operation: Duration,
     ) -> BpResult<Self> {
         Ok(Self {
-            connect: Self::timeout(config, &format!("{name}_CONNECT_TIMEOUT"), default_connect)?,
+            connect: Self::timeout(
+                config,
+                &format!("{name}_CONNECT_TIMEOUT_SECS"),
+                default_connect,
+            )?,
             operation: Self::timeout(
                 config,
-                &format!("{name}_OPERATION_TIMEOUT"),
+                &format!("{name}_OPERATION_TIMEOUT_SECS"),
                 default_operation,
             )?,
         })

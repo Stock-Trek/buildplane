@@ -12,7 +12,7 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use buildplane_shared::errors::{StorageError, TimeoutError};
 use buildplane_shared::{
     deadline::Deadline,
-    env_vars::{EnvVarConfig, S3_SIGNED_URL_EXPIRY},
+    env_vars::{EnvVarConfig, S3_SIGNED_URL_EXPIRY_SECS},
     errors::{BpError, BpResult},
     timeouts::Timeouts,
 };
@@ -510,7 +510,10 @@ impl S3 {
         expires_in: Duration,
     ) -> BpResult<PresignedPost> {
         let expires_at = now.checked_add(expires_in).ok_or_else(|| {
-            BpError::config_invalid(S3_SIGNED_URL_EXPIRY, "expiry overflows the system clock")
+            BpError::config_invalid(
+                S3_SIGNED_URL_EXPIRY_SECS,
+                "expiry overflows the system clock",
+            )
         })?;
         let (date, amz_date) = Self::amz_date(now);
         let credential = format!(
