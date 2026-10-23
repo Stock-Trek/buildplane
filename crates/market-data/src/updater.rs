@@ -106,8 +106,8 @@ impl KlinesUpdater {
         let mut outcome = UpdateOutcome::default();
         let mut errors = Vec::new();
         for (cex_id, trading_mode, trading_pairs) in common_trading_pairs() {
-            if let Err(error) = deadline.remaining() {
-                warn!("stopping update before deadline: {error}");
+            if !deadline.has_remaining() {
+                warn!("stopping update before deadline");
                 outcome.record_deadline(0);
                 break;
             }
@@ -194,8 +194,8 @@ impl KlinesUpdater {
             "backfill {:?} between {} and {} (force: {})",
             resolved.trading_pair, backfill.start, backfill.end, backfill.force
         );
-        if let Err(error) = deadline.remaining() {
-            warn!("stopping backfill before deadline: {error}");
+        if !deadline.has_remaining() {
+            warn!("stopping backfill before deadline");
             let mut outcome = UpdateOutcome::default();
             outcome.record_deadline(0);
             return Ok(outcome);
@@ -234,8 +234,8 @@ impl KlinesUpdater {
             }
         }
         for (index, window) in plan.windows.iter().enumerate() {
-            if let Err(error) = deadline.remaining() {
-                warn!("stopping backfill before deadline: {error}");
+            if !deadline.has_remaining() {
+                warn!("stopping backfill before deadline");
                 outcome.record_deadline(plan.windows.len() - index);
                 break;
             }
@@ -308,8 +308,8 @@ impl KlinesUpdater {
         let mut outcome = UpdateOutcome::default();
         let mut errors = Vec::new();
         for trading_pair in trading_pairs {
-            if let Err(error) = deadline.remaining() {
-                warn!("stopping exchange update before deadline: {error}");
+            if !deadline.has_remaining() {
+                warn!("stopping exchange update before deadline");
                 outcome.record_deadline(0);
                 break;
             }
@@ -387,15 +387,13 @@ impl KlinesUpdater {
             end_time,
             backfill_start,
         } = update;
-        let remaining = match deadline.remaining() {
-            Ok(remaining) => remaining,
-            Err(error) => {
-                warn!("stopping trading pair update before deadline: {error}");
-                let mut outcome = UpdateOutcome::default();
-                outcome.record_deadline(0);
-                return Ok(outcome);
-            }
-        };
+        if !deadline.has_remaining() {
+            warn!("stopping trading pair update before deadline");
+            let mut outcome = UpdateOutcome::default();
+            outcome.record_deadline(0);
+            return Ok(outcome);
+        }
+        let remaining = deadline.remaining_or_zero();
         let _permit = match tokio::time::timeout(remaining, semaphore.acquire()).await {
             Ok(result) => result.map_err(|_| BpError::System(SystemError::SemaphoreClosed))?,
             Err(_) => {
@@ -405,8 +403,8 @@ impl KlinesUpdater {
                 return Ok(outcome);
             }
         };
-        if let Err(error) = deadline.remaining() {
-            warn!("stopping trading pair update before deadline: {error}");
+        if !deadline.has_remaining() {
+            warn!("stopping trading pair update before deadline");
             let mut outcome = UpdateOutcome::default();
             outcome.record_deadline(0);
             return Ok(outcome);
@@ -429,11 +427,8 @@ impl KlinesUpdater {
         let mut outcome = UpdateOutcome::default();
         outcome.record_skipped(plan.windows_skipped);
         for (index, window) in plan.windows.iter().enumerate() {
-            if let Err(error) = deadline.remaining() {
-                warn!(
-                    "stopping update of {:?} before deadline: {error}",
-                    trading_pair
-                );
+            if !deadline.has_remaining() {
+                warn!("stopping update of {:?} before deadline", trading_pair);
                 outcome.record_deadline(plan.windows.len() - index);
                 break;
             }
