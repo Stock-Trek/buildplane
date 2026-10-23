@@ -380,6 +380,17 @@ pub struct JobOutcome {
     pub windows_ingested: usize,
     pub windows_skipped: usize,
     pub compaction_targets: usize,
+    pub incomplete: bool,
+}
+
+impl JobOutcome {
+    pub fn status(&self) -> &'static str {
+        if self.incomplete || self.windows_skipped > 0 {
+            "incomplete"
+        } else {
+            "ok"
+        }
+    }
 }
 
 fn deserialize_timestamp<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>
@@ -648,5 +659,26 @@ mod tests {
     fn unsupported_pair_is_rejected() {
         let pair = TradingPairPath::new("paper/binance/dogecoin/tetherusd");
         assert!(pair.resolve().is_err());
+    }
+
+    #[test]
+    fn outcome_status_reflects_skipped_windows_and_explicit_incompleteness() {
+        assert_eq!(JobOutcome::default().status(), "ok");
+        assert_eq!(
+            JobOutcome {
+                windows_skipped: 2,
+                ..JobOutcome::default()
+            }
+            .status(),
+            "incomplete"
+        );
+        assert_eq!(
+            JobOutcome {
+                incomplete: true,
+                ..JobOutcome::default()
+            }
+            .status(),
+            "incomplete"
+        );
     }
 }
