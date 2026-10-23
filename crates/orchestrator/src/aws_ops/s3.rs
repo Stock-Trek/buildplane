@@ -10,7 +10,7 @@ use aws_sdk_s3::{
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use buildplane_config::env_vars::{EnvVarConfig, S3_SIGNED_URL_EXPIRY_SECS};
-use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{BpError, BpResult, Retryability};
 use buildplane_errors::{StorageError, TimeoutError};
 use buildplane_time::deadline::Deadline;
 use buildplane_time::timeouts::Timeouts;
@@ -349,15 +349,7 @@ impl S3 {
             SdkError::ConstructionFailure(_) => false,
             SdkError::ServiceError(context) => {
                 let code = context.err().code().unwrap_or_default();
-                !(code.starts_with("Invalid")
-                    || code.ends_with("NotFound")
-                    || matches!(
-                        code,
-                        "AccessDenied"
-                            | "NoSuchBucket"
-                            | "NotImplemented"
-                            | "ObjectLockConfigurationNotFoundError"
-                    ))
+                Retryability::from_s3_error_code(code).is_retryable()
             }
             _ => true,
         }

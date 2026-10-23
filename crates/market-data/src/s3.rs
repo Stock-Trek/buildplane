@@ -6,7 +6,7 @@ use aws_sdk_s3::{
 };
 use aws_sdk_s3_transfer_manager::{Client as TransferClient, io::InputStream};
 use buildplane_errors::StorageError;
-use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{BpError, BpResult, S3DeleteObjectFailure};
 use bytes::Bytes;
 use std::{fmt, io, path::Path};
 use tracing::info;
@@ -269,16 +269,12 @@ impl S3 {
                 let failures = output
                     .errors()
                     .iter()
-                    .map(|error| {
-                        format!(
-                            "{}: {} ({})",
-                            error.key().unwrap_or("unknown key"),
-                            error.code().unwrap_or("unknown code"),
-                            error.message().unwrap_or("no message")
-                        )
+                    .map(|error| S3DeleteObjectFailure {
+                        key: error.key().unwrap_or("unknown key").to_string(),
+                        code: error.code().unwrap_or("unknown code").to_string(),
+                        message: error.message().map(str::to_string),
                     })
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                    .collect::<Vec<_>>();
                 errors.push(BpError::Storage(StorageError::S3DeleteObjects {
                     target,
                     failures,
