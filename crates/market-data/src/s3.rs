@@ -8,7 +8,7 @@ use aws_sdk_s3_transfer_manager::{Client as TransferClient, io::InputStream};
 use buildplane_errors::StorageError;
 use buildplane_errors::{BpError, BpResult};
 use bytes::Bytes;
-use std::{fmt, path::Path};
+use std::{fmt, io, path::Path};
 use tracing::info;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -136,8 +136,27 @@ impl S3 {
             .key(key.as_str())
             .send()
             .await
-            .map_err(|error| BpError::s3("read object metadata", target, error))?;
-        Ok(output.content_length().unwrap_or_default().max(0) as u64)
+            .map_err(|error| BpError::s3("read object metadata", target.clone(), error))?;
+        let size = output.content_length().ok_or_else(|| {
+            BpError::s3(
+                "read object metadata",
+                target.clone(),
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "HEAD response did not include the object size",
+                ),
+            )
+        })?;
+        u64::try_from(size).map_err(|_| {
+            BpError::s3(
+                "read object metadata",
+                target,
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("HEAD response reported an invalid object size: {size}"),
+                ),
+            )
+        })
     }
 
     pub async fn list_files(
