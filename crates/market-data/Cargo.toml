@@ -29,5 +29,5 @@ tokio.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
-aws-smithy-runtime-api = { version = "1", features = ["client", "http-1x"] }
+aws-smithy-runtime-api.workspace = true
 http.workspace = true
