@@ -12,26 +12,11 @@ use aws_sdk_s3_transfer_manager::Client as TransferClient;
 use buildplane_errors::{BpError, BpResult, DataError, TimeoutError};
 use buildplane_time::deadline::Deadline;
 use chrono::{DateTime, Utc};
-use std::time::{Duration, SystemTime};
 use tracing::{error, info, warn};
 
 pub struct Orchestrator;
 
 impl Orchestrator {
-    /// Run the default scheduled update and compaction.
-    ///
-    /// This keeps the previous entry point available for callers that do not
-    /// need to select a job explicitly.
-    pub async fn run(env_config: &EnvConfig) -> BpResult<()> {
-        let deadline = Deadline::new(
-            SystemTime::now() + Duration::from_secs(15 * 60),
-            env_config.deadline_buffer,
-        );
-        Self::run_job(env_config, &Job::Update, deadline)
-            .await
-            .map(|_| ())
-    }
-
     /// Acquire the global lock and execute one explicitly selected job.
     pub async fn run_job(
         env_config: &EnvConfig,
