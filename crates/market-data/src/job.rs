@@ -21,17 +21,11 @@ use stock_trek_types::cex::{cex_id::CexId, trading_pair::TradingPair};
 ///   "force": true }
 /// ```
 ///
-/// The payload must explicitly include a `mode`, `job`, or `action` field.
+/// The payload must explicitly include a `mode`, `job`, or `action` field
+/// whose value is one of `update`, `backfill`, or `compact`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "mode", rename_all = "snake_case")]
 pub enum Job {
-    #[serde(
-        alias = "scheduled",
-        alias = "scheduled_update",
-        alias = "scheduled-update",
-        alias = "update_all",
-        alias = "update-all"
-    )]
     Update,
     Backfill(BackfillJob),
     Compact(CompactJob),
@@ -59,7 +53,6 @@ impl Job {
 
     fn parse_value(value: Value) -> BpResult<Self> {
         match value {
-            Value::String(mode) => Self::from_mode(&mode, Map::new()),
             Value::Object(mut object) => {
                 let mut tag_keys = ["mode", "job", "action"]
                     .into_iter()
@@ -128,9 +121,8 @@ impl Job {
     }
 
     fn from_mode(mode: &str, object: Map<String, Value>) -> BpResult<Self> {
-        let mode = mode.trim().to_ascii_lowercase().replace('-', "_");
-        match mode.as_str() {
-            "update" | "scheduled" | "scheduled_update" | "update_all" => {
+        match mode {
+            "update" => {
                 if object.is_empty() {
                     Ok(Self::Update)
                 } else {
@@ -505,16 +497,6 @@ mod tests {
             Job::Update
         );
         assert!(serde_json::from_value::<Job>(json!({ "mode": "update", "extra": true })).is_err());
-    }
-
-    #[test]
-    fn scheduled_aliases_are_accepted() {
-        for mode in ["update", "scheduled", "scheduled-update", "update_all"] {
-            assert_eq!(
-                Job::from_value(json!({ "mode": mode })).unwrap(),
-                Job::Update
-            );
-        }
     }
 
     #[test]
