@@ -156,7 +156,13 @@ impl SignedPost {
 
         let status = response.status();
         if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
+            let body = response.text().await.map_err(|source| {
+                BpError::http_request(
+                    "read upload failure response",
+                    path.display().to_string(),
+                    source,
+                )
+            })?;
             if let Some(max_bytes) = self.max_artifact_size_bytes
                 && Self::is_entity_too_large(&body)
             {
