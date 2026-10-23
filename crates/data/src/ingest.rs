@@ -8,12 +8,12 @@ use arrow_array::{ArrayRef, Decimal128Array, Int64Array, RecordBatch};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
 use buildplane_exchange_types::klines::Kline;
-use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_shared::errors::{BpError, BpResult, DecimalScaleError};
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use parquet::arrow::ArrowWriter;
 use rust_decimal::Decimal;
-use std::{fmt, sync::Arc};
+use std::sync::Arc;
 use stock_trek_types::cex::trading_pair::TradingPair;
 use tracing::warn;
 
@@ -27,24 +27,6 @@ const DECIMAL_SCALE: i8 = 18;
 const DECIMAL_SCALE_U32: u32 = DECIMAL_SCALE as u32;
 
 pub struct Ingest;
-
-#[derive(Debug)]
-struct DecimalScaleError {
-    value: Decimal,
-    scale: u32,
-}
-
-impl fmt::Display for DecimalScaleError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "value {} cannot be represented with scale {}",
-            self.value, self.scale
-        )
-    }
-}
-
-impl std::error::Error for DecimalScaleError {}
 
 /// The result of trying to ingest one window.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -132,13 +114,7 @@ impl Ingest {
 
     fn candle_field_to_decimal(field: &'static str, mut value: Decimal) -> BpResult<i128> {
         let scale_error = |value: Decimal| {
-            BpError::candle_conversion(
-                field,
-                DecimalScaleError {
-                    value,
-                    scale: DECIMAL_SCALE_U32,
-                },
-            )
+            BpError::candle_conversion(field, DecimalScaleError::new(value, DECIMAL_SCALE_U32))
         };
         let source_scale = value.scale();
         if source_scale > DECIMAL_SCALE_U32 {

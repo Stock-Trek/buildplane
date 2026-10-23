@@ -1145,6 +1145,7 @@ dependencies = [
  "parking_lot",
  "parquet",
  "reqwest 0.12.28",
+ "rust_decimal",
  "serde",
  "serde_json",
  "strum",

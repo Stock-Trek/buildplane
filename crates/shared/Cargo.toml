@@ -22,6 +22,7 @@ octocrab.workspace = true
 parking_lot.workspace = true
 parquet.workspace = true
 reqwest.workspace = true
+rust_decimal.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 strum.workspace = true

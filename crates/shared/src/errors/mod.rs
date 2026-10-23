@@ -21,7 +21,7 @@ pub use binance::{BinanceError, BinanceErrorData};
 pub use bp::{BpError, BpResult};
 pub use config::ConfigError;
 pub use connector::{ConnectorError, SendFailure};
-pub use data::DataError;
+pub use data::{DataError, DecimalScaleError};
 pub use exchange::ExchangeError;
 pub use github::GitHubError;
 pub use http::HttpError;

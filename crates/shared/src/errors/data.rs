@@ -1,6 +1,7 @@
 use crate::errors::{bp::BpError, retryability::Retryability};
 use chrono::{DateTime, Utc};
-use std::error::Error as StdError;
+use rust_decimal::Decimal;
+use std::{error::Error as StdError, fmt};
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
@@ -45,6 +46,30 @@ pub enum DataError {
     #[error("Trading pair {pair} is not configured for data collection")]
     UnsupportedTradingPair { pair: String },
 }
+
+#[derive(Debug)]
+pub struct DecimalScaleError {
+    value: Decimal,
+    scale: u32,
+}
+
+impl DecimalScaleError {
+    pub fn new(value: Decimal, scale: u32) -> Self {
+        Self { value, scale }
+    }
+}
+
+impl fmt::Display for DecimalScaleError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "value {} cannot be represented with scale {}",
+            self.value, self.scale
+        )
+    }
+}
+
+impl StdError for DecimalScaleError {}
 
 impl DataError {
     pub fn multiple(failures: impl IntoIterator<Item = BpError>) -> Self {
