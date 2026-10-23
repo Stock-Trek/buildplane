@@ -132,6 +132,7 @@ impl Sqs {
                 .map(|failure| {
                     let index = failure.id().parse::<usize>().ok();
                     SqsBatchFailure {
+                        index,
                         source: index.and_then(|index| messages.get(index).cloned()),
                         code: failure.code().to_owned(),
                         detail: failure.message().map(str::to_owned),
@@ -173,11 +174,14 @@ impl Sqs {
             let timeout = match self.timeouts.operation_timeout(deadline) {
                 Ok(timeout) => timeout,
                 Err(error) => {
-                    failures.extend(messages[index..].iter().map(|message| SqsBatchFailure {
-                        source: Some(message.clone()),
-                        code: "DeadlineExceeded".to_owned(),
-                        detail: Some(error.to_string()),
-                    }));
+                    failures.extend(messages[index..].iter().enumerate().map(
+                        |(offset, message)| SqsBatchFailure {
+                            index: Some(index + offset),
+                            source: Some(message.clone()),
+                            code: "DeadlineExceeded".to_owned(),
+                            detail: Some(error.to_string()),
+                        },
+                    ));
                     break;
                 }
             };
@@ -214,11 +218,7 @@ impl Sqs {
                 remaining.push(failure);
                 continue;
             }
-            let Some(index) = failure
-                .source
-                .as_ref()
-                .and_then(|source| messages.iter().position(|message| message == source))
-            else {
+            let Some(index) = failure.index.filter(|&index| index < messages.len()) else {
                 remaining.push(failure);
                 continue;
             };
@@ -261,12 +261,14 @@ impl Sqs {
                 let error = error.into_service_error();
                 let code = error.code().unwrap_or("RequestFailure").to_owned();
                 Some(SqsBatchFailure {
+                    index: Some(index),
                     source: Some(message.clone()),
                     code,
                     detail: Some(error.to_string()),
                 })
             }
             Err(_) => Some(SqsBatchFailure {
+                index: Some(index),
                 source: Some(message.clone()),
                 code: "RequestTimeout".to_owned(),
                 detail: Some(format!("SQS send_message timed out for entry {index}")),
@@ -283,6 +285,7 @@ impl Sqs {
         indices
             .iter()
             .map(|&index| SqsBatchFailure {
+                index: Some(index),
                 source: messages.get(index).cloned(),
                 code: code.to_owned(),
                 detail: Some(detail.clone()),

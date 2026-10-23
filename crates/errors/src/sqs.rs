@@ -57,6 +57,7 @@ impl SqsError {
 
 #[derive(Debug)]
 pub struct SqsBatchFailure {
+    pub index: Option<usize>,
     pub source: Option<SqsMessage>,
     pub code: String,
     pub detail: Option<String>,
@@ -72,8 +73,8 @@ impl std::fmt::Display for SqsBatchFailure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             formatter,
-            "source={:?} code={:?} detail={:?}",
-            self.source, self.code, self.detail
+            "index={:?} source={:?} code={:?} detail={:?}",
+            self.index, self.source, self.code, self.detail
         )
     }
 }
