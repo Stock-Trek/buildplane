@@ -11,6 +11,16 @@ pub enum SendFailure {
     Unknown,
 }
 
+impl SendFailure {
+    pub fn is_not_sent(self) -> bool {
+        matches!(self, Self::NotSent)
+    }
+
+    pub fn is_unknown(self) -> bool {
+        matches!(self, Self::Unknown)
+    }
+}
+
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum ConnectorError {
@@ -86,24 +96,11 @@ impl ConnectorError {
         Self::send_unknown(BpError::external(source))
     }
 
-    pub fn was_not_sent(&self) -> bool {
-        matches!(
-            self,
-            Self::Send {
-                failure: SendFailure::NotSent,
-                ..
-            }
-        )
-    }
-
-    pub fn has_unknown_response(&self) -> bool {
-        matches!(
-            self,
-            Self::Send {
-                failure: SendFailure::Unknown,
-                ..
-            }
-        )
+    pub fn send_failure(&self) -> Option<SendFailure> {
+        match self {
+            Self::Send { failure, .. } => Some(*failure),
+            _ => None,
+        }
     }
 
     pub fn error_type(&self) -> &'static str {
@@ -135,5 +132,35 @@ impl From<BpError> for ConnectorError {
             failure: SendFailure::NotSent,
             source: Box::new(source),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn source() -> BpError {
+        BpError::external("test failure")
+    }
+
+    #[test]
+    fn send_failure_reports_the_send_outcome() {
+        assert_eq!(
+            ConnectorError::send_not_sent(source()).send_failure(),
+            Some(SendFailure::NotSent)
+        );
+        assert_eq!(
+            ConnectorError::send_failed(source()).send_failure(),
+            Some(SendFailure::Failed)
+        );
+        assert_eq!(
+            ConnectorError::send_unknown(source()).send_failure(),
+            Some(SendFailure::Unknown)
+        );
+    }
+
+    #[test]
+    fn non_send_errors_have_no_send_failure() {
+        assert_eq!(ConnectorError::NotConnected.send_failure(), None);
     }
 }

@@ -68,7 +68,7 @@ impl BuildAgent {
 
     fn handle_error(error: BpError, started_at: Instant) -> BpResult<BuildOutcome> {
         let duration = started_at.elapsed();
-        if error.is_retryable() {
+        if error.retryability().is_retryable() {
             BuildMetrics::record_retryable_failure(error.error_type(), duration);
             tracing::error!(
                 error_type = error.error_type(),
@@ -125,6 +125,6 @@ mod tests {
             BuildAgent::handle_error(error, Instant::now() - Duration::from_secs(1)).unwrap_err();
 
         assert_eq!(error.error_type(), "build_timeout");
-        assert!(error.is_retryable());
+        assert!(error.retryability().is_retryable());
     }
 }

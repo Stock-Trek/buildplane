@@ -66,13 +66,13 @@ impl WebhookHandler {
                 metrics.record_error_status("secrets_unavailable", status.as_u16());
                 Responses::service_unavailable(retry_after)
             }
-            Err(error) if !error.is_retryable() && error.is_client_error() => {
+            Err(error) if !error.retryability().is_retryable() && error.is_client_error() => {
                 tracing::error!("rejecting permanently failing webhook request: {error}");
                 let status = StatusCode::BAD_REQUEST;
                 metrics.record_error_status(error.error_type(), status.as_u16());
                 Responses::bad_request()
             }
-            Err(error) if !error.is_retryable() => {
+            Err(error) if !error.retryability().is_retryable() => {
                 tracing::error!("webhook request failed with a permanent server error: {error}");
                 let status = StatusCode::INTERNAL_SERVER_ERROR;
                 metrics.record_error_status(error.error_type(), status.as_u16());
@@ -171,7 +171,7 @@ impl WebhookHandler {
                             );
                             return Ok(EventResponse::Accept(messages));
                         }
-                        Err(error) if !error.is_retryable() => {
+                        Err(error) if !error.retryability().is_retryable() => {
                             if let Some(delivery_id) = delivery_id {
                                 request_context.context.dedup().forget(delivery_id);
                             }
