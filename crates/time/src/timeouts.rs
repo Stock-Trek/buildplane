@@ -71,7 +71,7 @@ impl Timeouts {
     }
 
     pub fn operation_timeout(self, deadline: Deadline) -> BpResult<Duration> {
-        let remaining = deadline.remaining()?;
+        let remaining = deadline.checked_remaining()?;
         Ok(match self.operation {
             Timeout::Disabled => remaining,
             Timeout::Bounded(operation) => operation.get().min(remaining),

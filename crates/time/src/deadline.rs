@@ -32,8 +32,13 @@ impl Deadline {
             .saturating_sub(self.buffer)
     }
 
+    pub fn fail_if_exceeded(self) -> BpResult<()> {
+        self.checked_remaining()?;
+        Ok(())
+    }
+
     /// Returns the time left after the deadline buffer.
-    pub fn remaining(self) -> BpResult<Duration> {
+    pub fn checked_remaining(self) -> BpResult<Duration> {
         let remaining = self.remaining_or_zero();
         if remaining.is_zero() {
             return Err(BpError::Timeout(TimeoutError::DeadlineExceeded));
@@ -52,7 +57,7 @@ mod tests {
 
         assert!(deadline.has_remaining());
         assert!(!deadline.remaining_or_zero().is_zero());
-        assert!(deadline.remaining().is_ok());
+        assert!(deadline.fail_if_exceeded().is_ok());
     }
 
     #[test]
@@ -62,7 +67,7 @@ mod tests {
         assert!(!deadline.has_remaining());
         assert_eq!(deadline.remaining_or_zero(), Duration::ZERO);
         assert!(matches!(
-            deadline.remaining(),
+            deadline.fail_if_exceeded(),
             Err(BpError::Timeout(TimeoutError::DeadlineExceeded))
         ));
     }
