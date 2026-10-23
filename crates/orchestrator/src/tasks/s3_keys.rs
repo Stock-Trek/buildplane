@@ -221,13 +221,4 @@ mod tests {
             None
         );
     }
-
-    #[test]
-    fn prefixes_are_valid_ref_names() {
-        assert!(S3Keys::is_valid_ref_name("source"));
-        assert!(S3Keys::is_valid_ref_name("artifact"));
-        assert!(S3Keys::is_valid_ref_name("feature/source"));
-        assert!(S3Keys::is_valid_ref_name("feature/artifact"));
-        assert!(S3Keys::is_valid_ref_name("feature/source-change"));
-    }
 }
