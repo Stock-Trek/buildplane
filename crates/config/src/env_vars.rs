@@ -1,4 +1,4 @@
-use crate::github::DirectoryLimits;
+use crate::git::DirectoryLimits;
 use buildplane_errors::{BpError, BpResult};
 use chrono::{DateTime, NaiveDate, Utc};
 use std::{
@@ -25,9 +25,9 @@ const ENTERPRISE_ALLOWED_HOSTS: &str = "GITHUB_ENTERPRISE_ALLOWED_HOSTS";
 const GITHUB_APP_ID: &str = "GITHUB_APP_ID";
 const GITHUB_APP_PRIVATE_KEY: &str = "GITHUB_APP_PRIVATE_KEY";
 const GITHUB_MAX_CACHED_INSTALLATIONS: &str = "GITHUB_MAX_CACHED_INSTALLATIONS";
-const GITHUB_MAX_DIRECTORY_BYTES: &str = "GITHUB_MAX_DIRECTORY_BYTES";
-const GITHUB_MAX_DIRECTORY_DEPTH: &str = "GITHUB_MAX_DIRECTORY_DEPTH";
-const GITHUB_MAX_DIRECTORY_FILES: &str = "GITHUB_MAX_DIRECTORY_FILES";
+const GIT_MAX_DIRECTORY_BYTES: &str = "GIT_MAX_DIRECTORY_BYTES";
+const GIT_MAX_DIRECTORY_DEPTH: &str = "GIT_MAX_DIRECTORY_DEPTH";
+const GIT_MAX_DIRECTORY_FILES: &str = "GIT_MAX_DIRECTORY_FILES";
 const INFISICAL_BASE_URL: &str = "INFISICAL_BASE_URL";
 const INFISICAL_ENVIRONMENT: &str = "INFISICAL_ENVIRONMENT";
 const INFISICAL_IDENTITY_ID: &str = "INFISICAL_IDENTITY_ID";
@@ -141,33 +141,33 @@ impl EnvVarConfig {
         })
     }
 
-    pub fn github_max_directory_depth(&self) -> BpResult<NonZeroUsize> {
+    pub fn git_max_directory_depth(&self) -> BpResult<NonZeroUsize> {
         let depth = self.parsed(
-            GITHUB_MAX_DIRECTORY_DEPTH,
+            GIT_MAX_DIRECTORY_DEPTH,
             DirectoryLimits::default().max_depth,
         )?;
         NonZeroUsize::new(depth).ok_or_else(|| {
-            BpError::config_invalid(GITHUB_MAX_DIRECTORY_DEPTH, "must be greater than zero")
+            BpError::config_invalid(GIT_MAX_DIRECTORY_DEPTH, "must be greater than zero")
         })
     }
 
-    pub fn github_max_directory_files(&self) -> BpResult<NonZeroUsize> {
+    pub fn git_max_directory_files(&self) -> BpResult<NonZeroUsize> {
         let files = self.parsed(
-            GITHUB_MAX_DIRECTORY_FILES,
+            GIT_MAX_DIRECTORY_FILES,
             DirectoryLimits::default().max_files,
         )?;
         NonZeroUsize::new(files).ok_or_else(|| {
-            BpError::config_invalid(GITHUB_MAX_DIRECTORY_FILES, "must be greater than zero")
+            BpError::config_invalid(GIT_MAX_DIRECTORY_FILES, "must be greater than zero")
         })
     }
 
-    pub fn github_max_directory_bytes(&self) -> BpResult<NonZeroU64> {
+    pub fn git_max_directory_bytes(&self) -> BpResult<NonZeroU64> {
         let bytes = self.parsed(
-            GITHUB_MAX_DIRECTORY_BYTES,
+            GIT_MAX_DIRECTORY_BYTES,
             DirectoryLimits::default().max_total_bytes,
         )?;
         NonZeroU64::new(bytes).ok_or_else(|| {
-            BpError::config_invalid(GITHUB_MAX_DIRECTORY_BYTES, "must be greater than zero")
+            BpError::config_invalid(GIT_MAX_DIRECTORY_BYTES, "must be greater than zero")
         })
     }
 
@@ -596,6 +596,19 @@ mod tests {
                 .build_agent_max_extracted_source_size_bytes()
                 .is_err()
         );
+    }
+
+    #[test]
+    fn git_directory_limits_are_parsed() {
+        let config = EnvVarConfig::from_map([
+            (GIT_MAX_DIRECTORY_DEPTH, "4"),
+            (GIT_MAX_DIRECTORY_FILES, "12"),
+            (GIT_MAX_DIRECTORY_BYTES, "2048"),
+        ]);
+
+        assert_eq!(config.git_max_directory_depth().unwrap().get(), 4);
+        assert_eq!(config.git_max_directory_files().unwrap().get(), 12);
+        assert_eq!(config.git_max_directory_bytes().unwrap().get(), 2048);
     }
 
     #[test]

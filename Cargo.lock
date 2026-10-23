@@ -1122,13 +1122,21 @@ name = "buildplane-exit-codes"
 version = "0.2.0"
 
 [[package]]
+name = "buildplane-git"
+version = "0.2.0"
+dependencies = [
+ "buildplane-errors",
+ "buildplane-time",
+]
+
+[[package]]
 name = "buildplane-github"
 version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
  "buildplane-config",
  "buildplane-errors",
- "buildplane-messages",
+ "buildplane-git",
  "buildplane-time",
  "jsonwebtoken",
  "lru",
@@ -1168,6 +1176,7 @@ dependencies = [
  "base64 0.23.1",
  "buildplane-config",
  "buildplane-errors",
+ "buildplane-git",
  "buildplane-github",
  "buildplane-messages",
  "buildplane-metrics",
