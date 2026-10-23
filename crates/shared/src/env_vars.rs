@@ -379,6 +379,14 @@ impl EnvVarConfig {
             .and_then(|value| value.ok_or_else(|| BpError::config_missing(name)))
     }
 
+    pub fn required_lossy(&self, name: &str) -> BpResult<String> {
+        self.vars
+            .get(OsStr::new(name))
+            .filter(|value| !value.is_empty())
+            .map(|value| value.to_string_lossy().into_owned())
+            .ok_or_else(|| BpError::config_missing(name))
+    }
+
     fn optional(&self, name: &str) -> BpResult<Option<String>> {
         Ok(self.raw(name)?.filter(|value| !value.is_empty()))
     }

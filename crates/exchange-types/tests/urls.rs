@@ -3,6 +3,7 @@ use buildplane_exchange_types::{
     urls::{Protocol, TradingMode, Urls},
 };
 use buildplane_shared::env_vars::EnvVarConfig;
+use buildplane_shared::errors::{BpError, ExchangeError};
 
 #[test]
 fn missing_override_uses_default_url() {
@@ -56,6 +57,29 @@ fn override_with_wrong_scheme_is_rejected() {
     );
 
     assert!(result.is_err());
+}
+
+#[test]
+#[cfg(unix)]
+fn non_unicode_override_reports_the_configured_value() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let prefix = "BP_URL_TEST_NOT_UNICODE";
+    let env_var = format!("{prefix}_HTTP_REAL").to_uppercase();
+    let configured = OsString::from_vec(b"https://configured.example/\xff".to_vec());
+    let config = EnvVarConfig::from_map([(OsString::from(&env_var), configured)]);
+
+    let error = BinanceUrls
+        .env_var_or_default_with(&config, prefix, Protocol::Http, TradingMode::Real)
+        .unwrap_err();
+
+    assert!(matches!(
+        &error,
+        BpError::Exchange(ExchangeError::BadValue { name, value, .. })
+            if name == &env_var && value.contains("configured.example")
+    ));
+    assert!(!error.to_string().contains("https://api.binance.com/api/v3"));
 }
 
 struct InvalidDefaultUrls;
