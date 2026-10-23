@@ -11,7 +11,7 @@ use arrow_schema::SchemaRef;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
 use buildplane_errors::{BpError, BpResult};
-use buildplane_errors::{ExchangeError, SystemError, TimeoutError};
+use buildplane_errors::{ExchangeError, SystemError};
 use buildplane_exchange_types::urls::TradingMode;
 use buildplane_time::deadline::Deadline;
 use chrono::{DateTime, Utc};
@@ -40,6 +40,16 @@ impl UpdateOutcome {
             IngestOutcome::Ingested => self.windows_ingested += 1,
             IngestOutcome::SkippedIncomplete { .. } => self.windows_skipped += 1,
         }
+    }
+
+    fn record_skipped(&mut self, windows: usize) {
+        self.windows_skipped += windows;
+    }
+
+    /// Record a deadline cut-off. When the remaining windows are unknown, count
+    /// the interrupted unit so the run is still reported as incomplete.
+    fn record_deadline(&mut self, remaining_windows: usize) {
+        self.windows_skipped += remaining_windows.max(1);
     }
 
     fn merge(&mut self, other: Self) {
@@ -97,7 +107,7 @@ impl KlinesUpdater {
         for (cex_id, trading_mode, trading_pairs) in common_trading_pairs() {
             if let Err(error) = deadline.remaining() {
                 warn!("stopping update before deadline: {error}");
-                errors.push(error);
+                outcome.record_deadline(0);
                 break;
             }
             let s3_client = s3_client.clone();
@@ -182,7 +192,12 @@ impl KlinesUpdater {
             "backfill {:?} between {} and {} (force: {})",
             resolved.trading_pair, backfill.start, backfill.end, backfill.force
         );
-        deadline.remaining()?;
+        if let Err(error) = deadline.remaining() {
+            warn!("stopping backfill before deadline: {error}");
+            let mut outcome = UpdateOutcome::default();
+            outcome.record_deadline(0);
+            return Ok(outcome);
+        }
         let existing = S3::list_files(s3_client, bucket, &base_path_prefix)
             .await?
             .into_iter()
@@ -192,24 +207,29 @@ impl KlinesUpdater {
                     .map(str::to_string)
             })
             .collect::<HashSet<_>>();
-        let windows = plan::Planner::plan_backfill_windows(
+        let plan = plan::Planner::plan_backfill_windows_with_skipped(
             &existing,
             backfill.start,
             backfill.end,
             backfill.force,
         )?;
-        let window_count = windows.len();
+        let window_count = plan.windows.len() + plan.windows_skipped;
         let schema = Ingest::schema();
         let mut outcome = UpdateOutcome::default();
-        for window in windows {
-            deadline.remaining()?;
+        outcome.record_skipped(plan.windows_skipped);
+        for (index, window) in plan.windows.iter().enumerate() {
+            if let Err(error) = deadline.remaining() {
+                warn!("stopping backfill before deadline: {error}");
+                outcome.record_deadline(plan.windows.len() - index);
+                break;
+            }
             let ingest_outcome = Ingest::ingest_window(
                 transfer_client,
                 bucket,
                 updater.as_ref(),
                 WindowIngest {
                     trading_pair: &resolved.trading_pair,
-                    window,
+                    window: *window,
                     candles_base_path: &candles_base_path,
                     schema: &schema,
                 },
@@ -270,7 +290,7 @@ impl KlinesUpdater {
         for trading_pair in trading_pairs {
             if let Err(error) = deadline.remaining() {
                 warn!("stopping exchange update before deadline: {error}");
-                errors.push(error);
+                outcome.record_deadline(0);
                 break;
             }
             info!("update symbol {:?}", trading_pair);
@@ -347,12 +367,30 @@ impl KlinesUpdater {
             end_time,
             backfill_start,
         } = update;
-        let remaining = deadline.remaining()?;
-        let _permit = tokio::time::timeout(remaining, semaphore.acquire())
-            .await
-            .map_err(|_| BpError::Timeout(TimeoutError::DeadlineExceeded))?
-            .map_err(|_| BpError::System(SystemError::SemaphoreClosed))?;
-        deadline.remaining()?;
+        let remaining = match deadline.remaining() {
+            Ok(remaining) => remaining,
+            Err(error) => {
+                warn!("stopping trading pair update before deadline: {error}");
+                let mut outcome = UpdateOutcome::default();
+                outcome.record_deadline(0);
+                return Ok(outcome);
+            }
+        };
+        let _permit = match tokio::time::timeout(remaining, semaphore.acquire()).await {
+            Ok(result) => result.map_err(|_| BpError::System(SystemError::SemaphoreClosed))?,
+            Err(_) => {
+                warn!("stopping trading pair update before deadline: deadline exceeded");
+                let mut outcome = UpdateOutcome::default();
+                outcome.record_deadline(0);
+                return Ok(outcome);
+            }
+        };
+        if let Err(error) = deadline.remaining() {
+            warn!("stopping trading pair update before deadline: {error}");
+            let mut outcome = UpdateOutcome::default();
+            outcome.record_deadline(0);
+            return Ok(outcome);
+        }
         let candles_base_path = format!(
             "{}/{}/{}/{}",
             trading_mode, cex_id, trading_pair.base, trading_pair.quote
@@ -367,16 +405,25 @@ impl KlinesUpdater {
                     .map(str::to_string)
             })
             .collect::<HashSet<_>>();
+        let plan = plan::Planner::plan_windows_with_skipped(&existing, *end_time, *backfill_start)?;
         let mut outcome = UpdateOutcome::default();
-        for window in plan::Planner::plan_windows(&existing, *end_time, *backfill_start)? {
-            deadline.remaining()?;
+        outcome.record_skipped(plan.windows_skipped);
+        for (index, window) in plan.windows.iter().enumerate() {
+            if let Err(error) = deadline.remaining() {
+                warn!(
+                    "stopping update of {:?} before deadline: {error}",
+                    trading_pair
+                );
+                outcome.record_deadline(plan.windows.len() - index);
+                break;
+            }
             let ingest_outcome = Ingest::ingest_window(
                 transfer_client,
                 bucket,
                 updater,
                 WindowIngest {
                     trading_pair,
-                    window,
+                    window: *window,
                     candles_base_path: &candles_base_path,
                     schema,
                 },
@@ -385,5 +432,32 @@ impl KlinesUpdater {
             outcome.record(ingest_outcome);
         }
         Ok(outcome)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn all_skipped_windows_contribute_to_the_outcome() {
+        let mut outcome = UpdateOutcome::default();
+        outcome.record(IngestOutcome::SkippedIncomplete {
+            expected: 6,
+            received: 4,
+        });
+        outcome.record_skipped(3);
+        outcome.record_deadline(2);
+
+        assert_eq!(outcome.windows_ingested, 0);
+        assert_eq!(outcome.windows_skipped, 6);
+    }
+
+    #[test]
+    fn an_unknown_deadline_cut_off_is_not_reported_as_complete() {
+        let mut outcome = UpdateOutcome::default();
+        outcome.record_deadline(0);
+
+        assert_eq!(outcome.windows_skipped, 1);
     }
 }
