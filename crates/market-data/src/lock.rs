@@ -6,6 +6,7 @@ use aws_sdk_s3::{
 };
 use buildplane_errors::DataError;
 use buildplane_errors::{BpError, BpResult};
+use buildplane_metrics::market_data::MarketDataMetrics;
 use buildplane_time::deadline::Deadline;
 use chrono::{DateTime, Utc};
 use std::{
@@ -73,6 +74,7 @@ impl LockGuard {
             if let Some(guard) = Self::try_acquire(s3_client, bucket, key).await? {
                 return Ok(guard);
             }
+            MarketDataMetrics::record_lock_contention();
             if Self::take_over_stale(s3_client, bucket, key).await? {
                 continue;
             }
@@ -184,6 +186,7 @@ impl LockGuard {
                         if !state.released {
                             state.lost = true;
                             drop(state);
+                            MarketDataMetrics::record_lock_lost();
                             warn!("lock {} was taken over before it could be renewed", key);
                             lost_notify.notify_one();
                         }

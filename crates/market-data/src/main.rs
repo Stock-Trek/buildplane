@@ -2,20 +2,33 @@
 
 use buildplane_config::tracing_setup::TracingSetup;
 use buildplane_market_data::{env_config::EnvConfig, job::Job, orchestrator::Orchestrator};
+use buildplane_metrics::descriptions::DescriptionsMetrics;
+use buildplane_metrics::market_data::MarketDataMetrics;
 use buildplane_time::deadline::Deadline;
-use lambda_runtime::{Error, LambdaEvent, run, service_fn};
+use lambda_runtime::{Error, LambdaEvent, service_fn};
+use metrics_cloudwatch_embedded::lambda::service::run;
 use serde_json::{Value, json};
+use std::time::Instant;
 use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
     let env_config = EnvConfig::from_env()?;
     TracingSetup::setup(&env_config.log_filter)?;
+    let recorder = metrics_cloudwatch_embedded::Builder::new()
+        .cloudwatch_namespace("buildplane/market-data")
+        .with_dimension("function", env_config.lambda_function_name.clone())
+        .lambda_cold_start_metric(buildplane_metrics::descriptions::COLD_STARTS_TOTAL)
+        .init()?;
+    DescriptionsMetrics::describe();
     info!("set up tracing");
-    run(service_fn(move |event| {
-        let env_config = env_config.clone();
-        async move { function_handler(event, env_config).await }
-    }))
+    run(
+        recorder,
+        service_fn(move |event| {
+            let env_config = env_config.clone();
+            async move { function_handler(event, env_config).await }
+        }),
+    )
     .await
 }
 
@@ -30,7 +43,21 @@ async fn function_handler(
         env_config.lambda_function_name,
         job.mode()
     );
-    let outcome = Orchestrator::run_job(&env_config, &job, deadline).await?;
+    let started_at = Instant::now();
+    let result = Orchestrator::run_job(&env_config, &job, deadline).await;
+    match &result {
+        Ok(outcome) => MarketDataMetrics::record_job_success(
+            job.mode(),
+            outcome.incomplete || outcome.windows_skipped > 0,
+            started_at.elapsed(),
+        ),
+        Err(error) => MarketDataMetrics::record_job_error(
+            job.mode(),
+            error.error_type(),
+            started_at.elapsed(),
+        ),
+    }
+    let outcome = result?;
     Ok(json!({
         "status": outcome.status(),
         "mode": job.mode(),

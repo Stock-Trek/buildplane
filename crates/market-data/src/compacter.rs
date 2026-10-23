@@ -9,6 +9,7 @@ use crate::{
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
 use buildplane_errors::{BpError, BpResult};
+use buildplane_metrics::market_data::MarketDataMetrics;
 use buildplane_time::deadline::Deadline;
 use futures::TryStreamExt;
 use parquet::arrow::{AsyncArrowWriter, ParquetRecordBatchStreamBuilder};
@@ -16,6 +17,7 @@ use std::{
     io::ErrorKind,
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
+    time::Instant,
 };
 use tokio::fs::File;
 use tracing::{info, warn};
@@ -100,7 +102,8 @@ impl Compactor {
         prefix: &ObjectKey,
         deadline: Deadline,
     ) -> BpResult<()> {
-        Self::folder(
+        let started_at = Instant::now();
+        let result = Self::folder(
             s3_client,
             transfer_client,
             bucket,
@@ -108,7 +111,19 @@ impl Compactor {
             PARQUET_SUFFIX,
             deadline,
         )
-        .await
+        .await;
+        match &result {
+            Ok(()) => {
+                MarketDataMetrics::record_compaction_success(started_at.elapsed());
+            }
+            Err(error) => {
+                MarketDataMetrics::record_compaction_failure(
+                    error.error_type(),
+                    started_at.elapsed(),
+                );
+            }
+        }
+        result
     }
 
     async fn folder(

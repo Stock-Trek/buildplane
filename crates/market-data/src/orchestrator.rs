@@ -10,6 +10,7 @@ use crate::{
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
 use buildplane_errors::{BpError, BpResult, DataError, TimeoutError};
+use buildplane_metrics::market_data::MarketDataMetrics;
 use buildplane_time::deadline::Deadline;
 use tracing::{error, info, warn};
 
@@ -31,6 +32,7 @@ impl Orchestrator {
             match LockGuard::acquire_with_deadline(&s3_client, bucket, &lock_key, deadline).await {
                 Ok(lock) => lock,
                 Err(error) if matches!(job, Job::Update) && error.is_skippable() => {
+                    MarketDataMetrics::record_lock_skip();
                     warn!("skipping update because another invocation holds the lock: {error}");
                     return Ok(JobOutcome::default());
                 }

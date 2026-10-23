@@ -14,6 +14,8 @@ use aws_sdk_s3_transfer_manager::Client as TransferClient;
 use buildplane_errors::{BpError, BpResult};
 use buildplane_errors::{ExchangeError, SystemError};
 use buildplane_exchange_types::urls::TradingMode;
+use buildplane_metrics::descriptions::{INGEST_SKIP_REASON_COMPACTED, INGEST_SKIP_REASON_DEADLINE};
+use buildplane_metrics::market_data::MarketDataMetrics;
 use buildplane_time::deadline::Deadline;
 use chrono::{DateTime, Utc};
 use std::{
@@ -45,12 +47,15 @@ impl UpdateOutcome {
 
     fn record_skipped(&mut self, windows: usize) {
         self.windows_skipped += windows;
+        MarketDataMetrics::record_ingest_skipped(INGEST_SKIP_REASON_COMPACTED, windows);
     }
 
     /// Record a deadline cut-off. When the remaining windows are unknown, count
     /// the interrupted unit so the run is still reported as incomplete.
     fn record_deadline(&mut self, remaining_windows: usize) {
-        self.windows_skipped += remaining_windows.max(1);
+        let skipped = remaining_windows.max(1);
+        self.windows_skipped += skipped;
+        MarketDataMetrics::record_ingest_skipped(INGEST_SKIP_REASON_DEADLINE, skipped);
     }
 
     fn merge(&mut self, other: Self) {
