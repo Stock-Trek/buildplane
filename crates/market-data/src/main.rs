@@ -2,7 +2,7 @@
 
 use buildplane_config::env_vars::EnvVarConfig as SharedEnvVarConfig;
 use buildplane_config::tracing_setup::TracingSetup;
-use buildplane_data::{env_config::EnvConfig, job::Job, orchestrator::Orchestrator};
+use buildplane_market_data::{env_config::EnvConfig, job::Job, orchestrator::Orchestrator};
 use buildplane_time::deadline::Deadline;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use serde_json::{Value, json};

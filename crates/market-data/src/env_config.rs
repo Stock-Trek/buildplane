@@ -4,7 +4,7 @@ use buildplane_errors::BpResult;
 use chrono::{DateTime, Utc};
 use std::time::Duration;
 
-const DEFAULT_LAMBDA_FUNCTION_NAME: &str = "buildplane-data";
+const DEFAULT_LAMBDA_FUNCTION_NAME: &str = "buildplane-market-data";
 
 pub struct EnvConfig {
     pub s3_bucket: Bucket,
