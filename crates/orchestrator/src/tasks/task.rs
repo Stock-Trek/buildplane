@@ -3,7 +3,7 @@ use crate::{
     context::RsOrchestratorContext,
     tasks::{git_remote::GitRemote, s3_keys::S3Keys, source_archive::SourceArchive},
 };
-use buildplane_errors::{BpError, BpResult, LambdaError};
+use buildplane_errors::BpResult;
 use buildplane_git::git_host::GitHost;
 use buildplane_messages::sqs_message::{GitSource, SqsDetail, SqsMessage, SqsRefType};
 use buildplane_time::request_context::RequestContext;
@@ -300,7 +300,7 @@ impl Task {
             .s3
             .signed_post(&artifact_prefix, request_context.deadline)
             .await?;
-        let outcome = request_context
+        request_context
             .context
             .aws
             .lambda
@@ -316,28 +316,7 @@ impl Task {
                 },
                 request_context.deadline,
             )
-            .await?;
-        if let Some(failure) = outcome.error() {
-            tracing::error!(
-                error_type = %failure.error_type,
-                message = %failure.message,
-                compile_output = %compile_output_key,
-                "build failed"
-            );
-            return Err(BpError::Lambda(LambdaError::BuildFailed {
-                error_type: failure.error_type.clone(),
-                message: failure.message.clone(),
-                retryable: failure.retryable,
-            }));
-        }
-        if outcome.is_failure() {
-            return Err(BpError::Lambda(LambdaError::BuildFailed {
-                error_type: "build_failed".to_string(),
-                message: "build failed without an error message".to_string(),
-                retryable: false,
-            }));
-        }
-        Ok(())
+            .await
     }
 }
 
