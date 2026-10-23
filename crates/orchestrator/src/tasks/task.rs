@@ -23,10 +23,6 @@ pub enum Task {
         source: GitSource,
         repo_id: String,
     },
-    RepoTransfer {
-        source: GitSource,
-        repo_id: String,
-    },
     RefCommit {
         source: GitSource,
         repo_id: String,
@@ -42,7 +38,6 @@ impl Task {
             Self::AllReposAdd { .. } => "all_repos_add",
             Self::MultiRepoAdd { .. } => "multi_repo_add",
             Self::RepoAdd { .. } => "repo_add",
-            Self::RepoTransfer { .. } => "repo_transfer",
             Self::RefCommit { .. } => "ref_commit",
         }
     }
@@ -66,13 +61,6 @@ impl Task {
                 match GitRemote::from_source(&request_context.context.github_auth, source)? {
                     GitRemote::GitHub(remote) => {
                         Self::repo_add(request_context, source, &remote, repo_id).await
-                    }
-                }
-            }
-            Self::RepoTransfer { source, repo_id } => {
-                match GitRemote::from_source(&request_context.context.github_auth, source)? {
-                    GitRemote::GitHub(remote) => {
-                        Self::repo_transfer(request_context, source, &remote, repo_id).await
                     }
                 }
             }
@@ -100,14 +88,14 @@ impl Task {
         }
     }
 
-    async fn all_repos_add<InstallationId, RepoId, Remote>(
+    async fn all_repos_add<RepoId, Remote>(
         request_context: RequestContext<&RsOrchestratorContext>,
         source: &GitSource,
         remote: &Remote,
     ) -> BpResult<()>
     where
         RepoId: Display,
-        Remote: GitHost<InstallationId, RepoId>,
+        Remote: GitHost<RepoId>,
     {
         let repo_ids = remote
             .repo_ids(request_context.deadline)
@@ -140,16 +128,15 @@ impl Task {
             .await
     }
 
-    async fn repo_add<InstallationId, RepoId, Remote>(
+    async fn repo_add<RepoId, Remote>(
         request_context: RequestContext<&RsOrchestratorContext>,
         source: &GitSource,
         remote: &Remote,
         repo_id: &str,
     ) -> BpResult<()>
     where
-        InstallationId: Display,
         RepoId: Display + Clone,
-        Remote: GitHost<InstallationId, RepoId>,
+        Remote: GitHost<RepoId>,
     {
         let repo_id = remote.parse_repo_id(repo_id)?;
         let default_branch = remote
@@ -167,83 +154,7 @@ impl Task {
         .await
     }
 
-    async fn repo_transfer<InstallationId, RepoId, Remote>(
-        request_context: RequestContext<&RsOrchestratorContext>,
-        source: &GitSource,
-        remote: &Remote,
-        repo_id: &str,
-    ) -> BpResult<()>
-    where
-        InstallationId: Display,
-        RepoId: Display + Clone,
-        Remote: GitHost<InstallationId, RepoId>,
-    {
-        let repo_id = remote.parse_repo_id(repo_id)?;
-        let repo_id_string = repo_id.to_string();
-        let provider = remote.provider();
-        let host = remote.host();
-        let destination_installation_id = remote.installation_id().to_string();
-        let keys = request_context
-            .context
-            .aws
-            .s3
-            .list_objects(
-                &S3Keys::host_prefix(provider, host),
-                request_context.deadline,
-            )
-            .await?;
-        let mut transfers = Vec::new();
-        let mut matched = 0;
-        for source_key in keys {
-            let Some(destination_key) = S3Keys::transfer_key(
-                &source_key,
-                provider,
-                host,
-                &repo_id_string,
-                &destination_installation_id,
-            ) else {
-                continue;
-            };
-            matched += 1;
-            if source_key != destination_key {
-                transfers.push((source_key, destination_key));
-            }
-        }
-
-        // Copy everything before deleting anything so a partial failure cannot
-        // strand artifacts under the old installation.
-        for (source_key, destination_key) in &transfers {
-            request_context
-                .context
-                .aws
-                .s3
-                .copy_object(source_key, destination_key, request_context.deadline)
-                .await?;
-        }
-        for (source_key, _) in &transfers {
-            request_context
-                .context
-                .aws
-                .s3
-                .delete_object(source_key, request_context.deadline)
-                .await?;
-        }
-
-        if matched == 0 {
-            // Nothing was stored for the repository yet, so fall back to
-            // building its default branch under the new installation.
-            return Self::repo_add(request_context, source, remote, &repo_id_string).await;
-        }
-
-        tracing::info!(
-            repo_id = %repo_id_string,
-            files = transfers.len(),
-            "Moved repository artifacts after transfer"
-        );
-        Ok(())
-    }
-
-    async fn ref_commit<InstallationId, RepoId, Remote>(
+    async fn ref_commit<RepoId, Remote>(
         request_context: RequestContext<&RsOrchestratorContext>,
         source: &GitSource,
         remote: &Remote,
@@ -253,9 +164,8 @@ impl Task {
         commit_hash: Option<String>,
     ) -> BpResult<()>
     where
-        InstallationId: Display,
         RepoId: Display + Clone,
-        Remote: GitHost<InstallationId, RepoId>,
+        Remote: GitHost<RepoId>,
     {
         let repo_id_string = repo_id.to_string();
         let commit_hash = match commit_hash {
@@ -327,7 +237,6 @@ impl From<SqsMessage> for Task {
             SqsDetail::AllReposAdd => Self::AllReposAdd { source },
             SqsDetail::MultiRepoAdd { repo_ids } => Self::MultiRepoAdd { source, repo_ids },
             SqsDetail::RepoAdd { repo_id } => Self::RepoAdd { source, repo_id },
-            SqsDetail::RepoTransfer { repo_id } => Self::RepoTransfer { source, repo_id },
             SqsDetail::RefCreate {
                 repo_id,
                 ref_name,

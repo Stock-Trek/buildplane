@@ -8,10 +8,9 @@ pub struct GitFile {
 }
 
 #[allow(async_fn_in_trait)]
-pub trait GitHost<InstallationId, RepoId>: Send + Sync {
+pub trait GitHost<RepoId>: Send + Sync {
     fn provider(&self) -> &'static str;
     fn host(&self) -> &str;
-    fn installation_id(&self) -> InstallationId;
     fn parse_repo_id(&self, repo_id: &str) -> BpResult<RepoId>;
     async fn repo_ids(&self, deadline: Deadline) -> BpResult<Vec<RepoId>>;
     async fn repo_default_branch(&self, repo_id: RepoId, deadline: Deadline) -> BpResult<String>;

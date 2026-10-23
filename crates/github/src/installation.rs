@@ -75,22 +75,17 @@ struct GitHubRepo {
 pub struct GitHubInstallation {
     client: Arc<Octocrab>,
     host: String,
-    installation_id: u64,
     timeouts: Timeouts,
     directory_limits: DirectoryLimits,
 }
 
-impl GitHost<u64, u64> for GitHubInstallation {
+impl GitHost<u64> for GitHubInstallation {
     fn provider(&self) -> &'static str {
         PROVIDER
     }
 
     fn host(&self) -> &str {
         &self.host
-    }
-
-    fn installation_id(&self) -> u64 {
-        self.installation_id
     }
 
     fn parse_repo_id(&self, repo_id: &str) -> BpResult<u64> {
@@ -224,7 +219,6 @@ impl GitHubInstallation {
         Ok(Self {
             client: Arc::new(client),
             host: host.to_owned(),
-            installation_id,
             timeouts,
             directory_limits,
         })

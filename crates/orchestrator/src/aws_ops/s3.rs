@@ -3,13 +3,8 @@ use aws_credential_types::{
     Credentials,
     provider::{ProvideCredentials, SharedCredentialsProvider},
 };
-use aws_sdk_s3::{
-    Client as S3Client,
-    config::{BehaviorVersion, Region},
-    error::{ProvideErrorMetadata, SdkError},
-};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use buildplane_errors::{BpError, BpResult, Retryability, StorageError, TimeoutError};
+use buildplane_errors::{BpError, BpResult, StorageError, TimeoutError};
 use buildplane_time::{deadline::Deadline, timeouts::Timeouts};
 use hmac::{Hmac, KeyInit, Mac};
 use reqwest::Client;
@@ -75,7 +70,6 @@ impl PresignedPost {
 }
 
 pub struct S3 {
-    client: S3Client,
     config: S3Config,
     credentials_provider: SharedCredentialsProvider,
     endpoint_url: Option<String>,
@@ -92,17 +86,7 @@ impl S3 {
         timeouts: Timeouts,
         config: S3Config,
     ) -> Self {
-        let mut client_config = aws_sdk_s3::config::Builder::new()
-            .behavior_version(BehaviorVersion::latest())
-            .region(Region::new(region.clone()))
-            .credentials_provider(credentials_provider.clone());
-        if let Some(endpoint_url) = endpoint_url.as_deref() {
-            client_config = client_config
-                .endpoint_url(endpoint_url)
-                .force_path_style(true);
-        }
         Self {
-            client: S3Client::from_conf(client_config.build()),
             config,
             credentials_provider,
             endpoint_url,
@@ -209,96 +193,6 @@ impl S3 {
         Ok(UploadedObject { signed_get_url })
     }
 
-    /// Lists every object under `prefix`, following S3's pagination markers.
-    pub async fn list_objects(&self, prefix: &str, deadline: Deadline) -> BpResult<Vec<String>> {
-        let bucket = &self.config.user_artifacts_bucket;
-        let timeout = self.timeouts.operation_timeout(deadline)?;
-        let mut paginator = self
-            .client
-            .list_objects_v2()
-            .bucket(bucket)
-            .prefix(prefix)
-            .into_paginator()
-            .send();
-        let mut keys = Vec::new();
-        loop {
-            let page = tokio::time::timeout(timeout, paginator.next())
-                .await
-                .map_err(|_| {
-                    BpError::Timeout(TimeoutError::Operation {
-                        operation: "S3 list objects",
-                    })
-                })?;
-            let Some(page) = page else {
-                break;
-            };
-            let page = page.map_err(|error| {
-                Self::operation_error("list objects", format!("s3://{bucket}/{prefix}"), error)
-            })?;
-            keys.extend(
-                page.contents()
-                    .iter()
-                    .filter_map(|object| object.key().map(str::to_owned)),
-            );
-        }
-        Ok(keys)
-    }
-
-    /// Copies an object within the user artifacts bucket.
-    pub async fn copy_object(
-        &self,
-        source_key: &str,
-        destination_key: &str,
-        deadline: Deadline,
-    ) -> BpResult<()> {
-        let bucket = &self.config.user_artifacts_bucket;
-        let timeout = self.timeouts.operation_timeout(deadline)?;
-        let copy_source = Self::encode_copy_source(bucket, source_key);
-        tokio::time::timeout(
-            timeout,
-            self.client
-                .copy_object()
-                .bucket(bucket)
-                .copy_source(copy_source)
-                .key(destination_key)
-                .send(),
-        )
-        .await
-        .map_err(|_| {
-            BpError::Timeout(TimeoutError::Operation {
-                operation: "S3 copy object",
-            })
-        })?
-        .map_err(|error| {
-            Self::operation_error(
-                "copy object",
-                format!("s3://{bucket}/{source_key} to s3://{bucket}/{destination_key}"),
-                error,
-            )
-        })?;
-        Ok(())
-    }
-
-    /// Deletes an object from the user artifacts bucket.
-    pub async fn delete_object(&self, key: &str, deadline: Deadline) -> BpResult<()> {
-        let bucket = &self.config.user_artifacts_bucket;
-        let timeout = self.timeouts.operation_timeout(deadline)?;
-        tokio::time::timeout(
-            timeout,
-            self.client.delete_object().bucket(bucket).key(key).send(),
-        )
-        .await
-        .map_err(|_| {
-            BpError::Timeout(TimeoutError::Operation {
-                operation: "S3 delete object",
-            })
-        })?
-        .map_err(|error| {
-            Self::operation_error("delete object", format!("s3://{bucket}/{key}"), error)
-        })?;
-        Ok(())
-    }
-
     async fn credentials(&self, deadline: Deadline) -> BpResult<Credentials> {
         let timeout = self.timeouts.operation_timeout(deadline)?;
         tokio::time::timeout(timeout, self.credentials_provider.provide_credentials())
@@ -313,54 +207,6 @@ impl S3 {
 }
 
 impl S3 {
-    fn operation_error<E, R>(
-        operation: &'static str,
-        target: String,
-        error: SdkError<E, R>,
-    ) -> BpError
-    where
-        E: ProvideErrorMetadata + std::error::Error + Send + Sync + 'static,
-        R: std::fmt::Debug + Send + Sync + 'static,
-    {
-        let retryable = Self::sdk_error_retryable(&error);
-        BpError::s3_with_retryability(operation, target, retryable, error)
-    }
-
-    fn sdk_error_retryable<E, R>(error: &SdkError<E, R>) -> bool
-    where
-        E: ProvideErrorMetadata,
-    {
-        match error {
-            SdkError::ConstructionFailure(_) => false,
-            SdkError::ServiceError(context) => {
-                let code = context.err().code().unwrap_or_default();
-                Retryability::from_s3_error_code(code).is_retryable()
-            }
-            _ => true,
-        }
-    }
-
-    fn encode_copy_source(bucket: &str, key: &str) -> String {
-        let mut encoded = String::with_capacity(bucket.len() + key.len() + 1);
-        for component in [bucket, key] {
-            if !encoded.is_empty() {
-                encoded.push('/');
-            }
-            for byte in component.bytes() {
-                match byte {
-                    b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' | b'/' => {
-                        encoded.push(char::from(byte));
-                    }
-                    byte => {
-                        encoded.push('%');
-                        encoded.push_str(&format!("{byte:02X}"));
-                    }
-                }
-            }
-        }
-        encoded
-    }
-
     fn presigned_url(
         &self,
         credentials: &Credentials,
