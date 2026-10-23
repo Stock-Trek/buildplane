@@ -1,6 +1,7 @@
 use crate::{
     constants::{PARQUET_SUFFIX, common_trading_pairs},
     s3::ObjectKey,
+    subfolders::SubFolders,
 };
 use buildplane_exchange_types::urls::TradingMode;
 use buildplane_shared::errors::DataError;
@@ -226,6 +227,11 @@ impl CompactJob {
     }
 
     /// Normalize the target into the prefix expected by the compactor.
+    ///
+    /// Compaction deletes source files below the returned prefix, so the target
+    /// must address the data namespace for a configured trading pair and stop at
+    /// a valid compaction depth. Arbitrary prefixes are rejected before any S3
+    /// listing or deletion takes place.
     pub fn prefix(&self) -> BpResult<ObjectKey> {
         let target = self.target.trim();
         if target.is_empty() {
@@ -233,18 +239,43 @@ impl CompactJob {
                 message: "compact target cannot be empty".to_string(),
             }));
         }
-        let prefix = if target.ends_with('/') {
-            target.to_string()
-        } else if target.ends_with(PARQUET_SUFFIX) {
-            let (prefix, _) = target.rsplit_once('/').ok_or_else(|| {
-                BpError::Data(DataError::InvalidJob {
-                    message: format!("compact file target {target} has no parent prefix"),
-                })
-            })?;
-            format!("{prefix}/")
+        let is_file_target = !target.ends_with('/');
+        let target = target.trim_end_matches('/');
+        let segments = target.split('/').collect::<Vec<_>>();
+        if segments
+            .iter()
+            .any(|segment| segment.is_empty() || matches!(*segment, "." | ".."))
+        {
+            return Err(BpError::Data(DataError::InvalidJob {
+                message: format!("compact target {target} contains an invalid path segment"),
+            }));
+        }
+        let directory_segments = if is_file_target
+            && segments
+                .last()
+                .is_some_and(|segment| segment.ends_with(PARQUET_SUFFIX))
+        {
+            &segments[..segments.len() - 1]
         } else {
-            format!("{target}/")
+            &segments[..]
         };
+        // The data layout is mode/cex/base/quote followed by up to four time
+        // segments (year/month/day/hour). A file target may additionally name
+        // the minute leaf, but its parent must still be a valid directory depth.
+        if !(4..=8).contains(&directory_segments.len()) {
+            return Err(BpError::Data(DataError::InvalidJob {
+                message: format!(
+                    "compact target {target} must address a trading pair or one of its year, month, day, or hour folders"
+                ),
+            }));
+        }
+        TradingPairPath::new(directory_segments[..4].join("/")).resolve()?;
+        let prefix = format!("{}/", directory_segments.join("/"));
+        SubFolders::subfolders_from_path(&prefix).map_err(|error| {
+            BpError::Data(DataError::InvalidJob {
+                message: format!("compact target {target} has an invalid time path: {error}"),
+            })
+        })?;
         Ok(ObjectKey::new(prefix))
     }
 }
@@ -559,6 +590,60 @@ mod tests {
             compact.prefix().unwrap().as_str(),
             "paper/binance/bitcoin/tetherusd/2024/01/01/"
         );
+    }
+
+    #[test]
+    fn compact_rejects_prefixes_outside_the_data_namespace() {
+        for target in [
+            "random",
+            "random/prefix/with/segments",
+            "paper/binance/bitcoin",
+            "paper/binance/bitcoin/dogecoin",
+            "other/binance/bitcoin/tetherusd",
+            "_locks/market-data-updater",
+            "/paper/binance/bitcoin/tetherusd",
+            "paper//binance/bitcoin/tetherusd",
+            "paper/binance/bitcoin/tetherusd/../other",
+        ] {
+            assert!(
+                CompactJob::new(target).prefix().is_err(),
+                "expected compact target {target} to be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn compact_rejects_invalid_depths_and_time_segments() {
+        for target in [
+            "paper/binance/bitcoin/tetherusd/2024/01/01/00/00",
+            "paper/binance/bitcoin/tetherusd/2024/01/01/00/00/00",
+            "paper/binance/bitcoin/tetherusd/not-a-year",
+            "paper/binance/bitcoin/tetherusd/2024/13",
+            "paper/binance/bitcoin/tetherusd/2024/01/32",
+            "paper/binance/bitcoin/tetherusd/2024/01/01/24",
+        ] {
+            assert!(
+                CompactJob::new(target).prefix().is_err(),
+                "expected compact target {target} to be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn compact_accepts_each_valid_data_depth() {
+        for target in [
+            "paper/binance/bitcoin/tetherusd",
+            "paper/binance/bitcoin/tetherusd/2024",
+            "paper/binance/bitcoin/tetherusd/2024/01",
+            "paper/binance/bitcoin/tetherusd/2024/01/01",
+            "paper/binance/bitcoin/tetherusd/2024/01/01/00",
+            "paper/binance/bitcoin/tetherusd/2024/01/01/00/00.parquet",
+        ] {
+            assert!(
+                CompactJob::new(target).prefix().is_ok(),
+                "expected compact target {target} to be accepted"
+            );
+        }
     }
 
     #[test]
