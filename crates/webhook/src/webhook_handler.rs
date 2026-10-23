@@ -4,7 +4,8 @@ use crate::{
     responses::Responses,
 };
 use buildplane_errors::{BpError, BpResult};
-use buildplane_errors::{GitHubError, HttpError, SecretsError};
+use buildplane_errors::{GitHubError, HttpError, SecretsError, SqsError};
+use buildplane_messages::sqs_message::SqsMessage;
 use buildplane_metrics::event::EventMetrics;
 use buildplane_metrics::route::RouteMetrics;
 use buildplane_time::deadline::Deadline;
@@ -166,10 +167,46 @@ impl WebhookHandler {
                     match send_result {
                         Ok(()) => return Ok(EventResponse::Accept(messages)),
                         Err(error) if error.any_sent() => {
+                            let Some((unsent_count, unsent)) =
+                                Self::unsent_failure_messages(&error)
+                            else {
+                                if let Some(delivery_id) = delivery_id {
+                                    request_context.context.dedup().forget(delivery_id);
+                                }
+                                return Err(error);
+                            };
+                            if unsent.is_empty() || unsent.len() != unsent_count {
+                                if let Some(delivery_id) = delivery_id {
+                                    request_context.context.dedup().forget(delivery_id);
+                                }
+                                tracing::error!(
+                                    "SQS partially sent a delivery but did not identify every unsent message: {error}"
+                                );
+                                return Err(error);
+                            }
                             tracing::warn!(
-                                "SQS queued part of the delivery; accepting it and reporting the remainder: {error}"
+                                "SQS queued part of the delivery; resending {} unsent message(s) individually: {error}",
+                                unsent.len()
                             );
-                            return Ok(EventResponse::Accept(messages));
+                            match request_context
+                                .context
+                                .aws
+                                .sqs
+                                .send_individually(&unsent, request_context.deadline)
+                                .await
+                            {
+                                Ok(()) => return Ok(EventResponse::Accept(messages)),
+                                Err(error) => {
+                                    if let Some(delivery_id) = delivery_id {
+                                        request_context.context.dedup().forget(delivery_id);
+                                    }
+                                    tracing::error!(
+                                        "SQS could not deliver {} unsent message(s) from a partial batch: {error}",
+                                        unsent.len()
+                                    );
+                                    return Err(error);
+                                }
+                            }
                         }
                         Err(error) if !error.retryability().is_retryable() => {
                             if let Some(delivery_id) = delivery_id {
@@ -214,6 +251,22 @@ impl WebhookHandler {
         } else {
             EventResponse::Rejected
         })
+    }
+
+    fn unsent_failure_messages(error: &BpError) -> Option<(usize, Vec<SqsMessage>)> {
+        let BpError::Sqs(SqsError::PartialBatch {
+            unsent, failures, ..
+        }) = error
+        else {
+            return None;
+        };
+        Some((
+            *unsent,
+            failures
+                .iter()
+                .filter_map(|failure| failure.source.clone())
+                .collect(),
+        ))
     }
 
     fn respond(response: EventResponse) -> BpResult<WebhookOutcome> {
