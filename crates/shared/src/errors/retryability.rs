@@ -2,6 +2,7 @@ use aws_credential_types::provider::error::CredentialsError;
 use aws_sdk_lambda::{
     error::ProvideErrorMetadata, operation::invoke::InvokeError as SdkInvokeError,
 };
+use std::{borrow::Borrow, error::Error as StdError, io::ErrorKind, process::ExitStatus};
 
 const HTTP_FORBIDDEN: u16 = 403;
 const HTTP_REQUEST_TIMEOUT: u16 = 408;
@@ -29,6 +30,72 @@ impl Retryability {
             status if status >= HTTP_INTERNAL_SERVER_ERROR => Retryability::Retryable,
             status if (400..500).contains(&status) => Retryability::Permanent,
             _ => Retryability::Retryable,
+        }
+    }
+
+    pub fn from_io_error(error: impl Borrow<std::io::Error>) -> Retryability {
+        let error = error.borrow();
+        match error.kind() {
+            ErrorKind::NotFound
+            | ErrorKind::PermissionDenied
+            | ErrorKind::InvalidInput
+            | ErrorKind::InvalidData
+            | ErrorKind::Unsupported
+            | ErrorKind::AlreadyExists
+            | ErrorKind::FileTooLarge
+            | ErrorKind::InvalidFilename
+            | ErrorKind::TooManyLinks
+            | ErrorKind::ArgumentListTooLong
+            | ErrorKind::CrossesDevices
+            | ErrorKind::NotSeekable
+            | ErrorKind::UnexpectedEof => Retryability::Permanent,
+            _ if is_permanent_os_error(error) => Retryability::Permanent,
+            _ => Retryability::Retryable,
+        }
+    }
+
+    pub fn from_io_source(source: &(dyn StdError + 'static)) -> Retryability {
+        let mut source = source;
+        loop {
+            if let Some(error) = source.downcast_ref::<std::io::Error>() {
+                return Self::from_io_error(error);
+            }
+            match source.source() {
+                Some(next) => source = next,
+                None => return Retryability::Retryable,
+            }
+        }
+    }
+
+    pub fn from_exit_status(status: impl Borrow<ExitStatus>) -> Retryability {
+        let status = status.borrow();
+        if status.success() {
+            return Retryability::Permanent;
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::ExitStatusExt;
+
+            if let Some(signal) = status.signal() {
+                return match signal {
+                    2 | 3 => Retryability::Permanent,
+                    _ => Retryability::Retryable,
+                };
+            }
+        }
+
+        match status.code() {
+            Some(1 | 2 | 101 | 126 | 127 | 130 | 131) => Retryability::Permanent,
+            _ => Retryability::Retryable,
+        }
+    }
+
+    pub fn from_join_error(error: impl Borrow<tokio::task::JoinError>) -> Retryability {
+        if error.borrow().is_panic() {
+            Retryability::Permanent
+        } else {
+            Retryability::Retryable
         }
     }
 
@@ -146,4 +213,17 @@ fn mentions_rate_limit(value: &str) -> bool {
         || value.contains("rate-limit")
         || value.contains("rate_limit")
         || value.contains("ratelimit")
+}
+
+#[cfg(unix)]
+fn is_permanent_os_error(error: &std::io::Error) -> bool {
+    matches!(
+        error.raw_os_error(),
+        Some(8 | 19 | 20 | 21 | 25 | 30 | 39 | 40 | 84)
+    )
+}
+
+#[cfg(not(unix))]
+fn is_permanent_os_error(_error: &std::io::Error) -> bool {
+    false
 }

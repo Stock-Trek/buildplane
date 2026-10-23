@@ -25,11 +25,41 @@ impl SystemError {
 
     pub fn retryability(&self) -> Retryability {
         match self {
-            Self::Task(_) | Self::External(_) => Retryability::Retryable,
+            Self::External(_) => Retryability::Retryable,
+            Self::Task(error) => Retryability::from_join_error(error),
             Self::Tracing(_)
             | Self::PoisonedLock
             | Self::SystemTimeBeforeEpoch
             | Self::SemaphoreClosed => Retryability::Permanent,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn panicked_task_is_permanent() {
+        let error = tokio::spawn(async { panic!("task panicked") })
+            .await
+            .unwrap_err();
+
+        assert_eq!(
+            SystemError::Task(error).retryability(),
+            Retryability::Permanent
+        );
+    }
+
+    #[tokio::test]
+    async fn cancelled_task_is_retryable() {
+        let task = tokio::spawn(async { std::future::pending::<()>().await });
+        task.abort();
+        let error = task.await.unwrap_err();
+
+        assert_eq!(
+            SystemError::Task(error).retryability(),
+            Retryability::Retryable
+        );
     }
 }
