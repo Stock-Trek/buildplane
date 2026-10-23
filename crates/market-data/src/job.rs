@@ -175,8 +175,9 @@ pub struct BackfillJob {
     pub end: DateTime<Utc>,
     /// Re-fetch and overwrite windows that already have data.
     ///
-    /// Compacted periods are still skipped; rebuilding a compacted roll-up is
-    /// a separate compaction concern.
+    /// Compacted periods are still skipped because rebuilding a compacted
+    /// roll-up is a separate compaction concern. Skipped compacted windows are
+    /// reported so a forced backfill cannot silently do nothing.
     #[serde(alias = "overwrite", alias = "repair")]
     pub force: bool,
 }

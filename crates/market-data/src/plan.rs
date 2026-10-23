@@ -25,6 +25,15 @@ impl Window {
     }
 }
 
+/// A requested period that was skipped because an existing compacted file covers it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CompactedSkip {
+    pub start: DateTime<Utc>,
+    pub end: DateTime<Utc>,
+    pub compacted_file: String,
+    pub windows: usize,
+}
+
 /// Windows selected by the planner, including periods it intentionally skipped.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct WindowPlan {
@@ -32,6 +41,8 @@ pub struct WindowPlan {
     pub windows: Vec<Window>,
     /// Windows covered by an already compacted period.
     pub windows_skipped: usize,
+    /// Details of the compacted periods that were skipped.
+    pub skipped_compacted: Vec<CompactedSkip>,
 }
 
 /// A complete set of source files that can be rolled up into one compacted file.
@@ -89,6 +100,7 @@ impl Planner {
                     end_time,
                 )],
                 windows_skipped: 0,
+                skipped_compacted: Vec::new(),
             });
         };
         Self::plan_windows_between_with_skipped(existing, start, end_time)
@@ -128,6 +140,9 @@ impl Planner {
     }
 
     /// Plan a targeted backfill and report windows covered by compacted periods.
+    ///
+    /// A forced backfill still cannot rewrite compacted roll-ups, so callers
+    /// must surface `skipped_compacted` rather than reporting a silent no-op.
     pub fn plan_backfill_windows_with_skipped(
         existing: &HashSet<String>,
         start: DateTime<Utc>,
@@ -145,11 +160,20 @@ impl Planner {
         overwrite_existing: bool,
     ) -> BpResult<WindowPlan> {
         let mut start = start;
-        let mut windows = Vec::new();
-        let mut windows_skipped = 0;
+        let mut plan = WindowPlan::default();
         while start < end_time {
-            if let Some(boundary) = Self::compacted_boundary(existing, start)? {
-                windows_skipped += Self::window_count(start, boundary)?;
+            if let Some((boundary, compacted_file)) = Self::compacted_boundary(existing, start)? {
+                let skipped_end = boundary.min(end_time);
+                let windows = Self::window_count(start, skipped_end)?;
+                if windows > 0 {
+                    plan.windows_skipped += windows;
+                    plan.skipped_compacted.push(CompactedSkip {
+                        start,
+                        end: skipped_end,
+                        compacted_file,
+                        windows,
+                    });
+                }
                 start = boundary;
                 continue;
             }
@@ -158,14 +182,11 @@ impl Planner {
                 break;
             }
             if overwrite_existing || !existing.contains(&Self::window_file_path(start)) {
-                windows.push(Window::new(start, window_end));
+                plan.windows.push(Window::new(start, window_end));
             }
             start = window_end;
         }
-        Ok(WindowPlan {
-            windows,
-            windows_skipped,
-        })
+        Ok(plan)
     }
 
     fn window_count(start: DateTime<Utc>, end: DateTime<Utc>) -> BpResult<usize> {
@@ -277,25 +298,25 @@ impl Planner {
     fn compacted_boundary(
         existing: &HashSet<String>,
         start_time: DateTime<Utc>,
-    ) -> BpResult<Option<DateTime<Utc>>> {
-        let compacted = Self::compacted_file_paths(start_time);
-        let next_period_start = if existing.contains(&compacted[3]) {
-            Self::next_year(start_time)?
-        } else if existing.contains(&compacted[2]) {
-            Self::next_month(start_time)?
-        } else if existing.contains(&compacted[1]) {
-            Self::next_day(start_time)?
-        } else if existing.contains(&compacted[0]) {
-            Self::next_hour(start_time)?
+    ) -> BpResult<Option<(DateTime<Utc>, String)>> {
+        let [hour, day, month, year] = Self::compacted_file_paths(start_time);
+        let (compacted_file, next_period_start) = if existing.contains(&year) {
+            (year, Self::next_year(start_time)?)
+        } else if existing.contains(&month) {
+            (month, Self::next_month(start_time)?)
+        } else if existing.contains(&day) {
+            (day, Self::next_day(start_time)?)
+        } else if existing.contains(&hour) {
+            (hour, Self::next_hour(start_time)?)
         } else {
             return Ok(None);
         };
         // The compacted period may end between update windows for coarse
         // quantizations, so resume at the first window at or after its end.
-        Ok(Some(QuantizedTime::top_at_or_after(
-            next_period_start,
-            UPDATE_QUANTIZATION,
-        )?))
+        Ok(Some((
+            QuantizedTime::top_at_or_after(next_period_start, UPDATE_QUANTIZATION)?,
+            compacted_file,
+        )))
     }
 
     fn compacted_file_paths(start_time: DateTime<Utc>) -> [String; 4] {
@@ -471,6 +492,63 @@ mod tests {
                 window(utc(2024, 1, 1, 1, 6), utc(2024, 1, 1, 1, 12)),
             ]
         );
+    }
+
+    #[test]
+    fn forced_backfill_reports_compacted_periods() {
+        let existing = paths(&["2024/01/01/00.parquet"]);
+        let plan = Planner::plan_backfill_windows_with_skipped(
+            &existing,
+            utc(2024, 1, 1, 0, 0),
+            utc(2024, 1, 1, 1, 12),
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            plan.windows,
+            vec![
+                window(utc(2024, 1, 1, 1, 0), utc(2024, 1, 1, 1, 6)),
+                window(utc(2024, 1, 1, 1, 6), utc(2024, 1, 1, 1, 12)),
+            ]
+        );
+        assert_eq!(plan.windows_skipped, 10);
+        assert_eq!(
+            plan.skipped_compacted,
+            vec![CompactedSkip {
+                start: utc(2024, 1, 1, 0, 0),
+                end: utc(2024, 1, 1, 1, 0),
+                compacted_file: "2024/01/01/00.parquet".to_string(),
+                windows: 10,
+            }]
+        );
+    }
+
+    #[test]
+    fn compacted_skips_are_clipped_to_the_requested_range() {
+        let existing = paths(&["2024/01/01/00.parquet"]);
+        let plan = Planner::plan_backfill_windows_with_skipped(
+            &existing,
+            utc(2024, 1, 1, 0, 0),
+            utc(2024, 1, 1, 0, 30),
+            true,
+        )
+        .unwrap();
+        assert!(plan.windows.is_empty());
+        assert_eq!(plan.windows_skipped, 5);
+        assert_eq!(plan.skipped_compacted[0].end, utc(2024, 1, 1, 0, 30));
+    }
+
+    #[test]
+    fn plain_windows_plan_reports_compacted_periods() {
+        let existing = paths(&["2024/01/01/00.parquet"]);
+        let plan = Planner::plan_windows_between_with_skipped(
+            &existing,
+            utc(2024, 1, 1, 0, 0),
+            utc(2024, 1, 1, 0, 12),
+        )
+        .unwrap();
+        assert!(plan.windows.is_empty());
+        assert_eq!(plan.windows_skipped, 2);
     }
 
     #[test]
