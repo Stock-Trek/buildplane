@@ -69,47 +69,51 @@ impl BuildRunner {
 
     /// Invoke the algorithm entry point with the resolved arguments.
     fn invoke(command: &Command) -> Result<i32, NulError> {
-        let (name, strategy_name, strategy_context, portfolio) = Self::fields(command);
-        let program = Self::cstring("build-runner")?;
-        let command_name = Self::cstring(name)?;
-        let strategy_name = Self::cstring(strategy_name)?;
-        let strategy_context = Self::cstring(strategy_context)?;
-        let portfolio = Self::cstring(portfolio)?;
-        let argv = [
-            program.as_ptr(),
-            command_name.as_ptr(),
-            strategy_name.as_ptr(),
-            strategy_context.as_ptr(),
-            portfolio.as_ptr(),
-        ];
+        let args = Self::args(command)
+            .iter()
+            .map(|arg| Self::cstring(arg))
+            .collect::<Result<Vec<_>, _>>()?;
+        let argv = args.iter().map(|arg| arg.as_ptr()).collect::<Vec<_>>();
 
         // Safety: `argv` holds valid, NUL-terminated C strings for the duration of
-        // the call and `argv.len()` matches `EXPECTED_ARG_COUNT`.
+        // the call and its length matches the number of arguments passed to `entry`.
         Ok(unsafe { Entry::run(argv.len() as i32, argv.as_ptr()) })
     }
 
-    /// Project a `Command` onto the fixed argv layout expected by `entry`.
-    fn fields(command: &Command) -> (&'static str, &str, &str, &str) {
+    /// Build the argv layout expected by `entry` for `command`.
+    fn args(command: &Command) -> Vec<&str> {
         match command {
-            Command::Algorithm { strategy_name } => ("Algorithm", strategy_name, "", ""),
+            Command::Algorithm { strategy_name } => {
+                vec!["build-runner", "Algorithm", strategy_name.as_str()]
+            }
             Command::Execute {
                 strategy_name,
                 strategy_context_path,
                 portfolio_path,
-            } => (
+            } => vec![
+                "build-runner",
                 "Execute",
-                strategy_name,
-                strategy_context_path,
-                portfolio_path,
-            ),
-            Command::Metadata { strategy_name } => ("Metadata", strategy_name, "", ""),
-            Command::Preferences { strategy_name } => ("Preferences", strategy_name, "", ""),
+                strategy_name.as_str(),
+                strategy_context_path.as_str(),
+                portfolio_path.as_str(),
+            ],
+            Command::Metadata { strategy_name } => {
+                vec!["build-runner", "Metadata", strategy_name.as_str()]
+            }
+            Command::Preferences { strategy_name } => {
+                vec!["build-runner", "Preferences", strategy_name.as_str()]
+            }
             Command::Signals {
                 strategy_name,
                 strategy_context_path,
-            } => ("Signals", strategy_name, strategy_context_path, ""),
+            } => vec![
+                "build-runner",
+                "Signals",
+                strategy_name.as_str(),
+                strategy_context_path.as_str(),
+            ],
             // `Command` is `#[non_exhaustive]`.
-            _ => ("Algorithm", "", "", ""),
+            _ => vec!["build-runner", "Algorithm", ""],
         }
     }
 
