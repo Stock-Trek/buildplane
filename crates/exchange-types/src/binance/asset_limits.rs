@@ -13,7 +13,7 @@ use crate::{
     signer::Signer,
     websocket_id::ETWebsocketId,
 };
-use buildplane_errors::errors::BpResult;
+use buildplane_errors::BpResult;
 use query_params::QueryParams;
 use serde::{Deserialize, Serialize};
 use serde_with::skip_serializing_none;

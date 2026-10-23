@@ -3,10 +3,10 @@ use aws_sdk_sqs::{
     Client as SqsClient, error::ProvideErrorMetadata, types::SendMessageBatchRequestEntry,
 };
 use buildplane_config::env_vars::EnvVarConfig;
-use buildplane_errors::errors::SqsError;
-use buildplane_errors::errors::{BpError, BpResult, SqsBatchFailure};
+use buildplane_errors::SqsError;
+use buildplane_errors::{BpError, BpResult, SqsBatchFailure};
 use buildplane_messages::sqs_message::{SQS_MAX_BATCH_BYTES, SqsMessage};
-use buildplane_metrics::metrics::sqs::SqsMetrics;
+use buildplane_metrics::sqs::SqsMetrics;
 use buildplane_time::deadline::Deadline;
 use buildplane_time::timeouts::Timeouts;
 use std::time::Duration;

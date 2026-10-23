@@ -1,5 +1,5 @@
 use buildplane_config::env_vars::EnvVarConfig;
-use buildplane_errors::errors::BpResult;
+use buildplane_errors::BpResult;
 
 pub struct GitHubAppConfig {
     pub app_id: u64,

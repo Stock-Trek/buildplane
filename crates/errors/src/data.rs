@@ -1,4 +1,4 @@
-use crate::errors::{bp::BpError, retryability::Retryability};
+use crate::{bp::BpError, retryability::Retryability};
 use chrono::{DateTime, Utc};
 use std::error::Error as StdError;
 
@@ -88,7 +88,7 @@ impl DataError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::errors::{ConfigError, TimeoutError};
+    use crate::{ConfigError, TimeoutError};
     use std::time::Duration;
 
     #[test]

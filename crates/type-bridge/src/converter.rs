@@ -3,7 +3,7 @@ use crate::{
     floats_to_decimals::FloatsToDecimals, semantic_checker::SemanticChecker,
     ticker_mapping::TickerMapping, trading_precision::TradingPrecision,
 };
-use buildplane_errors::errors::{BpError, BpResult, ValidationError};
+use buildplane_errors::{BpError, BpResult, ValidationError};
 use buildplane_exchange_types::{
     exchange::ETExchange,
     request::{ETHttpRequest, ETWebsocketRequest},

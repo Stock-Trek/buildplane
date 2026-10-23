@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use buildplane_errors::errors::BpResult;
+use buildplane_errors::BpResult;
 use buildplane_exchange_types::http::{HttpRequest, HttpResponse};
 use std::time::Duration;
 

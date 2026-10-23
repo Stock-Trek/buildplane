@@ -8,7 +8,7 @@ use crate::{
 };
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
-use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_errors::{BpError, BpResult};
 use futures::TryStreamExt;
 use parquet::arrow::{AsyncArrowWriter, ParquetRecordBatchStreamBuilder};
 use std::{

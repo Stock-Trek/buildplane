@@ -1,8 +1,8 @@
 use crate::infisical::auth_flow::InfisicalAwsAuth;
 use aws_config::SdkConfig;
 use buildplane_config::env_vars::EnvVarConfig;
-use buildplane_errors::errors::HttpError;
-use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_errors::HttpError;
+use buildplane_errors::{BpError, BpResult};
 use buildplane_time::deadline::Deadline;
 use buildplane_time::timeouts::{Timeout, Timeouts};
 use serde::Deserialize;

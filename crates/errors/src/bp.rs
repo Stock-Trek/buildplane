@@ -1,4 +1,4 @@
-use crate::errors::{
+use crate::{
     binance::BinanceError, config::ConfigError, connector::ConnectorError, data::DataError,
     exchange::ExchangeError, github::GitHubError, http::HttpError, io::IoError,
     lambda::LambdaError, rate_limit::RateLimitError, retryability::Retryability,

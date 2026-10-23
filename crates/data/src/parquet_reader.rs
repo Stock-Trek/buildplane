@@ -1,6 +1,6 @@
 use crate::s3::{Bucket, ObjectKey};
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
-use buildplane_errors::errors::BpError;
+use buildplane_errors::BpError;
 use bytes::Bytes;
 use futures::{FutureExt, future::BoxFuture};
 use parquet::{

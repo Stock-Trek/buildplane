@@ -1,4 +1,4 @@
-use crate::errors::{bp::BpError, retryability::Retryability};
+use crate::{bp::BpError, retryability::Retryability};
 use buildplane_types::{new_types::Seconds, protocol::Protocol};
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]

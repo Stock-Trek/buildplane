@@ -1,4 +1,4 @@
-use crate::errors::retryability::Retryability;
+use crate::retryability::Retryability;
 use aws_sigv4::{
     http_request::SigningError, sign::v4::signing_params::BuildError as SigningParamsError,
 };

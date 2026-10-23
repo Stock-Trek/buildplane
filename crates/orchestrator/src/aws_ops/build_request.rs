@@ -1,5 +1,5 @@
 use crate::aws_ops::s3::PresignedPost;
-use buildplane_errors::errors::BpResult;
+use buildplane_errors::BpResult;
 use buildplane_messages::build_request::{
     BuildRequest as BuildRequestPayload, BuildRequestSignedPost,
 };

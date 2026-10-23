@@ -1,7 +1,7 @@
 use crate::git_ops::git_remote::{GitFile, GitHost};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use buildplane_errors::errors::{BpError, BpResult};
-use buildplane_errors::errors::{GitHubError, TimeoutError};
+use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{GitHubError, TimeoutError};
 use buildplane_time::deadline::Deadline;
 use buildplane_time::timeouts::Timeouts;
 use octocrab::{Octocrab, models::InstallationId};

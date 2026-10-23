@@ -1,5 +1,5 @@
 use crate::env_vars::EnvVarConfig;
-use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_errors::{BpError, BpResult};
 use tracing_subscriber::{EnvFilter, fmt::Subscriber};
 
 pub struct TracingSetup;

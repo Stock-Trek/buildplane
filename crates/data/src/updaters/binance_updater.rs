@@ -1,6 +1,6 @@
 use crate::{constants::KLINE_LIMIT, updaters::exchange_updater::ExchangeUpdater};
-use buildplane_errors::errors::ExchangeError;
-use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_errors::ExchangeError;
+use buildplane_errors::{BpError, BpResult};
 use buildplane_exchange_gateway::{
     async_trait, clients::reqwest::ReqwestHttpClient, connector::Connector,
     submission::SubmissionOutcome,

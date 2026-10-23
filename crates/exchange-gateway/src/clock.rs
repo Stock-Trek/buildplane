@@ -1,5 +1,5 @@
-use buildplane_errors::errors::{BpError, BpResult};
-use buildplane_errors::errors::{ConnectorError, SystemError};
+use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{ConnectorError, SystemError};
 use buildplane_exchange_types::new_types::Milliseconds;
 use std::{
     sync::{

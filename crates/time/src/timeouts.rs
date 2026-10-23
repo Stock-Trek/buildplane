@@ -1,6 +1,6 @@
 use crate::deadline::Deadline;
 use buildplane_config::env_vars::EnvVarConfig;
-use buildplane_errors::errors::BpResult;
+use buildplane_errors::BpResult;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

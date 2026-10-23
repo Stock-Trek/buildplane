@@ -1,6 +1,6 @@
 use buildplane_config::env_vars::EnvVarConfig;
-use buildplane_errors::errors::GitHubError;
-use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_errors::GitHubError;
+use buildplane_errors::{BpError, BpResult};
 use std::{
     collections::HashMap,
     net::{Ipv4Addr, Ipv6Addr},

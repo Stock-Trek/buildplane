@@ -10,8 +10,8 @@ use crate::{
 use arrow_schema::SchemaRef;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
-use buildplane_errors::errors::{BpError, BpResult};
-use buildplane_errors::errors::{ExchangeError, SystemError};
+use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{ExchangeError, SystemError};
 use buildplane_exchange_types::urls::TradingMode;
 use chrono::{DateTime, Utc};
 use std::{

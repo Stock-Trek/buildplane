@@ -14,7 +14,7 @@ use crate::{
     signer::Signer,
     urls::Urls,
 };
-use buildplane_errors::errors::BpResult;
+use buildplane_errors::BpResult;
 use std::{collections::HashMap, time::Duration};
 
 pub struct BinanceExchange;

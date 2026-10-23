@@ -1,4 +1,4 @@
-use crate::errors::retryability::Retryability;
+use crate::retryability::Retryability;
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]

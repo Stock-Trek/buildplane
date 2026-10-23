@@ -1,4 +1,4 @@
-use crate::errors::retryability::Retryability;
+use crate::retryability::Retryability;
 use buildplane_types::new_types::{Nanoseconds, UsageCount};
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]

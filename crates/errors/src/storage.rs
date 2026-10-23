@@ -1,4 +1,4 @@
-use crate::errors::retryability::Retryability;
+use crate::retryability::Retryability;
 use aws_credential_types::provider::error::CredentialsError;
 use std::error::Error as StdError;
 

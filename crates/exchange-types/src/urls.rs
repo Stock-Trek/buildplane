@@ -1,6 +1,6 @@
 use buildplane_config::env_vars::EnvVarConfig;
-use buildplane_errors::errors::{BpError, BpResult};
-use buildplane_errors::errors::{ConfigError, ExchangeError};
+use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{ConfigError, ExchangeError};
 pub use buildplane_types::protocol::Protocol;
 use serde::{Deserialize, Serialize};
 use strum::Display;

@@ -1,6 +1,6 @@
 use crate::s3::Bucket;
 use buildplane_config::env_vars::EnvVarConfig;
-use buildplane_errors::errors::BpResult;
+use buildplane_errors::BpResult;
 use chrono::{DateTime, Utc};
 
 const DEFAULT_LAMBDA_FUNCTION_NAME: &str = "buildplane-data";

@@ -1,6 +1,6 @@
 use crate::{s3::SignedPost, source::Source};
-use buildplane_errors::errors::{BpError, BpResult};
-use buildplane_errors::errors::{ConfigError, IoError, ValidationError};
+use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{ConfigError, IoError, ValidationError};
 use std::{
     fs as std_fs,
     io::{self, Cursor, Write},

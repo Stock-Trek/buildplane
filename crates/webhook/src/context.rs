@@ -6,9 +6,9 @@ use crate::{
 };
 use aws_config::SdkConfig;
 use buildplane_config::env_vars::EnvVarConfig;
-use buildplane_errors::errors::SecretsError;
-use buildplane_errors::errors::{BpError, BpResult};
-use buildplane_metrics::metrics::secret::SecretMetrics;
+use buildplane_errors::SecretsError;
+use buildplane_errors::{BpError, BpResult};
+use buildplane_metrics::secret::SecretMetrics;
 use buildplane_time::deadline::Deadline;
 use buildplane_time::timeouts::Timeouts;
 use std::{

@@ -1,4 +1,4 @@
-use crate::errors::retryability::Retryability;
+use crate::retryability::Retryability;
 use std::error::Error as StdError;
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
