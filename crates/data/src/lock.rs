@@ -5,6 +5,7 @@ use aws_sdk_s3::{
 };
 use buildplane_errors::DataError;
 use buildplane_errors::{BpError, BpResult};
+use buildplane_time::deadline::Deadline;
 use chrono::{DateTime, Utc};
 use std::{
     sync::{
@@ -44,6 +45,25 @@ pub struct LockGuard {
 impl LockGuard {
     pub async fn acquire(s3_client: &S3Client, bucket: &Bucket, key: &ObjectKey) -> BpResult<Self> {
         let deadline = Instant::now() + ACQUIRE_TIMEOUT;
+        Self::acquire_until(s3_client, bucket, key, deadline).await
+    }
+
+    pub async fn acquire_with_deadline(
+        s3_client: &S3Client,
+        bucket: &Bucket,
+        key: &ObjectKey,
+        deadline: Deadline,
+    ) -> BpResult<Self> {
+        let acquire_deadline = Instant::now() + deadline.remaining()?.min(ACQUIRE_TIMEOUT);
+        Self::acquire_until(s3_client, bucket, key, acquire_deadline).await
+    }
+
+    async fn acquire_until(
+        s3_client: &S3Client,
+        bucket: &Bucket,
+        key: &ObjectKey,
+        deadline: Instant,
+    ) -> BpResult<Self> {
         loop {
             if let Some(guard) = Self::try_acquire(s3_client, bucket, key).await? {
                 return Ok(guard);
@@ -51,13 +71,14 @@ impl LockGuard {
             if Self::take_over_stale(s3_client, bucket, key).await? {
                 continue;
             }
-            if Instant::now() >= deadline {
+            let now = Instant::now();
+            if now >= deadline {
                 warn!("timed out waiting for lock {}", key);
                 return Err(BpError::Data(DataError::LockContention {
                     key: key.as_str().to_string(),
                 }));
             }
-            sleep(RETRY_INTERVAL).await;
+            sleep((deadline - now).min(RETRY_INTERVAL)).await;
         }
     }
 

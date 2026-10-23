@@ -3,6 +3,7 @@
 use buildplane_config::env_vars::EnvVarConfig as SharedEnvVarConfig;
 use buildplane_config::tracing_setup::TracingSetup;
 use buildplane_data::{env_config::EnvConfig, job::Job, orchestrator::Orchestrator};
+use buildplane_time::deadline::Deadline;
 use lambda_runtime::{Error, LambdaEvent, run, service_fn};
 use serde_json::{Value, json};
 use tracing::info;
@@ -24,13 +25,14 @@ async fn function_handler(
     shared_config: SharedEnvVarConfig,
 ) -> Result<Value, Error> {
     let env_config = EnvConfig::from_shared(&shared_config)?;
+    let deadline = Deadline::new(event.context.deadline(), env_config.deadline_buffer);
     let job = Job::from_value(event.payload)?;
     info!(
         "running lambda function {} with {} job",
         env_config.lambda_function_name,
         job.mode()
     );
-    let outcome = Orchestrator::run_job(&env_config, &job).await?;
+    let outcome = Orchestrator::run_job(&env_config, &job, deadline).await?;
     let status = if outcome.windows_skipped == 0 {
         "ok"
     } else {
