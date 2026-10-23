@@ -704,10 +704,7 @@ mod tests {
         ])
         .unwrap();
 
-        assert_eq!(
-            config.build_agent_timeout(),
-            Duration::from_secs(120)
-        );
+        assert_eq!(config.build_agent_timeout(), Duration::from_secs(120));
     }
 
     #[test]
@@ -796,14 +793,8 @@ mod tests {
     fn build_agent_settings_have_defaults() {
         let config = EnvVarConfig::from_map(Vec::<(String, String)>::new()).unwrap();
 
-        assert_eq!(
-            config.build_agent_timeout(),
-            Duration::from_secs(300)
-        );
-        assert_eq!(
-            config.build_agent_source_dir(),
-            PathBuf::from("/var/task")
-        );
+        assert_eq!(config.build_agent_timeout(), Duration::from_secs(300));
+        assert_eq!(config.build_agent_source_dir(), PathBuf::from("/var/task"));
         assert_eq!(
             config.build_agent_build_cache_dir(),
             PathBuf::from("/tmp/buildplane-build-cache")
@@ -813,9 +804,7 @@ mod tests {
             Duration::from_secs(60)
         );
         assert_eq!(
-            config
-                .build_agent_max_extracted_source_size_bytes()
-                .get(),
+            config.build_agent_max_extracted_source_size_bytes().get(),
             64 * 1024 * 1024
         );
     }
@@ -831,14 +820,8 @@ mod tests {
         ])
         .unwrap();
 
-        assert_eq!(
-            config.build_agent_timeout(),
-            Duration::from_secs(120)
-        );
-        assert_eq!(
-            config.build_agent_source_dir(),
-            PathBuf::from("/srv/agent")
-        );
+        assert_eq!(config.build_agent_timeout(), Duration::from_secs(120));
+        assert_eq!(config.build_agent_source_dir(), PathBuf::from("/srv/agent"));
         assert_eq!(
             config.build_agent_build_cache_dir(),
             PathBuf::from("/var/cache/agent")
@@ -848,9 +831,7 @@ mod tests {
             Duration::from_secs(45)
         );
         assert_eq!(
-            config
-                .build_agent_max_extracted_source_size_bytes()
-                .get(),
+            config.build_agent_max_extracted_source_size_bytes().get(),
             2048
         );
     }
@@ -898,10 +879,7 @@ mod tests {
             Duration::from_secs(4)
         );
         assert_eq!(config.webhook_dedup_ttl(), Duration::from_secs(5));
-        assert_eq!(
-            config.webhook_refresh_cooldown(),
-            Duration::from_secs(6)
-        );
+        assert_eq!(config.webhook_refresh_cooldown(), Duration::from_secs(6));
         assert_eq!(
             config.webhook_secret_failure_backoff(),
             Duration::from_secs(7)
