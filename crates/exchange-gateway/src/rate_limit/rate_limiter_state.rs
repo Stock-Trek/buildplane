@@ -92,11 +92,20 @@ impl RateLimiterState {
         self.current_capacity = (self.current_capacity + cost).min(self.capacity_per_interval);
     }
     pub fn throttle(&mut self, until: Instant) {
-        self.current_capacity = UsageCount::ZERO;
-        self.throttled_until = Some(until);
+        if until <= self.now() {
+            return;
+        }
+        self.set_throttle(until);
     }
     pub(crate) fn throttle_after(&mut self, duration: Duration) {
-        self.throttle(self.now() + duration.min(MAX_THROTTLE_AFTER));
+        if duration.is_zero() {
+            return;
+        }
+        self.set_throttle(self.now() + duration.min(MAX_THROTTLE_AFTER));
+    }
+    fn set_throttle(&mut self, until: Instant) {
+        self.current_capacity = UsageCount::ZERO;
+        self.throttled_until = Some(until);
     }
     pub fn sync_usage(&mut self, used: Option<UsageCount>, limit: Option<UsageCount>) {
         if let Some(limit) = limit {
@@ -181,5 +190,47 @@ impl std::fmt::Debug for RateLimiterState {
             .field("excess_interval_nanos", &self.excess_interval_nanos)
             .field("throttled_until", &self.throttled_until)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state_with_clock(now: Instant) -> RateLimiterState {
+        RateLimiterState::with_clock(
+            Nanoseconds(60_000_000_000),
+            UsageCount(10),
+            Arc::new(move || now),
+        )
+        .expect("valid rate limiter state")
+    }
+
+    #[test]
+    fn zero_duration_does_not_throttle_or_drain() {
+        let mut state = state_with_clock(Instant::now());
+        state.throttle_after(Duration::ZERO);
+
+        assert!(!state.is_throttled());
+        assert_eq!(state.remaining_capacity(), UsageCount(10));
+    }
+
+    #[test]
+    fn past_deadline_does_not_throttle_or_drain() {
+        let now = Instant::now();
+        let mut state = state_with_clock(now);
+        state.throttle(now - Duration::from_secs(1));
+
+        assert!(!state.is_throttled());
+        assert_eq!(state.remaining_capacity(), UsageCount(10));
+    }
+
+    #[test]
+    fn future_deadline_still_throttles_and_drains() {
+        let mut state = state_with_clock(Instant::now());
+        state.throttle_after(Duration::from_secs(60));
+
+        assert!(state.is_throttled());
+        assert_eq!(state.remaining_capacity(), UsageCount::ZERO);
     }
 }
