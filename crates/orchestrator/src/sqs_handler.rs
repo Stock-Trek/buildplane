@@ -72,23 +72,23 @@ impl SqsHandler {
             .ok_or_else(|| BpError::Sqs(SqsError::MissingMessageBody))?;
         let message: SqsMessage = serde_json::from_str(body)?;
         let dedup = request_context.context.dedup.clone();
-        if dedup.is_duplicate(&message) {
+        let Some(dedup_guard) = dedup.claim(&message) else {
             tracing::info!(
                 message_id = record.message_id.as_deref().unwrap_or("unknown"),
                 "Ignoring duplicate SQS message",
             );
             SqsMetrics::record_duplicate_message();
             return Ok(());
-        }
+        };
         let task = Task::from(message.clone());
         let metrics = RouteMetrics::start(task.route());
         let result = task.handle(request_context).await;
         match &result {
-            Ok(()) => metrics.record_success(),
-            Err(error) => {
-                dedup.forget(&message);
-                metrics.record_error(error.error_type());
+            Ok(()) => {
+                dedup_guard.complete();
+                metrics.record_success();
             }
+            Err(error) => metrics.record_error(error.error_type()),
         }
         result
     }
