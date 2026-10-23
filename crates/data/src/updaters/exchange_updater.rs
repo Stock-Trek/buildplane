@@ -1,6 +1,6 @@
+use buildplane_errors::errors::BpResult;
 use buildplane_exchange_gateway::async_trait;
 use buildplane_exchange_types::klines::Kline;
-use buildplane_shared::errors::BpResult;
 use chrono::{DateTime, Utc};
 use stock_trek_types::cex::trading_pair::TradingPair;
 

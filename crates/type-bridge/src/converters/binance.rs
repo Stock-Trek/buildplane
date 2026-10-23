@@ -3,6 +3,7 @@ use crate::{
     asset_limits::TBAssetLimits,
 };
 use bimap::BiHashMap;
+use buildplane_errors::errors::{ExchangeError, ValidationError};
 use buildplane_exchange_types::{
     binance::{
         asset_limits::{BinanceAssetLimitsRequest, BinanceAssetLimitsResponse},
@@ -25,7 +26,6 @@ use buildplane_exchange_types::{
     },
     new_types::Milliseconds,
 };
-use buildplane_shared::errors::{ExchangeError, ValidationError};
 use std::collections::HashMap;
 use stock_trek_types::cex::{
     activation::Activation, asset_id::AssetId, capability::CexCapability,

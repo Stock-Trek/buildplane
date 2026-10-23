@@ -3,7 +3,7 @@ use crate::{
     request::{ETHttpRequest, ETWebsocketRequest},
     response::{ETHttpResponse, ETWebsocketResponse},
 };
-use buildplane_shared::errors::BpResult;
+use buildplane_errors::errors::BpResult;
 
 pub trait ServerTimeHttpRequest<Response>: ETHttpRequest<Response = Response>
 where

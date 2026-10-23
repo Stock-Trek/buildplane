@@ -12,7 +12,7 @@ use crate::{
     signer::Signer,
     websocket_id::ETWebsocketId,
 };
-use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_errors::errors::{BpError, BpResult};
 use query_params::QueryParams;
 use serde::{Deserialize, Serialize};
 

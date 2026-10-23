@@ -1,5 +1,5 @@
 use crate::{BpError, BpResult};
-use buildplane_shared::errors::ValidationError;
+use buildplane_errors::errors::ValidationError;
 use rust_decimal::{Decimal, RoundingStrategy, prelude::FromPrimitive};
 
 #[derive(Debug, Clone, Copy)]

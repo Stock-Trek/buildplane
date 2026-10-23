@@ -11,7 +11,7 @@ pub mod ticker_mapping;
 pub mod trading_precision;
 pub mod util;
 
-pub use buildplane_shared::errors::{BpError, BpResult};
+pub use buildplane_errors::errors::{BpError, BpResult};
 
 pub use crate::{
     asset_limits::TBAssetLimits,

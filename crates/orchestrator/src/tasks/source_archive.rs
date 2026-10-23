@@ -1,6 +1,6 @@
-use buildplane_shared::errors::BpError;
-use buildplane_shared::errors::BpResult;
-use buildplane_shared::git_ops::git_remote::GitFile;
+use buildplane_errors::errors::BpError;
+use buildplane_errors::errors::BpResult;
+use buildplane_github::git_ops::git_remote::GitFile;
 use std::io::{Cursor, Write};
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 

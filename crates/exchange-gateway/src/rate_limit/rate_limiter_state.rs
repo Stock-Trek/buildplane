@@ -1,6 +1,6 @@
+use buildplane_errors::errors::RateLimitError;
+use buildplane_errors::errors::{BpError, BpResult};
 use buildplane_exchange_types::new_types::{Nanoseconds, UsageCount};
-use buildplane_shared::errors::RateLimitError;
-use buildplane_shared::errors::{BpError, BpResult};
 use std::{
     sync::Arc,
     time::{Duration, Instant},

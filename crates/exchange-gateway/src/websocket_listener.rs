@@ -1,6 +1,6 @@
 use crate::panic_guard::PanicUtils;
-use buildplane_shared::errors::{BpError, BpResult};
-use buildplane_shared::errors::{ConnectorError, SystemError};
+use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_errors::errors::{ConnectorError, SystemError};
 use std::{
     pin::Pin,
     sync::{Arc, Mutex},

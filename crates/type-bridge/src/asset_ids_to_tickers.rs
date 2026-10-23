@@ -1,7 +1,7 @@
 use crate::ticker_mapping::TickerMapping;
+use buildplane_errors::errors::ValidationError;
+use buildplane_errors::errors::{BpError, BpResult};
 use buildplane_exchange_types::ticker::Ticker;
-use buildplane_shared::errors::ValidationError;
-use buildplane_shared::errors::{BpError, BpResult};
 use stock_trek_types::cex::{asset_id::AssetId, order_request::OrderRequest};
 
 #[derive(Debug, Clone)]

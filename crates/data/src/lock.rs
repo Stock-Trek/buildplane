@@ -3,8 +3,8 @@ use aws_sdk_s3::{
     error::{ProvideErrorMetadata, SdkError},
     primitives::ByteStream,
 };
-use buildplane_shared::errors::DataError;
-use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_errors::errors::DataError;
+use buildplane_errors::errors::{BpError, BpResult};
 use chrono::{DateTime, Utc};
 use std::{
     sync::{

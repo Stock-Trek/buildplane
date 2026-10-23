@@ -5,8 +5,8 @@ edition.workspace = true
 
 [dependencies]
 async-trait.workspace = true
+buildplane-errors = { path = "../errors" }
 buildplane-exchange-types = { path = "../exchange-types" }
-buildplane-shared = { path = "../shared" }
 futures-timer.workspace = true
 httpdate.workspace = true
 iris.workspace = true

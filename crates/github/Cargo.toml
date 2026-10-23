@@ -1,0 +1,18 @@
+[package]
+name = "buildplane-github"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+base64.workspace = true
+buildplane-config = { path = "../config" }
+buildplane-errors = { path = "../errors" }
+buildplane-messages = { path = "../messages" }
+buildplane-time = { path = "../time" }
+jsonwebtoken.workspace = true
+lru.workspace = true
+octocrab.workspace = true
+parking_lot.workspace = true
+serde.workspace = true
+tokio.workspace = true
+url.workspace = true

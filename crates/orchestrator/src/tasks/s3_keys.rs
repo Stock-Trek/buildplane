@@ -1,6 +1,8 @@
-use buildplane_shared::errors::BpResult;
-use buildplane_shared::errors::ValidationError;
-use buildplane_shared::{errors::BpError, git_ops::git_remote::GitHost, sqs_message::SqsRefType};
+use buildplane_errors::errors::BpError;
+use buildplane_errors::errors::BpResult;
+use buildplane_errors::errors::ValidationError;
+use buildplane_github::git_ops::git_remote::GitHost;
+use buildplane_messages::sqs_message::SqsRefType;
 use std::fmt::Display;
 
 const SOURCE_PREFIX: &str = "source/";

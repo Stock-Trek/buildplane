@@ -7,8 +7,8 @@ use crate::{
 use arrow_array::{ArrayRef, Decimal128Array, Int64Array, RecordBatch};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
+use buildplane_errors::errors::{BpError, BpResult, DecimalScaleError};
 use buildplane_exchange_types::klines::Kline;
-use buildplane_shared::errors::{BpError, BpResult, DecimalScaleError};
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use parquet::arrow::ArrowWriter;

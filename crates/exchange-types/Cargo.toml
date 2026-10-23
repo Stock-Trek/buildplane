@@ -4,8 +4,10 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+buildplane-config = { path = "../config" }
+buildplane-errors = { path = "../errors" }
+buildplane-types = { path = "../types" }
 bs58.workspace = true
-buildplane-shared = { path = "../shared" }
 data-encoding.workspace = true
 ed25519-compact.workspace = true
 hmac.workspace = true

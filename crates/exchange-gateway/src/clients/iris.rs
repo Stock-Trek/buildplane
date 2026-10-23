@@ -3,8 +3,8 @@ use crate::{
     websocket_listener::WebsocketListener,
 };
 use async_trait::async_trait;
-use buildplane_shared::errors::{BpError, BpResult};
-use buildplane_shared::errors::{ConnectorError, TimeoutError};
+use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_errors::errors::{ConnectorError, TimeoutError};
 use futures_timer::Delay;
 use iris::{Client as IrisClient, Config as IrisConfig, ConnectionError, Listener as IrisListener};
 use std::{

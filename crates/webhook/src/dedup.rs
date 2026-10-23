@@ -1,5 +1,5 @@
-use buildplane_shared::env_vars::EnvVarConfig;
-use buildplane_shared::errors::BpResult;
+use buildplane_config::env_vars::EnvVarConfig;
+use buildplane_errors::errors::BpResult;
 use lru::LruCache;
 use parking_lot::Mutex;
 use std::{

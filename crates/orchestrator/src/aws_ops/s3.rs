@@ -9,13 +9,11 @@ use aws_sdk_s3::{
     error::{ProvideErrorMetadata, SdkError},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use buildplane_shared::errors::{StorageError, TimeoutError};
-use buildplane_shared::{
-    deadline::Deadline,
-    env_vars::{EnvVarConfig, S3_SIGNED_URL_EXPIRY_SECS},
-    errors::{BpError, BpResult},
-    timeouts::Timeouts,
-};
+use buildplane_config::env_vars::{EnvVarConfig, S3_SIGNED_URL_EXPIRY_SECS};
+use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_errors::errors::{StorageError, TimeoutError};
+use buildplane_time::deadline::Deadline;
+use buildplane_time::timeouts::Timeouts;
 use hmac::{Hmac, KeyInit, Mac};
 use reqwest::Client;
 use serde_json::json;
@@ -658,7 +656,7 @@ impl S3 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use buildplane_shared::timeouts::Timeout;
+    use buildplane_time::timeouts::Timeout;
 
     #[test]
     fn presigns_get_url_with_sigv4() {

@@ -1,10 +1,10 @@
 use crate::handler::Handler;
-use buildplane_shared::build_request::{BuildOutcome, BuildRequest};
-use buildplane_shared::env_vars::EnvVarConfig;
-use buildplane_shared::errors::{BpError, BpResult};
-use buildplane_shared::metrics::build::BuildMetrics;
-use buildplane_shared::metrics::descriptions::DescriptionsMetrics;
-use buildplane_shared::tracing_setup::TracingSetup;
+use buildplane_config::env_vars::EnvVarConfig;
+use buildplane_config::tracing_setup::TracingSetup;
+use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_messages::build_request::{BuildOutcome, BuildRequest};
+use buildplane_metrics::metrics::build::BuildMetrics;
+use buildplane_metrics::metrics::descriptions::DescriptionsMetrics;
 use lambda_runtime::{LambdaEvent, service_fn};
 use metrics_cloudwatch_embedded::lambda::service::run;
 use std::time::Instant;
@@ -26,7 +26,7 @@ async fn main() -> BpResult<()> {
             "function",
             config.lambda_function_name(DEFAULT_FUNCTION_NAME)?,
         )
-        .lambda_cold_start_metric(buildplane_shared::metrics::descriptions::COLD_STARTS_TOTAL)
+        .lambda_cold_start_metric(buildplane_metrics::metrics::descriptions::COLD_STARTS_TOTAL)
         .init()?;
     DescriptionsMetrics::describe();
     let handler = Handler::new(
@@ -93,7 +93,7 @@ impl BuildAgent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use buildplane_shared::errors::{ConfigError, TimeoutError};
+    use buildplane_errors::errors::{ConfigError, TimeoutError};
     use std::time::Duration;
 
     #[test]

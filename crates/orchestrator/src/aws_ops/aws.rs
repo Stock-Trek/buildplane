@@ -1,7 +1,9 @@
 use crate::aws_ops::{lambda::Lambda, s3::S3};
 use aws_config::{BehaviorVersion, SdkConfig, timeout::TimeoutConfig};
-use buildplane_shared::errors::BpResult;
-use buildplane_shared::{env_vars::EnvVarConfig, sqs::Sqs, timeouts::Timeouts};
+use buildplane_config::env_vars::EnvVarConfig;
+use buildplane_errors::errors::BpResult;
+use buildplane_sqs::sqs::Sqs;
+use buildplane_time::timeouts::Timeouts;
 use std::time::Duration;
 
 const DEFAULT_AWS_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);

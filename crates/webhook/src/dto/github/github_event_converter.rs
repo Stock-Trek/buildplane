@@ -18,14 +18,12 @@ use crate::{
     event_response::EventResponse,
     infisical::secrets::Secrets,
 };
-use buildplane_shared::errors::{BpError, BpResult};
-use buildplane_shared::errors::{GitHubError, HttpError};
-use buildplane_shared::{
-    env_vars::EnvVarConfig,
-    git_ops::github::host_allow_list::HostAllowlist,
-    metrics::event::EventMetrics,
-    sqs_message::{GitSource, SqsDetail, SqsMessage, SqsRefType},
-};
+use buildplane_config::env_vars::EnvVarConfig;
+use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_errors::errors::{GitHubError, HttpError};
+use buildplane_github::git_ops::github::host_allow_list::HostAllowlist;
+use buildplane_messages::sqs_message::{GitSource, SqsDetail, SqsMessage, SqsRefType};
+use buildplane_metrics::metrics::event::EventMetrics;
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 use subtle::ConstantTimeEq;

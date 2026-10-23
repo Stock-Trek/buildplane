@@ -4,7 +4,10 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-buildplane-shared = { path = "../shared" }
+buildplane-config = { path = "../config" }
+buildplane-errors = { path = "../errors" }
+buildplane-messages = { path = "../messages" }
+buildplane-metrics = { path = "../metrics" }
 base64.workspace = true
 lambda_runtime.workspace = true
 metrics.workspace = true

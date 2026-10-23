@@ -1,9 +1,9 @@
+use buildplane_config::env_vars::EnvVarConfig;
+use buildplane_errors::errors::{BpError, ExchangeError};
 use buildplane_exchange_types::{
     binance::urls::BinanceUrls,
     urls::{Protocol, TradingMode, Urls},
 };
-use buildplane_shared::env_vars::EnvVarConfig;
-use buildplane_shared::errors::{BpError, ExchangeError};
 
 #[test]
 fn missing_override_uses_default_url() {
