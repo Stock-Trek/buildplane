@@ -7,7 +7,6 @@ use std::fmt::Display;
 
 const SOURCE_PREFIX: &str = "source/";
 const ARTIFACT_PREFIX: &str = "artifact/";
-const RESERVED_SEGMENTS: &[&str] = &["source", "artifact"];
 
 pub struct S3Keys;
 
@@ -167,10 +166,7 @@ impl S3Keys {
             && !value.contains("..")
             && !value.contains("@{")
             && value.split('/').all(|segment| {
-                !segment.is_empty()
-                    && !segment.starts_with('.')
-                    && !segment.ends_with(".lock")
-                    && !RESERVED_SEGMENTS.contains(&segment)
+                !segment.is_empty() && !segment.starts_with('.') && !segment.ends_with(".lock")
             })
             && value.chars().all(|character| {
                 !character.is_ascii_control()
@@ -227,11 +223,11 @@ mod tests {
     }
 
     #[test]
-    fn reserved_prefixes_are_not_valid_ref_names() {
-        assert!(!S3Keys::is_valid_ref_name("source"));
-        assert!(!S3Keys::is_valid_ref_name("artifact"));
-        assert!(!S3Keys::is_valid_ref_name("feature/source"));
-        assert!(!S3Keys::is_valid_ref_name("feature/artifact"));
+    fn prefixes_are_valid_ref_names() {
+        assert!(S3Keys::is_valid_ref_name("source"));
+        assert!(S3Keys::is_valid_ref_name("artifact"));
+        assert!(S3Keys::is_valid_ref_name("feature/source"));
+        assert!(S3Keys::is_valid_ref_name("feature/artifact"));
         assert!(S3Keys::is_valid_ref_name("feature/source-change"));
     }
 }
