@@ -1,6 +1,7 @@
 use aws_sdk_s3::{
     Client as S3Client,
     error::{ProvideErrorMetadata, SdkError},
+    operation::delete_object::DeleteObjectError,
     primitives::ByteStream,
 };
 use buildplane_errors::DataError;
@@ -15,6 +16,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::{
+    sync::Notify,
     task::JoinHandle,
     time::{Instant, MissedTickBehavior, interval, sleep},
 };
@@ -38,8 +40,11 @@ pub struct LockGuard {
     s3_client: S3Client,
     bucket: Bucket,
     key: ObjectKey,
+    token: String,
     state: Arc<Mutex<LockState>>,
     heartbeat: Option<JoinHandle<()>>,
+    heartbeat_stop: Arc<Notify>,
+    lost_notify: Arc<Notify>,
 }
 
 impl LockGuard {
@@ -114,18 +119,26 @@ impl LockGuard {
             released: false,
             lost: false,
         }));
+        let heartbeat_stop = Arc::new(Notify::new());
+        let lost_notify = Arc::new(Notify::new());
         let heartbeat = Self::spawn_heartbeat(
             s3_client.clone(),
             bucket.clone(),
             key.clone(),
+            token.clone(),
             Arc::clone(&state),
+            Arc::clone(&heartbeat_stop),
+            Arc::clone(&lost_notify),
         );
         Ok(Some(Self {
             s3_client: s3_client.clone(),
             bucket: bucket.clone(),
             key: key.clone(),
+            token,
             state,
             heartbeat: Some(heartbeat),
+            heartbeat_stop,
+            lost_notify,
         }))
     }
 
@@ -133,14 +146,21 @@ impl LockGuard {
         s3_client: S3Client,
         bucket: Bucket,
         key: ObjectKey,
+        token: String,
         state: Arc<Mutex<LockState>>,
+        stop: Arc<Notify>,
+        lost_notify: Arc<Notify>,
     ) -> JoinHandle<()> {
         tokio::spawn(async move {
             let mut ticker = interval(RENEW_INTERVAL);
             ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
             ticker.tick().await;
             loop {
-                ticker.tick().await;
+                tokio::select! {
+                    biased;
+                    _ = stop.notified() => break,
+                    _ = ticker.tick() => {}
+                }
                 let e_tag = {
                     let state = state
                         .lock()
@@ -150,7 +170,7 @@ impl LockGuard {
                     }
                     state.e_tag.clone()
                 };
-                match Self::renew(&s3_client, &bucket, &key, &e_tag).await {
+                match Self::renew(&s3_client, &bucket, &key, &e_tag, &token).await {
                     Ok(Some(e_tag)) => {
                         let mut state = state
                             .lock()
@@ -163,7 +183,9 @@ impl LockGuard {
                             .unwrap_or_else(|poisoned| poisoned.into_inner());
                         if !state.released {
                             state.lost = true;
+                            drop(state);
                             warn!("lock {} was taken over before it could be renewed", key);
+                            lost_notify.notify_one();
                         }
                         break;
                     }
@@ -178,15 +200,15 @@ impl LockGuard {
         bucket: &Bucket,
         key: &ObjectKey,
         e_tag: &str,
+        token: &str,
     ) -> BpResult<Option<String>> {
         let target = S3::object_target(bucket, key);
-        let token = Self::new_lock_token();
         let output = match s3_client
             .put_object()
             .bucket(bucket.as_str())
             .key(key.as_str())
             .if_match(e_tag)
-            .body(ByteStream::from(token.into_bytes()))
+            .body(ByteStream::from(token.as_bytes().to_vec()))
             .send()
             .await
         {
@@ -380,7 +402,14 @@ impl LockGuard {
             warn!("lock {} was taken over and cannot be released", self.key);
             return Ok(());
         }
-        let result = Self::delete_lock(&self.s3_client, &self.bucket, &self.key, &e_tag).await;
+        let result = Self::delete_lock(
+            &self.s3_client,
+            &self.bucket,
+            &self.key,
+            &e_tag,
+            &self.token,
+        )
+        .await;
         if result.is_ok() {
             self.state
                 .lock()
@@ -390,9 +419,23 @@ impl LockGuard {
         result
     }
 
+    pub async fn wait_until_lost(&self) {
+        loop {
+            if self
+                .state
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .lost
+            {
+                return;
+            }
+            self.lost_notify.notified().await;
+        }
+    }
+
     async fn stop_heartbeat(&mut self) {
         if let Some(heartbeat) = self.heartbeat.take() {
-            heartbeat.abort();
+            self.heartbeat_stop.notify_one();
             let _ = heartbeat.await;
         }
     }
@@ -402,6 +445,7 @@ impl LockGuard {
         bucket: &Bucket,
         key: &ObjectKey,
         e_tag: &str,
+        token: &str,
     ) -> BpResult<()> {
         let target = S3::object_target(bucket, key);
         if e_tag.is_empty() {
@@ -409,24 +453,89 @@ impl LockGuard {
                 key: key.as_str().to_string(),
             }));
         }
-        match s3_client
+        match Self::delete_if_match(s3_client, bucket, key, e_tag).await {
+            Ok(()) => {
+                info!("released lock {}", key);
+                Ok(())
+            }
+            Err(error) if Self::is_precondition_failed(&error) => {
+                match Self::owned_lock_e_tag(s3_client, bucket, key, token).await {
+                    Ok(Some(current_e_tag)) if current_e_tag != e_tag => {
+                        match Self::delete_if_match(s3_client, bucket, key, &current_e_tag).await {
+                            Ok(()) => {
+                                info!("released lock {}", key);
+                                return Ok(());
+                            }
+                            Err(error) if Self::is_precondition_failed(&error) => {}
+                            Err(error) => {
+                                return Err(BpError::s3("release lock", target, error));
+                            }
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        warn!(
+                            "failed to verify ownership of lock {} before release: {error}",
+                            key
+                        );
+                    }
+                }
+                warn!("lock {} was taken over before release", key);
+                Ok(())
+            }
+            Err(error) => Err(BpError::s3("release lock", target, error)),
+        }
+    }
+
+    async fn delete_if_match(
+        s3_client: &S3Client,
+        bucket: &Bucket,
+        key: &ObjectKey,
+        e_tag: &str,
+    ) -> Result<(), Box<SdkError<DeleteObjectError>>> {
+        s3_client
             .delete_object()
             .bucket(bucket.as_str())
             .key(key.as_str())
             .if_match(e_tag)
             .send()
             .await
+            .map(|_| ())
+            .map_err(Box::new)
+    }
+
+    async fn owned_lock_e_tag(
+        s3_client: &S3Client,
+        bucket: &Bucket,
+        key: &ObjectKey,
+        token: &str,
+    ) -> BpResult<Option<String>> {
+        let target = S3::object_target(bucket, key);
+        let output = match s3_client
+            .get_object()
+            .bucket(bucket.as_str())
+            .key(key.as_str())
+            .send()
+            .await
         {
-            Ok(_) => {
-                info!("released lock {}", key);
-                Ok(())
-            }
-            Err(error) if Self::is_precondition_failed(&error) => {
-                warn!("lock {} was taken over before release", key);
-                Ok(())
-            }
-            Err(error) => Err(BpError::s3("release lock", target, error)),
+            Ok(output) => output,
+            Err(SdkError::ServiceError(error)) if error.err().is_no_such_key() => return Ok(None),
+            Err(error) => return Err(BpError::s3("inspect lock ownership", target, error)),
+        };
+        let e_tag = output
+            .e_tag()
+            .filter(|e_tag| !e_tag.is_empty())
+            .map(str::to_string);
+        let body = output
+            .body
+            .collect()
+            .await
+            .map_err(|error| BpError::s3("read lock body", target, error))?
+            .into_bytes();
+        if body.as_ref() != token.as_bytes() {
+            return Ok(None);
         }
+        Ok(e_tag)
     }
 
     fn is_precondition_failed<E>(error: &SdkError<E>) -> bool
@@ -467,11 +576,10 @@ impl Drop for LockGuard {
         let s3_client = self.s3_client.clone();
         let bucket = self.bucket.clone();
         let key = self.key.clone();
+        let token = self.token.clone();
         let state = Arc::clone(&self.state);
         let heartbeat = self.heartbeat.take();
-        if let Some(heartbeat) = heartbeat.as_ref() {
-            heartbeat.abort();
-        }
+        self.heartbeat_stop.notify_one();
         match tokio::runtime::Handle::try_current() {
             Ok(handle) => {
                 drop(handle.spawn(async move {
@@ -488,7 +596,7 @@ impl Drop for LockGuard {
                         return;
                     }
                     if let Err(error) =
-                        LockGuard::delete_lock(&s3_client, &bucket, &key, &e_tag).await
+                        LockGuard::delete_lock(&s3_client, &bucket, &key, &e_tag, &token).await
                     {
                         warn!("failed to release lock {} on drop: {error}", key);
                     }
@@ -754,7 +862,7 @@ mod tests {
     async fn renew_uses_current_etag() {
         let (s3_client, http_client) = s3_client(vec![put_response(Some(ETAG_2))]);
 
-        let e_tag = LockGuard::renew(&s3_client, &bucket(), &key(), ETAG_1)
+        let e_tag = LockGuard::renew(&s3_client, &bucket(), &key(), ETAG_1, "locked:test")
             .await
             .unwrap();
 
@@ -770,7 +878,7 @@ mod tests {
     async fn renew_returns_none_when_lock_was_taken_over() {
         let (s3_client, _http_client) = s3_client(vec![precondition_failed_response()]);
 
-        let e_tag = LockGuard::renew(&s3_client, &bucket(), &key(), ETAG_1)
+        let e_tag = LockGuard::renew(&s3_client, &bucket(), &key(), ETAG_1, "locked:test")
             .await
             .unwrap();
 
@@ -784,17 +892,54 @@ mod tests {
             s3_client,
             bucket: bucket(),
             key: key(),
+            token: "locked:test".to_string(),
             state: Arc::new(Mutex::new(LockState {
                 e_tag: ETAG_1.to_string(),
                 released: false,
                 lost: true,
             })),
             heartbeat: None,
+            heartbeat_stop: Arc::new(Notify::new()),
+            lost_notify: Arc::new(Notify::new()),
         };
 
         guard.release().await.unwrap();
 
         assert!(requests(&http_client).is_empty());
+    }
+
+    #[tokio::test]
+    async fn release_refreshes_stale_etag_when_lock_is_still_owned() {
+        let token = "locked:test".to_string();
+        let (s3_client, http_client) = s3_client(vec![
+            precondition_failed_response(),
+            s3_response(200, &[("etag", ETAG_2)], &token),
+            delete_response(),
+        ]);
+        let mut guard = LockGuard {
+            s3_client,
+            bucket: bucket(),
+            key: key(),
+            token,
+            state: Arc::new(Mutex::new(LockState {
+                e_tag: ETAG_1.to_string(),
+                released: false,
+                lost: false,
+            })),
+            heartbeat: None,
+            heartbeat_stop: Arc::new(Notify::new()),
+            lost_notify: Arc::new(Notify::new()),
+        };
+
+        guard.release().await.unwrap();
+
+        let requests = requests(&http_client);
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[0].method(), "DELETE");
+        assert_eq!(requests[0].headers().get("if-match"), Some(ETAG_1));
+        assert_eq!(requests[1].method(), "GET");
+        assert_eq!(requests[2].method(), "DELETE");
+        assert_eq!(requests[2].headers().get("if-match"), Some(ETAG_2));
     }
 
     #[tokio::test(start_paused = true)]
@@ -824,6 +969,28 @@ mod tests {
         assert_eq!(requests[1].headers().get("if-match"), Some(ETAG_1));
         assert_eq!(requests[2].method(), "DELETE");
         assert_eq!(requests[2].headers().get("if-match"), Some(ETAG_2));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn heartbeat_notifies_when_lock_is_lost() {
+        let (s3_client, http_client) = s3_client(vec![
+            put_response(Some(ETAG_1)),
+            precondition_failed_response(),
+        ]);
+        let mut guard = LockGuard::acquire(&s3_client, &bucket(), &key())
+            .await
+            .unwrap();
+
+        tokio::task::yield_now().await;
+        tokio::time::advance(RENEW_INTERVAL + Duration::from_secs(1)).await;
+        tokio::time::timeout(Duration::from_secs(1), guard.wait_until_lost())
+            .await
+            .expect("lock loss should be reported");
+        guard.release().await.unwrap();
+
+        let requests = requests(&http_client);
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[1].method(), "PUT");
     }
 
     #[tokio::test]

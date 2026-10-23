@@ -9,7 +9,7 @@ use crate::{
 };
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
-use buildplane_errors::{BpError, BpResult, TimeoutError};
+use buildplane_errors::{BpError, BpResult, DataError, TimeoutError};
 use buildplane_time::deadline::Deadline;
 use chrono::{DateTime, Utc};
 use std::time::{Duration, SystemTime};
@@ -54,21 +54,28 @@ impl Orchestrator {
             };
         let result = match deadline.remaining() {
             Ok(remaining) => {
-                match tokio::time::timeout(
-                    remaining,
-                    Self::process_job(
-                        &s3_client,
-                        &transfer_client,
-                        bucket,
-                        job,
-                        env_config.backfill_start,
-                        deadline,
-                    ),
-                )
-                .await
-                {
-                    Ok(result) => result,
-                    Err(_) => Err(BpError::Timeout(TimeoutError::DeadlineExceeded)),
+                tokio::select! {
+                    biased;
+                    _ = lock.wait_until_lost() => {
+                        warn!("lock {} was lost; cancelling job", lock_key);
+                        Err(BpError::Data(DataError::LockLost {
+                            key: lock_key.as_str().to_string(),
+                        }))
+                    }
+                    result = tokio::time::timeout(
+                        remaining,
+                        Self::process_job(
+                            &s3_client,
+                            &transfer_client,
+                            bucket,
+                            job,
+                            env_config.backfill_start,
+                            deadline,
+                        ),
+                    ) => match result {
+                        Ok(result) => result,
+                        Err(_) => Err(BpError::Timeout(TimeoutError::DeadlineExceeded)),
+                    },
                 }
             }
             Err(error) => Err(error),
