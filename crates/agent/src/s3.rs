@@ -16,6 +16,7 @@ use buildplane_errors::{BpError, BpResult, ConfigError, StorageError};
 use buildplane_messages::build_request::BuildRequestSignedPost;
 use std::{
     collections::BTreeMap,
+    num::NonZeroU64,
     path::{Component, Path},
     time::Duration,
 };
@@ -38,7 +39,7 @@ const POLICY_FIELD: &str = "policy";
 pub struct SignedPost {
     url: String,
     fields: BTreeMap<String, String>,
-    max_artifact_size_bytes: Option<u64>,
+    max_artifact_size_bytes: Option<NonZeroU64>,
     client: reqwest::Client,
 }
 
@@ -88,12 +89,12 @@ impl SignedPost {
     }
 
     /// Override the artifact size limit advertised by the signed POST policy.
-    pub fn with_max_artifact_size(mut self, max_bytes: u64) -> Self {
-        self.max_artifact_size_bytes = (max_bytes > 0).then_some(max_bytes);
+    pub fn with_max_artifact_size(mut self, max_bytes: NonZeroU64) -> Self {
+        self.max_artifact_size_bytes = Some(max_bytes);
         self
     }
 
-    fn max_artifact_size_from_policy(policy: &str) -> Option<u64> {
+    fn max_artifact_size_from_policy(policy: &str) -> Option<NonZeroU64> {
         let policy = BASE64.decode(policy).ok()?;
         let policy: serde_json::Value = serde_json::from_slice(&policy).ok()?;
         policy
@@ -105,7 +106,7 @@ impl SignedPost {
                 if condition.first()?.as_str()? != "content-length-range" {
                     return None;
                 }
-                condition.get(2)?.as_u64()
+                condition.get(2)?.as_u64().and_then(NonZeroU64::new)
             })
     }
 
@@ -120,16 +121,17 @@ impl SignedPost {
         let metadata = tokio::fs::metadata(path)
             .await
             .map_err(|source| BpError::io("read artifact", path.display().to_string(), source))?;
-        self.check_artifact_size(path, metadata.len())?;
-
-        let bytes = tokio::fs::read(path)
-            .await
-            .map_err(|source| BpError::io("read artifact", path.display().to_string(), source))?;
-        let size = bytes.len();
-        self.check_artifact_size(path, size as u64)?;
+        let size = metadata.len();
+        self.check_artifact_size(path, size)?;
         let file_name = Self::upload_name(name)?;
 
-        let file = reqwest::multipart::Part::bytes(bytes)
+        // Stream the file from disk instead of buffering the whole artifact in
+        // memory. `Part::file` uses the file's length for the multipart
+        // content length, and the size is checked above before any bytes are
+        // sent.
+        let file = reqwest::multipart::Part::file(path)
+            .await
+            .map_err(|source| BpError::io("read artifact", path.display().to_string(), source))?
             .file_name(file_name.clone())
             .mime_str("application/octet-stream")
             .map_err(|source| {
@@ -167,8 +169,8 @@ impl SignedPost {
             {
                 return Err(BpError::Storage(StorageError::ArtifactTooLarge {
                     artifact: path.display().to_string(),
-                    size,
-                    max_bytes,
+                    size: usize::try_from(size).unwrap_or(usize::MAX),
+                    max_bytes: max_bytes.get(),
                 }));
             }
             return Err(BpError::http_rejected(
@@ -185,13 +187,12 @@ impl SignedPost {
 
     fn check_artifact_size(&self, path: &Path, size: u64) -> BpResult<()> {
         if let Some(max_bytes) = self.max_artifact_size_bytes
-            && max_bytes > 0
-            && size > max_bytes
+            && size > max_bytes.get()
         {
             return Err(BpError::Storage(StorageError::ArtifactTooLarge {
                 artifact: path.display().to_string(),
                 size: usize::try_from(size).unwrap_or(usize::MAX),
-                max_bytes,
+                max_bytes: max_bytes.get(),
             }));
         }
         Ok(())
@@ -250,7 +251,10 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn signed_post(policy: Option<&str>, max_artifact_size_bytes: Option<u64>) -> SignedPost {
+    fn signed_post(
+        policy: Option<&str>,
+        max_artifact_size_bytes: Option<NonZeroU64>,
+    ) -> SignedPost {
         let mut fields = BTreeMap::from([("key".to_string(), "artifacts/${filename}".to_string())]);
         if let Some(policy) = policy {
             fields.insert(POLICY_FIELD.to_string(), policy.to_string());
@@ -281,14 +285,24 @@ mod tests {
     fn reads_artifact_limit_from_signed_post_policy() {
         let signed_post = signed_post(Some(&encoded_policy(1024)), None);
 
-        assert_eq!(signed_post.max_artifact_size_bytes, Some(1024));
+        assert_eq!(signed_post.max_artifact_size_bytes, NonZeroU64::new(1024));
     }
 
     #[test]
     fn explicit_artifact_limit_overrides_policy() {
-        let signed_post = signed_post(Some(&encoded_policy(1024)), Some(2048));
+        let signed_post = signed_post(
+            Some(&encoded_policy(1024)),
+            Some(NonZeroU64::new(2048).unwrap()),
+        );
 
-        assert_eq!(signed_post.max_artifact_size_bytes, Some(2048));
+        assert_eq!(signed_post.max_artifact_size_bytes, NonZeroU64::new(2048));
+    }
+
+    #[test]
+    fn ignores_zero_limits() {
+        let signed_post = signed_post(Some(&encoded_policy(0)), None);
+
+        assert_eq!(signed_post.max_artifact_size_bytes, None);
     }
 
     #[tokio::test]
@@ -297,7 +311,7 @@ mod tests {
         let artifact = directory.path().join("runner.cwasm");
         tokio::fs::write(&artifact, b"too large").await.unwrap();
 
-        let error = signed_post(None, Some(4))
+        let error = signed_post(None, Some(NonZeroU64::new(4).unwrap()))
             .upload(&artifact)
             .await
             .unwrap_err();

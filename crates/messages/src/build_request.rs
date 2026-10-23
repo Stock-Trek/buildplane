@@ -5,7 +5,7 @@
 
 use crate::sqs_message::SqsRefType;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, num::NonZeroU64};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BuildRequest {
@@ -25,7 +25,7 @@ pub struct BuildRequestSignedPost {
     pub url: String,
     pub fields: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_artifact_size_bytes: Option<u64>,
+    pub max_artifact_size_bytes: Option<NonZeroU64>,
 }
 
 /// The outcome of a build agent invocation.
@@ -113,7 +113,7 @@ mod tests {
                     ("key".to_string(), "artifacts/${filename}".to_string()),
                     ("policy".to_string(), "policy".to_string()),
                 ]),
-                max_artifact_size_bytes: Some(1024),
+                max_artifact_size_bytes: Some(NonZeroU64::new(1024).unwrap()),
             },
         }
     }
@@ -142,6 +142,17 @@ mod tests {
         );
         assert_eq!(payload["signed_post"]["max_artifact_size_bytes"], 1024);
         assert!(payload.get("SIGNED_GET_URL").is_none());
+    }
+
+    #[test]
+    fn rejects_a_zero_artifact_limit() {
+        let payload = json!({
+            "url": "https://example.com/upload",
+            "fields": { "key": "artifacts/${filename}" },
+            "max_artifact_size_bytes": 0,
+        });
+
+        assert!(serde_json::from_value::<BuildRequestSignedPost>(payload).is_err());
     }
 
     #[test]

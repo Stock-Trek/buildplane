@@ -26,7 +26,7 @@ async fn main() -> BpResult<()> {
     let source_limits = SourceLimits::new(
         config.source_download_timeout,
         config.max_source_archive_size_bytes,
-        config.max_extracted_source_size_bytes.get(),
+        config.max_extracted_source_size_bytes,
     );
     let handler = Handler::with_source_limits(
         config.build_timeout,
