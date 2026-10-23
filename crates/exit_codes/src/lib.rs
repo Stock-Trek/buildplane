@@ -7,6 +7,7 @@ pub enum ExitCode {
     StrategyNotFound = 1,
     StrategyHasNoConstructor = 2,
     StrategyCouldNotInstantiate = 3,
+    StrategyNameNotUnique = 4,
 
     // server errors
     ServerEntryIncorrectArgCount = 101,
@@ -46,6 +47,7 @@ impl ExitCode {
             1 => Self::StrategyNotFound,
             2 => Self::StrategyHasNoConstructor,
             3 => Self::StrategyCouldNotInstantiate,
+            4 => Self::StrategyNameNotUnique,
             101 => Self::ServerEntryIncorrectArgCount,
             102 => Self::ServerEntryFailedToParseCommand,
             103 => Self::ServerEntryFailedToConvertToJson,
@@ -78,6 +80,7 @@ impl ExitCode {
                 | Self::StrategyNotFound
                 | Self::StrategyHasNoConstructor
                 | Self::StrategyCouldNotInstantiate
+                | Self::StrategyNameNotUnique
                 | Self::ServerRunnerStrategyContextFileNotFound
                 | Self::ServerRunnerStrategyContextNotDecoded
                 | Self::ServerRunnerStrategyContextNotCreated
@@ -101,6 +104,7 @@ impl ExitCode {
             Self::StrategyNotFound => "strategy not found",
             Self::StrategyHasNoConstructor => "strategy has no constructor",
             Self::StrategyCouldNotInstantiate => "strategy could not be instantiated",
+            Self::StrategyNameNotUnique => "strategy name is not unique",
             Self::ServerEntryIncorrectArgCount => "incorrect argument count",
             Self::ServerEntryFailedToParseCommand => "invalid request",
             Self::ServerEntryFailedToConvertToJson => "failed to convert response to JSON",

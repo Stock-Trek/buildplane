@@ -5,6 +5,7 @@ use crate::{
 };
 use buildplane_exit_codes::ExitCode;
 use prost::Message;
+use std::collections::BTreeSet;
 use stock_trek::{
     Algorithm, ResolvedContext, StrategyContext, prelude::traitreg, signals::SignalContext,
 };
@@ -41,13 +42,18 @@ impl Runner {
     }
 
     fn select_algorithm(strategy_name: &str) -> Result<Box<dyn Algorithm>, ExitCode> {
-        let registration = ALGORITHM_REGISTRY
+        let mut names = BTreeSet::new();
+        if ALGORITHM_REGISTRY
             .iter()
-            .filter(|registration| {
-                registration.name() == strategy_name || registration.path() == strategy_name
-            })
-            .min_by_key(|registration| registration.path());
-        let Some(registration) = registration else {
+            .any(|registration| !names.insert(registration.name()))
+        {
+            return Err(ExitCode::StrategyNameNotUnique);
+        }
+
+        let mut registrations = ALGORITHM_REGISTRY.iter().filter(|registration| {
+            registration.name() == strategy_name || registration.path() == strategy_name
+        });
+        let Some(registration) = registrations.next() else {
             if ALGORITHM_REGISTRY.iter().next().is_some()
                 && ALGORITHM_REGISTRY
                     .iter()
@@ -57,6 +63,9 @@ impl Runner {
             }
             return Err(ExitCode::StrategyNotFound);
         };
+        if registrations.next().is_some() {
+            return Err(ExitCode::StrategyNameNotUnique);
+        }
         if !registration.has_constructor() {
             return Err(ExitCode::StrategyHasNoConstructor);
         }
