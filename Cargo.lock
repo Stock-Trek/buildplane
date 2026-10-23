@@ -1015,35 +1015,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "buildplane-data"
-version = "0.2.0"
-dependencies = [
- "arrow-array",
- "arrow-schema",
- "aws-config",
- "aws-sdk-s3",
- "aws-sdk-s3-transfer-manager",
- "buildplane-config",
- "buildplane-errors",
- "buildplane-exchange-gateway",
- "buildplane-exchange-types",
- "buildplane-time",
- "buildplane-type-bridge",
- "bytes",
- "chrono",
- "futures",
- "lambda_runtime",
- "parquet",
- "rust_decimal",
- "serde",
- "serde_json",
- "stock-trek-types",
- "thiserror",
- "tokio",
- "tracing",
-]
-
-[[package]]
 name = "buildplane-errors"
 version = "0.2.0"
 dependencies = [
@@ -1145,6 +1116,35 @@ dependencies = [
  "serde",
  "tokio",
  "url",
+]
+
+[[package]]
+name = "buildplane-market-data"
+version = "0.2.0"
+dependencies = [
+ "arrow-array",
+ "arrow-schema",
+ "aws-config",
+ "aws-sdk-s3",
+ "aws-sdk-s3-transfer-manager",
+ "buildplane-config",
+ "buildplane-errors",
+ "buildplane-exchange-gateway",
+ "buildplane-exchange-types",
+ "buildplane-time",
+ "buildplane-type-bridge",
+ "bytes",
+ "chrono",
+ "futures",
+ "lambda_runtime",
+ "parquet",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "stock-trek-types",
+ "thiserror",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
