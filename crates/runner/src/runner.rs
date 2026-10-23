@@ -5,6 +5,7 @@ use crate::{
 };
 use buildplane_exit_codes::ExitCode;
 use prost::Message;
+use std::collections::BTreeSet;
 use stock_trek::{
     Algorithm, ResolvedContext, StrategyContext, prelude::traitreg, signals::SignalContext,
 };
@@ -41,28 +42,36 @@ impl Runner {
     }
 
     fn select_algorithm(strategy_name: &str) -> Result<Box<dyn Algorithm>, ExitCode> {
-        let mut has_constructorless_registration = false;
-        let mut has_instantiable_registration = false;
-        let mut failed_to_instantiate = false;
-        for registration in ALGORITHM_REGISTRY.iter() {
-            if !registration.has_constructor() {
-                has_constructorless_registration = true;
-                continue;
-            }
-            has_instantiable_registration = true;
-            match registration.instanciate() {
-                Some(algorithm) if algorithm.name() == strategy_name => return Ok(algorithm),
-                Some(_) => {}
-                None => failed_to_instantiate = true,
-            }
+        let mut names = BTreeSet::new();
+        if ALGORITHM_REGISTRY
+            .iter()
+            .any(|registration| !names.insert(registration.name()))
+        {
+            return Err(ExitCode::StrategyNameNotUnique);
         }
-        if failed_to_instantiate {
-            return Err(ExitCode::StrategyCouldNotInstantiate);
+
+        let mut registrations = ALGORITHM_REGISTRY.iter().filter(|registration| {
+            registration.name() == strategy_name || registration.path() == strategy_name
+        });
+        let Some(registration) = registrations.next() else {
+            if ALGORITHM_REGISTRY.iter().next().is_some()
+                && ALGORITHM_REGISTRY
+                    .iter()
+                    .all(|registration| !registration.has_constructor())
+            {
+                return Err(ExitCode::StrategyHasNoConstructor);
+            }
+            return Err(ExitCode::StrategyNotFound);
+        };
+        if registrations.next().is_some() {
+            return Err(ExitCode::StrategyNameNotUnique);
         }
-        if !has_instantiable_registration && has_constructorless_registration {
+        if !registration.has_constructor() {
             return Err(ExitCode::StrategyHasNoConstructor);
         }
-        Err(ExitCode::StrategyNotFound)
+        registration
+            .instanciate()
+            .ok_or(ExitCode::StrategyCouldNotInstantiate)
     }
 
     fn cmd_algorithm(algorithm: &dyn Algorithm) -> Result<(), ExitCode> {
