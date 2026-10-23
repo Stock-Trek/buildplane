@@ -1,5 +1,5 @@
 #[repr(u8)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, strum::FromRepr)]
 pub enum ExitCode {
     Success = 0,
 
@@ -41,34 +41,8 @@ impl ExitCode {
         self as i32
     }
 
-    pub const fn from_code(code: i32) -> Option<Self> {
-        Some(match code {
-            0 => Self::Success,
-            1 => Self::StrategyNotFound,
-            2 => Self::StrategyHasNoConstructor,
-            3 => Self::StrategyCouldNotInstantiate,
-            4 => Self::StrategyNameNotUnique,
-            101 => Self::ServerEntryIncorrectArgCount,
-            102 => Self::ServerEntryFailedToParseCommand,
-            103 => Self::ServerEntryFailedToConvertToJson,
-            104 => Self::ServerEntryFailedToSetLinkedFunction,
-            105 => Self::ServerEntryFailedToFindLinkedFunction,
-            106 => Self::ServerEntryFailedToEnqueueJson,
-            107 => Self::ServerEntryFailedToParseRequest,
-            108 => Self::ServerEntryInvalidArgument,
-            111 => Self::ServerRunnerStrategyContextFileNotFound,
-            112 => Self::ServerRunnerStrategyContextNotDecoded,
-            113 => Self::ServerRunnerStrategyContextNotCreated,
-            121 => Self::ServerRunnerPortfolioFileNotFound,
-            122 => Self::ServerRunnerPortfolioNotDecoded,
-            123 => Self::ServerRunnerPortfolioNotCreated,
-            131 => Self::ServerRunnerConnectionFailed,
-            201 => Self::BotErrorCreatingResolver,
-            202 => Self::BotErrorCreatingScratchPad,
-            203 => Self::BotErrorResolvingAction,
-            204 => Self::BotErrorPanic,
-            _ => return None,
-        })
+    pub fn from_code(code: i32) -> Option<Self> {
+        u8::try_from(code).ok().and_then(Self::from_repr)
     }
 
     pub const fn is_client_error(self) -> bool {
@@ -148,4 +122,26 @@ pub fn is_client_error(code: i32) -> bool {
 
 pub fn is_invalid_request(code: i32) -> bool {
     ExitCode::is_invalid_request_code(code)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_code_returns_known_variants() {
+        assert_eq!(ExitCode::from_code(0), Some(ExitCode::Success));
+        assert_eq!(
+            ExitCode::from_code(108),
+            Some(ExitCode::ServerEntryInvalidArgument)
+        );
+        assert_eq!(ExitCode::from_code(204), Some(ExitCode::BotErrorPanic));
+    }
+
+    #[test]
+    fn from_code_rejects_unknown_and_out_of_range_values() {
+        assert_eq!(ExitCode::from_code(5), None);
+        assert_eq!(ExitCode::from_code(-1), None);
+        assert_eq!(ExitCode::from_code(i32::from(u8::MAX) + 1), None);
+    }
 }

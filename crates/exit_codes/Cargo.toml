@@ -2,3 +2,6 @@
 name = "buildplane-exit-codes"
 version.workspace = true
 edition.workspace = true
+
+[dependencies]
+strum.workspace = true
