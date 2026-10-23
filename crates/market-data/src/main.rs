@@ -1,6 +1,5 @@
 #![recursion_limit = "256"]
 
-use buildplane_config::env_vars::EnvVarConfig as SharedEnvVarConfig;
 use buildplane_config::tracing_setup::TracingSetup;
 use buildplane_market_data::{env_config::EnvConfig, job::Job, orchestrator::Orchestrator};
 use buildplane_time::deadline::Deadline;
@@ -10,9 +9,8 @@ use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    let shared_config = SharedEnvVarConfig::from_env()?;
-    TracingSetup::setup(&shared_config)?;
-    let env_config = EnvConfig::from_shared(&shared_config)?;
+    let env_config = EnvConfig::from_env()?;
+    TracingSetup::setup(&env_config.log_filter)?;
     info!("set up tracing");
     run(service_fn(move |event| {
         let env_config = env_config.clone();

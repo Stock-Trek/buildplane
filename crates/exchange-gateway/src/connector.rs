@@ -24,7 +24,7 @@ use buildplane_exchange_types::{
     response::{ETHttpResponse, ETResponse, ETWebsocketResponse},
     server_time::ServerTimeResponse,
     signer::Signer,
-    urls::{Protocol, TradingMode, Urls},
+    urls::Protocol,
     websocket_id::ETWebsocketId,
 };
 use futures_timer::Delay;
@@ -52,7 +52,7 @@ pub struct Connector<Exchange, Client> {
 
 impl Connector<(), ()> {
     pub fn try_new_http<Exchange, Client>(
-        trading_mode: TradingMode,
+        url: String,
         exchange: Exchange,
         signer: Signer,
         client_creator: impl FnOnce(String) -> BpResult<Client>,
@@ -63,9 +63,8 @@ impl Connector<(), ()> {
         Exchange: ETExchange,
         Client: HttpClient + Send + Sync,
     {
-        let url = exchange
-            .urls()
-            .env_var_or_default(exchange.name(), Protocol::Http, trading_mode)
+        Protocol::Http
+            .validate_url("url", &url)
             .map_err(BpError::external)?;
         let client = client_creator(url)?;
         let rate_limiters = Self::rate_limiters(exchange.default_capacity())?;
@@ -81,7 +80,7 @@ impl Connector<(), ()> {
         })
     }
     pub fn try_new_http_reqwest<Exchange>(
-        trading_mode: TradingMode,
+        url: String,
         exchange: Exchange,
         signer: Signer,
         request_timeout: Duration,
@@ -92,7 +91,7 @@ impl Connector<(), ()> {
     {
         let client_creator = Box::new(move |url: String| ReqwestHttpClient::try_new(&url));
         Self::try_new_http(
-            trading_mode,
+            url,
             exchange,
             signer,
             client_creator,
@@ -102,7 +101,7 @@ impl Connector<(), ()> {
     }
     #[allow(clippy::type_complexity)]
     pub fn try_new_websocket<Exchange, Client>(
-        trading_mode: TradingMode,
+        url: String,
         exchange: Exchange,
         signer: Signer,
         client_creator: impl FnOnce(String, Arc<WebsocketListener>) -> BpResult<Client>,
@@ -113,11 +112,10 @@ impl Connector<(), ()> {
         Exchange: ETExchange,
         Client: WebsocketClient,
     {
-        let websocket_listener = Arc::new(WebsocketListener::new());
-        let url = exchange
-            .urls()
-            .env_var_or_default(exchange.name(), Protocol::Websocket, trading_mode)
+        Protocol::Websocket
+            .validate_url("url", &url)
             .map_err(BpError::external)?;
+        let websocket_listener = Arc::new(WebsocketListener::new());
         let client = client_creator(url, websocket_listener.clone())?;
         let rate_limiters = Self::rate_limiters(exchange.default_capacity())?;
         Ok(Connector {
@@ -133,7 +131,7 @@ impl Connector<(), ()> {
     }
     #[allow(clippy::type_complexity)]
     pub fn try_new_websocket_iris<Exchange>(
-        trading_mode: TradingMode,
+        url: String,
         exchange: Exchange,
         signer: Signer,
         mut iris_config: IrisConfig,
@@ -154,7 +152,7 @@ impl Connector<(), ()> {
             ))
         };
         Self::try_new_websocket(
-            trading_mode,
+            url,
             exchange,
             signer,
             client_creator,
@@ -787,5 +785,30 @@ mod tests {
             BpError::Connector(ConnectorError::Send { source, .. })
                 if matches!(*source, BpError::RateLimit(RateLimitError::RateLimited))
         ));
+    }
+    #[test]
+    fn explicit_url_constructs_connector_without_environment_config() {
+        let connector = Connector::try_new_http_reqwest(
+            "https://api.binance.com/api/v3".to_string(),
+            BinanceExchange,
+            Signer::new_unencrypted(ByteEncoder::HexLower),
+            Duration::from_secs(1),
+            0,
+        );
+
+        assert!(connector.is_ok());
+    }
+
+    #[test]
+    fn explicit_url_is_validated() {
+        let connector = Connector::try_new_http_reqwest(
+            "not a url".to_string(),
+            BinanceExchange,
+            Signer::new_unencrypted(ByteEncoder::HexLower),
+            Duration::from_secs(1),
+            0,
+        );
+
+        assert!(connector.is_err());
     }
 }

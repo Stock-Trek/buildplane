@@ -3,7 +3,6 @@ use crate::{
     host_allow_list::{DEFAULT_HOST, HostAllowlist},
     installation::GitHubInstallation,
 };
-use buildplane_config::env_vars::EnvVarConfig;
 use buildplane_config::git::DirectoryLimits;
 use buildplane_errors::GitHubError;
 use buildplane_errors::{BpError, BpResult};
@@ -12,12 +11,9 @@ use jsonwebtoken::EncodingKey;
 use lru::LruCache;
 use octocrab::Octocrab;
 use parking_lot::Mutex;
-use std::{collections::HashMap, num::NonZeroUsize, sync::Arc, time::Duration};
+use std::{collections::HashMap, num::NonZeroUsize, sync::Arc};
 
 const ENTERPRISE_API_PATH: &str = "api/v3";
-const DEFAULT_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
-const DEFAULT_OPERATION_TIMEOUT: Duration = Duration::from_secs(120);
-
 type InstallationKey = (String, u64);
 
 #[derive(Clone)]
@@ -38,7 +34,7 @@ impl GitHubAuth {
         allowed_hosts: HostAllowlist,
         max_cached_installations: NonZeroUsize,
     ) -> BpResult<Self> {
-        Self::build(
+        Self::with_directory_limits(
             config,
             timeouts,
             allowed_hosts,
@@ -47,7 +43,7 @@ impl GitHubAuth {
         )
     }
 
-    fn build(
+    pub fn with_directory_limits(
         config: GitHubAppConfig,
         timeouts: Timeouts,
         allowed_hosts: HostAllowlist,
@@ -65,30 +61,6 @@ impl GitHubAuth {
             timeouts,
             directory_limits,
         })
-    }
-
-    pub fn from_env(config: &EnvVarConfig) -> BpResult<Self> {
-        let app = GitHubAppConfig::from_env(config)?;
-        let timeouts = Timeouts::from_env(
-            config,
-            "GITHUB",
-            DEFAULT_CONNECT_TIMEOUT,
-            DEFAULT_OPERATION_TIMEOUT,
-        )?;
-        let allowed_hosts = HostAllowlist::from_env(config)?;
-        let max_cached_installations = config.github_max_cached_installations();
-        let directory_limits = DirectoryLimits {
-            max_depth: config.git_max_directory_depth().get(),
-            max_files: config.git_max_directory_files().get(),
-            max_total_bytes: config.git_max_directory_bytes().get(),
-        };
-        Self::build(
-            app,
-            timeouts,
-            allowed_hosts,
-            max_cached_installations,
-            directory_limits,
-        )
     }
 
     pub fn installation(&self, host: &str, installation_id: u64) -> BpResult<GitHubInstallation> {

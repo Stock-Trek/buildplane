@@ -1,5 +1,4 @@
 use crate::deadline::Deadline;
-use buildplane_config::env_vars::EnvVarConfig;
 use buildplane_errors::BpResult;
 use std::time::Duration;
 
@@ -33,6 +32,11 @@ pub enum Timeout {
 }
 
 impl Timeout {
+    /// Converts a duration into a timeout, treating zero as disabled.
+    pub fn from_duration(duration: Duration) -> Self {
+        NonZeroDuration::new(duration).map_or(Self::Disabled, Self::Bounded)
+    }
+
     pub fn duration(self) -> Option<Duration> {
         match self {
             Self::Disabled => None,
@@ -54,24 +58,16 @@ pub struct Timeouts {
 }
 
 impl Timeouts {
-    pub fn from_env(
-        config: &EnvVarConfig,
-        name: &str,
-        default_connect: Duration,
-        default_operation: Duration,
-    ) -> BpResult<Self> {
-        Ok(Self {
-            connect: Self::timeout(
-                config,
-                &format!("{name}_CONNECT_TIMEOUT_SECS"),
-                default_connect,
-            )?,
-            operation: Self::timeout(
-                config,
-                &format!("{name}_OPERATION_TIMEOUT_SECS"),
-                default_operation,
-            )?,
-        })
+    pub fn new(connect: Timeout, operation: Timeout) -> Self {
+        Self { connect, operation }
+    }
+
+    /// Builds timeouts from durations, treating zero as disabled.
+    pub fn from_durations(connect: Duration, operation: Duration) -> Self {
+        Self::new(
+            Timeout::from_duration(connect),
+            Timeout::from_duration(operation),
+        )
     }
 
     pub fn operation_timeout(self, deadline: Deadline) -> BpResult<Duration> {
@@ -80,10 +76,5 @@ impl Timeouts {
             Timeout::Disabled => remaining,
             Timeout::Bounded(operation) => operation.get().min(remaining),
         })
-    }
-
-    fn timeout(config: &EnvVarConfig, key: &str, default: Duration) -> BpResult<Timeout> {
-        let timeout = config.duration(key, default)?;
-        Ok(NonZeroDuration::new(timeout).map_or(Timeout::Disabled, Timeout::Bounded))
     }
 }

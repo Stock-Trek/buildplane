@@ -1066,7 +1066,6 @@ name = "buildplane-exchange-types"
 version = "0.2.0"
 dependencies = [
  "bs58",
- "buildplane-config",
  "buildplane-errors",
  "buildplane-types",
  "data-encoding",
@@ -1177,6 +1176,7 @@ dependencies = [
  "aws-credential-types",
  "aws-sdk-lambda",
  "aws-sdk-s3",
+ "aws-sdk-sqs",
  "aws_lambda_events",
  "base64 0.23.1",
  "buildplane-config",
@@ -1230,7 +1230,6 @@ version = "0.2.0"
 dependencies = [
  "aws-config",
  "aws-sdk-sqs",
- "buildplane-config",
  "buildplane-errors",
  "buildplane-messages",
  "buildplane-metrics",
@@ -1245,7 +1244,6 @@ dependencies = [
 name = "buildplane-time"
 version = "0.2.0"
 dependencies = [
- "buildplane-config",
  "buildplane-errors",
 ]
 
@@ -1280,6 +1278,7 @@ version = "0.2.0"
 dependencies = [
  "aws-config",
  "aws-credential-types",
+ "aws-sdk-sqs",
  "aws-sigv4",
  "aws-smithy-runtime-api",
  "base64 0.23.1",

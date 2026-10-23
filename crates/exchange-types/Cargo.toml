@@ -4,7 +4,6 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-buildplane-config = { path = "../config" }
 buildplane-errors = { path = "../errors" }
 buildplane-types = { path = "../types" }
 bs58.workspace = true
