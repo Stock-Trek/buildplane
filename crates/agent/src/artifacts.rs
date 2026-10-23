@@ -23,7 +23,13 @@ const SOURCE_TARGET_DIR: &str = "target";
 const USER_GENERATED_DIR: &str = "crates/runner/src/user_generated";
 const USER_GENERATED_ARCHIVE: &str = "sources.zip";
 pub const COMPILE_OUTPUT_FILE: &str = "compile-output.txt";
-const WORKSPACE_ENTRIES: &[&str] = &["Cargo.toml", "Cargo.lock", "crates", ".cargo"];
+const WORKSPACE_ENTRIES: &[&str] = &[
+    "Cargo.toml",
+    "Cargo.lock",
+    "crates",
+    ".cargo",
+    "rust-toolchain.toml",
+];
 const CARGO: &str = "cargo";
 const WASMTIME: &str = "wasmtime";
 
@@ -626,6 +632,26 @@ mod tests {
         assert!(bodies[0].contains(USER_GENERATED_ARCHIVE));
         assert!(bodies[1].contains(CWASM_ARTIFACT_FILE));
         assert!(!bodies.iter().any(|body| body.contains(COMPILE_OUTPUT_FILE)));
+    }
+
+    #[test]
+    fn prepare_workspace_copies_the_pinned_toolchain() {
+        let source = tempfile::tempdir().unwrap();
+        let build_cache = tempfile::tempdir().unwrap();
+        std_fs::write(source.path().join("Cargo.toml"), b"[workspace]\n").unwrap();
+        std_fs::write(
+            source.path().join("rust-toolchain.toml"),
+            b"[toolchain]\nchannel = \"1.99.0\"\n",
+        )
+        .unwrap();
+
+        let artifacts = artifacts(source.path(), build_cache.path());
+        artifacts.prepare_workspace().unwrap();
+
+        assert_eq!(
+            std_fs::read(artifacts.build_dir.path().join("rust-toolchain.toml")).unwrap(),
+            b"[toolchain]\nchannel = \"1.99.0\"\n"
+        );
     }
 
     #[tokio::test]
