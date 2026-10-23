@@ -4,7 +4,7 @@ use crate::{
     tasks::{git_remote::GitRemote, s3_keys::S3Keys, source_archive::SourceArchive},
 };
 use buildplane_errors::BpResult;
-use buildplane_git::git_remote::GitHost;
+use buildplane_git::git_host::GitHost;
 use buildplane_messages::sqs_message::{GitSource, SqsDetail, SqsMessage, SqsRefType};
 use buildplane_time::request_context::RequestContext;
 use std::fmt::Display;
