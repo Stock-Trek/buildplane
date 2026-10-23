@@ -171,6 +171,37 @@ mod tests {
     }
 
     #[test]
+    fn zero_retry_after_does_not_drain_capacity() {
+        let rate_limiters = rate_limiters();
+        rate_limiters
+            .set_retry_after(Duration::ZERO)
+            .expect("set retry after");
+
+        assert_eq!(remaining(&rate_limiters), UsageCount(10));
+        assert!(
+            rate_limiters
+                .did_acquire(&[(RateLimitRestriction::RawRequests, UsageCount(1))])
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn zero_retry_after_does_not_clear_an_existing_throttle() {
+        let rate_limiters = rate_limiters();
+        rate_limiters
+            .set_retry_after(Duration::from_secs(60))
+            .expect("set retry after");
+        rate_limiters
+            .set_retry_after(Duration::ZERO)
+            .expect("set retry after");
+
+        assert!(matches!(
+            rate_limiters.did_acquire(&[]),
+            Err(BpError::RateLimit(RateLimitError::RateLimited))
+        ));
+    }
+
+    #[test]
     fn zero_cost_requests_are_allowed_without_retry_after() {
         let rate_limiters = rate_limiters();
         assert!(rate_limiters.did_acquire(&[]).is_ok());
