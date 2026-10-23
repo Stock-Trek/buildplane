@@ -41,28 +41,28 @@ impl Runner {
     }
 
     fn select_algorithm(strategy_name: &str) -> Result<Box<dyn Algorithm>, ExitCode> {
-        let mut has_constructorless_registration = false;
-        let mut has_instantiable_registration = false;
-        let mut failed_to_instantiate = false;
-        for registration in ALGORITHM_REGISTRY.iter() {
-            if !registration.has_constructor() {
-                has_constructorless_registration = true;
-                continue;
+        let registration = ALGORITHM_REGISTRY
+            .iter()
+            .filter(|registration| {
+                registration.name() == strategy_name || registration.path() == strategy_name
+            })
+            .min_by_key(|registration| registration.path());
+        let Some(registration) = registration else {
+            if ALGORITHM_REGISTRY.iter().next().is_some()
+                && ALGORITHM_REGISTRY
+                    .iter()
+                    .all(|registration| !registration.has_constructor())
+            {
+                return Err(ExitCode::StrategyHasNoConstructor);
             }
-            has_instantiable_registration = true;
-            match registration.instanciate() {
-                Some(algorithm) if algorithm.name() == strategy_name => return Ok(algorithm),
-                Some(_) => {}
-                None => failed_to_instantiate = true,
-            }
-        }
-        if failed_to_instantiate {
-            return Err(ExitCode::StrategyCouldNotInstantiate);
-        }
-        if !has_instantiable_registration && has_constructorless_registration {
+            return Err(ExitCode::StrategyNotFound);
+        };
+        if !registration.has_constructor() {
             return Err(ExitCode::StrategyHasNoConstructor);
         }
-        Err(ExitCode::StrategyNotFound)
+        registration
+            .instanciate()
+            .ok_or(ExitCode::StrategyCouldNotInstantiate)
     }
 
     fn cmd_algorithm(algorithm: &dyn Algorithm) -> Result<(), ExitCode> {
