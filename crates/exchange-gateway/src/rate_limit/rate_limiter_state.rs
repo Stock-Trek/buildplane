@@ -165,6 +165,10 @@ impl RateLimiterState {
             }
             self.throttled_until = None;
             self.last_calculation = throttled_until;
+            // The bucket is empty at `throttled_until` and time starts counting
+            // from that deadline, so any interval progress banked before the
+            // throttle would be counted twice and refill the bucket early.
+            self.excess_interval_nanos = Nanoseconds::ZERO;
         }
         let elapsed_nanos =
             Nanoseconds(now.duration_since(self.last_calculation).as_nanos() as i64);
@@ -196,6 +200,7 @@ impl std::fmt::Debug for RateLimiterState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
 
     fn state_with_clock(now: Instant) -> RateLimiterState {
         RateLimiterState::with_clock(
@@ -232,5 +237,38 @@ mod tests {
 
         assert!(state.is_throttled());
         assert_eq!(state.remaining_capacity(), UsageCount::ZERO);
+    }
+
+    #[test]
+    fn throttle_deadline_discards_partial_interval_progress() {
+        let base = Instant::now();
+        let now = Arc::new(Mutex::new(base));
+        let clock = {
+            let now = now.clone();
+            Arc::new(move || *now.lock().expect("clock lock"))
+                as Arc<dyn Fn() -> Instant + Send + Sync>
+        };
+        let mut state =
+            RateLimiterState::with_clock(Nanoseconds(60_000_000_000), UsageCount(10), clock)
+                .expect("valid rate limiter state");
+
+        // Bank 30s of progress towards the next interval.
+        *now.lock().expect("clock lock") = base + Duration::from_secs(90);
+        assert_eq!(state.remaining_capacity(), UsageCount(10));
+
+        // The exchange throttles us for 30s from t=90s, i.e. until t=120s.
+        state.throttle_after(Duration::from_secs(30));
+        assert_eq!(state.remaining_capacity(), UsageCount::ZERO);
+
+        // 30s after the throttle deadline only half an interval has elapsed since
+        // the bucket was drained, so the progress banked before the throttle must
+        // not be reused to refill the bucket early.
+        *now.lock().expect("clock lock") = base + Duration::from_secs(150);
+        assert!(!state.is_throttled());
+        assert_eq!(state.remaining_capacity(), UsageCount::ZERO);
+
+        // A full interval after the deadline the bucket refills completely.
+        *now.lock().expect("clock lock") = base + Duration::from_secs(180);
+        assert_eq!(state.remaining_capacity(), UsageCount(10));
     }
 }

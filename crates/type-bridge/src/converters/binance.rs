@@ -242,7 +242,12 @@ impl Converter for BinanceConverter {
                             asset_limits.insert(*asset_id, limit);
                         }
                     }
-                    _ => eprintln!("Unknown asset filter"),
+                    unknown => {
+                        tracing::warn!(
+                            ?unknown,
+                            "ignoring unsupported asset filter; asset limits may be incomplete"
+                        );
+                    }
                 }
             }
             Ok(TBAssetLimits { asset_limits })

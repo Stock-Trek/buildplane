@@ -1257,6 +1257,7 @@ dependencies = [
  "serde",
  "stock-trek-types",
  "thiserror",
+ "tracing",
  "uuid",
 ]
 
