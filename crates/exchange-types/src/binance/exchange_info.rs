@@ -16,7 +16,7 @@ use crate::{
     ticker::Ticker,
     websocket_id::ETWebsocketId,
 };
-use buildplane_errors::errors::BpResult;
+use buildplane_errors::BpResult;
 use serde::{Deserialize, Serialize};
 use strum::Display;
 

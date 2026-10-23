@@ -1,5 +1,5 @@
 use crate::{BpError, BpResult};
-use buildplane_errors::errors::SystemError;
+use buildplane_errors::SystemError;
 use serde::{Deserialize, Serialize};
 use std::{
     hash::{DefaultHasher, Hash, Hasher},

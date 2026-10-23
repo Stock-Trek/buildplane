@@ -1,4 +1,4 @@
-use crate::metrics::descriptions::*;
+use crate::descriptions::*;
 use metrics::counter;
 
 pub struct SecretMetrics;

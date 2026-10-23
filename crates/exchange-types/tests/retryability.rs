@@ -1,6 +1,4 @@
-use buildplane_errors::errors::{
-    BinanceError, BinanceErrorData, BpError, ExchangeError, Retryability,
-};
+use buildplane_errors::{BinanceError, BinanceErrorData, BpError, ExchangeError, Retryability};
 use buildplane_exchange_types::{
     binance::{
         klines::{BinanceKlineResponse, BinanceKlinesResponse},

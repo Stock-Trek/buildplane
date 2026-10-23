@@ -12,8 +12,8 @@
 //! of the uploaded file.
 
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use buildplane_errors::errors::ConfigError;
-use buildplane_errors::errors::{BpError, BpResult, StorageError};
+use buildplane_errors::ConfigError;
+use buildplane_errors::{BpError, BpResult, StorageError};
 use buildplane_messages::build_request::BuildRequestSignedPost;
 use std::{
     collections::BTreeMap,

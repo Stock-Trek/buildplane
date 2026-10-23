@@ -2,9 +2,9 @@ use crate::aws_ops::build_request::BuildRequest;
 use aws_config::SdkConfig;
 use aws_sdk_lambda::{Client as LambdaClient, primitives::Blob, types::InvocationType};
 use buildplane_config::env_vars::EnvVarConfig;
-use buildplane_errors::errors::BpError;
-use buildplane_errors::errors::BpResult;
-use buildplane_errors::errors::TimeoutError;
+use buildplane_errors::BpError;
+use buildplane_errors::BpResult;
+use buildplane_errors::TimeoutError;
 use buildplane_time::deadline::Deadline;
 use buildplane_time::timeouts::Timeouts;
 

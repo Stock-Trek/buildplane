@@ -1,4 +1,4 @@
-use crate::errors::retryability::Retryability;
+use crate::retryability::Retryability;
 use std::time::Duration;
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]

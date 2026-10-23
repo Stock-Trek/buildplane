@@ -1,5 +1,5 @@
-use buildplane_errors::errors::DataError;
-use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_errors::DataError;
+use buildplane_errors::{BpError, BpResult};
 use chrono::{DateTime, Datelike, Duration, TimeZone, Utc, Weekday};
 
 pub struct QuantizedTime;

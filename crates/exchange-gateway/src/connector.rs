@@ -13,8 +13,8 @@ use crate::{
     submission::{Submission, SubmissionOutcome},
     websocket_listener::WebsocketListener,
 };
-use buildplane_errors::errors::{BpError, BpResult};
-use buildplane_errors::errors::{ConnectorError, RateLimitError, TimeoutError};
+use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{ConnectorError, RateLimitError, TimeoutError};
 use buildplane_exchange_types::{
     exchange::ETExchange,
     http::HttpResponse,

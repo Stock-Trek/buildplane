@@ -7,8 +7,8 @@
 //! working directory replaces the checked in algorithm stub with the user's
 //! source.
 
-use buildplane_errors::errors::IoError;
-use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_errors::IoError;
+use buildplane_errors::{BpError, BpResult};
 use std::{
     io::{Cursor, Write},
     path::{Component, Path, PathBuf},

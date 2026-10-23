@@ -1,4 +1,4 @@
-use buildplane_errors::errors::BpResult;
+use buildplane_errors::BpResult;
 use buildplane_exchange_gateway::async_trait;
 use buildplane_exchange_types::klines::Kline;
 use chrono::{DateTime, Utc};

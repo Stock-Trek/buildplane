@@ -1,5 +1,5 @@
 use crate::github::DirectoryLimits;
-use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_errors::{BpError, BpResult};
 use chrono::{DateTime, NaiveDate, Utc};
 use std::{
     collections::HashMap,
@@ -374,8 +374,8 @@ impl EnvVarConfig {
     ///
     /// This is for values whose names are only known at runtime, such as the
     /// per-exchange URL overrides. Missing values are reported as
-    /// [`ConfigError::Missing`](buildplane_errors::errors::ConfigError::Missing) and empty
-    /// values as [`ConfigError::Empty`](buildplane_errors::errors::ConfigError::Empty).
+    /// [`ConfigError::Missing`](buildplane_errors::ConfigError::Missing) and empty
+    /// values as [`ConfigError::Empty`](buildplane_errors::ConfigError::Empty).
     pub fn required(&self, name: &str) -> BpResult<String> {
         match self.raw(name)? {
             Some(value) if value.is_empty() => Err(BpError::config_empty(name)),
@@ -420,7 +420,7 @@ impl EnvVarConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use buildplane_errors::errors::ConfigError;
+    use buildplane_errors::ConfigError;
 
     #[test]
     fn required_reports_missing_variable_name() {

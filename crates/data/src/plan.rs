@@ -4,7 +4,7 @@ use crate::{
     s3::ObjectKey,
     subfolders::SubFolders,
 };
-use buildplane_errors::errors::BpResult;
+use buildplane_errors::BpResult;
 use chrono::{DateTime, Datelike, TimeZone, Timelike, Utc};
 use std::collections::HashSet;
 

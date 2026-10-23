@@ -3,7 +3,7 @@ use crate::{
     encode::ByteEncoder,
     encrypt::{EncryptionAlgorithm, Encryptor},
 };
-use buildplane_errors::errors::BpResult;
+use buildplane_errors::BpResult;
 
 pub struct Signer {
     api_key: String,

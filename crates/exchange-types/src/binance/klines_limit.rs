@@ -1,5 +1,5 @@
-use buildplane_errors::errors::ExchangeError;
-use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_errors::ExchangeError;
+use buildplane_errors::{BpError, BpResult};
 use serde::Serialize;
 use std::fmt;
 

@@ -1,6 +1,6 @@
 use crate::{artifacts::Artifacts, s3::SignedPost};
-use buildplane_errors::errors::TimeoutError;
-use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_errors::TimeoutError;
+use buildplane_errors::{BpError, BpResult};
 use buildplane_messages::build_request::BuildRequest;
 use std::{path::PathBuf, time::Duration};
 use tokio::time::timeout;

@@ -1,5 +1,5 @@
-use buildplane_errors::errors::ValidationError;
-use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_errors::ValidationError;
+use buildplane_errors::{BpError, BpResult};
 use rust_decimal::Decimal;
 use stock_trek_types::cex::{
     asset_id::AssetId, capability::CexCapability, order_request::OrderRequest, quantity::Quantity,

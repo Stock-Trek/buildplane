@@ -10,8 +10,8 @@ use aws_sdk_s3::{
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use buildplane_config::env_vars::{EnvVarConfig, S3_SIGNED_URL_EXPIRY_SECS};
-use buildplane_errors::errors::{BpError, BpResult};
-use buildplane_errors::errors::{StorageError, TimeoutError};
+use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{StorageError, TimeoutError};
 use buildplane_time::deadline::Deadline;
 use buildplane_time::timeouts::Timeouts;
 use hmac::{Hmac, KeyInit, Mac};

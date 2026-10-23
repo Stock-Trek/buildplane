@@ -1,4 +1,4 @@
-use crate::errors::retryability::Retryability;
+use crate::retryability::Retryability;
 use aws_sdk_lambda::operation::invoke::InvokeError as SdkInvokeError;
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]

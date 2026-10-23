@@ -1,6 +1,6 @@
 use crate::api_key_credential::ApiKeyCredentials;
-use buildplane_errors::errors::ExchangeError;
-use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_errors::ExchangeError;
+use buildplane_errors::{BpError, BpResult};
 use hmac::{Hmac, KeyInit, Mac};
 use p256::ecdsa::signature::Signer as SignerTrait;
 use rsa::{

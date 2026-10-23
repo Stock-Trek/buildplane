@@ -1,5 +1,5 @@
 use crate::git_ops::github::{github_auth::GitHubAuth, installation::GitHubInstallation};
-use buildplane_errors::errors::BpResult;
+use buildplane_errors::BpResult;
 use buildplane_messages::sqs_message::GitSource;
 use buildplane_time::deadline::Deadline;
 

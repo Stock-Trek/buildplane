@@ -1,4 +1,4 @@
-use crate::errors::retryability::Retryability;
+use crate::retryability::Retryability;
 use buildplane_messages::sqs_message::SqsMessage;
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]

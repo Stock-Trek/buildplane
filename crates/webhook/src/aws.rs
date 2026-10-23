@@ -1,6 +1,6 @@
 use aws_config::{BehaviorVersion, SdkConfig, timeout::TimeoutConfig};
 use buildplane_config::env_vars::EnvVarConfig;
-use buildplane_errors::errors::BpResult;
+use buildplane_errors::BpResult;
 use buildplane_sqs::sqs::Sqs;
 use buildplane_time::timeouts::Timeouts;
 use std::time::Duration;

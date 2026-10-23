@@ -3,7 +3,7 @@ use crate::{
     new_types::Seconds,
     rate_limited::{RateLimit, RateUsage},
 };
-use buildplane_errors::errors::BpResult;
+use buildplane_errors::BpResult;
 use std::{collections::HashMap, fmt::Debug};
 
 pub trait ETResponse: Clone + Debug {

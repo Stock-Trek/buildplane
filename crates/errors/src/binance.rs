@@ -1,4 +1,4 @@
-use crate::errors::{exchange::ExchangeError, retryability::Retryability};
+use crate::{exchange::ExchangeError, retryability::Retryability};
 use buildplane_types::new_types::Seconds;
 use serde::Deserialize;
 

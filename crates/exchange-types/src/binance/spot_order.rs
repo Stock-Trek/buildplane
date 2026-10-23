@@ -19,7 +19,7 @@ use crate::{
     ticker::Ticker,
     websocket_id::ETWebsocketId,
 };
-use buildplane_errors::errors::BpResult;
+use buildplane_errors::BpResult;
 use query_params::QueryParams;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};

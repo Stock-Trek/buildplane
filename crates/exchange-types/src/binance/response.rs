@@ -6,7 +6,7 @@ use crate::{
     response::{ETHttpResponse, ETResponse, ETWebsocketResponse},
     websocket_id::ETWebsocketId,
 };
-use buildplane_errors::errors::{BinanceError, BpError, BpResult, ExchangeError};
+use buildplane_errors::{BinanceError, BpError, BpResult, ExchangeError};
 use serde::{Deserialize, de::DeserializeOwned};
 use std::{collections::HashMap, fmt::Debug};
 

@@ -3,7 +3,7 @@ use crate::{
     asset_limits::TBAssetLimits,
 };
 use bimap::BiHashMap;
-use buildplane_errors::errors::{ExchangeError, ValidationError};
+use buildplane_errors::{ExchangeError, ValidationError};
 use buildplane_exchange_types::{
     binance::{
         asset_limits::{BinanceAssetLimitsRequest, BinanceAssetLimitsResponse},
