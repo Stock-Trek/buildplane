@@ -15,7 +15,10 @@ const AWS_LAMBDA_FUNCTION_NAME: &str = "AWS_LAMBDA_FUNCTION_NAME";
 const BACKFILL_START: &str = "BACKFILL_START";
 const BUILD_AGENT_BUILD_CACHE_DIR: &str = "BUILD_AGENT_BUILD_CACHE_DIR";
 const BUILD_AGENT_FUNCTION_NAME: &str = "BUILD_AGENT_FUNCTION_NAME";
+const BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES: &str =
+    "BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES";
 const BUILD_AGENT_SOURCE_DIR: &str = "BUILD_AGENT_SOURCE_DIR";
+const BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS: &str = "BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS";
 const BUILD_AGENT_TIMEOUT_SECS: &str = "BUILD_AGENT_TIMEOUT_SECS";
 const DEADLINE_BUFFER_SECS: &str = "DEADLINE_BUFFER_SECS";
 const ENTERPRISE_ALLOWED_HOSTS: &str = "GITHUB_ENTERPRISE_ALLOWED_HOSTS";
@@ -46,7 +49,9 @@ const WEBHOOK_REFRESH_COOLDOWN_SECS: &str = "WEBHOOK_REFRESH_COOLDOWN_SECS";
 const WEBHOOK_SECRET_FAILURE_BACKOFF_SECS: &str = "WEBHOOK_SECRET_FAILURE_BACKOFF_SECS";
 
 const DEFAULT_BUILD_AGENT_BUILD_CACHE_DIR: &str = "/tmp/buildplane-build-cache";
+const DEFAULT_BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES: u64 = 64 * 1024 * 1024;
 const DEFAULT_BUILD_AGENT_SOURCE_DIR: &str = "/var/task";
+const DEFAULT_BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(60);
 const DEFAULT_BUILD_AGENT_TIMEOUT: Duration = Duration::from_secs(300);
 const DEFAULT_DEADLINE_BUFFER: Duration = Duration::from_secs(5);
 const DEFAULT_GITHUB_MAX_CACHED_INSTALLATIONS: usize = 128;
@@ -241,6 +246,33 @@ impl EnvVarConfig {
 
     pub fn build_agent_source_dir(&self) -> BpResult<PathBuf> {
         self.path(BUILD_AGENT_SOURCE_DIR, DEFAULT_BUILD_AGENT_SOURCE_DIR)
+    }
+
+    pub fn build_agent_max_extracted_source_size_bytes(&self) -> BpResult<NonZeroU64> {
+        let bytes = self.parsed(
+            BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES,
+            DEFAULT_BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES,
+        )?;
+        NonZeroU64::new(bytes).ok_or_else(|| {
+            BpError::config_invalid(
+                BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES,
+                "must be greater than zero",
+            )
+        })
+    }
+
+    pub fn build_agent_source_download_timeout(&self) -> BpResult<Duration> {
+        let timeout = self.duration(
+            BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS,
+            DEFAULT_BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT,
+        )?;
+        if timeout.is_zero() {
+            return Err(BpError::config_invalid(
+                BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS,
+                "must be greater than zero",
+            ));
+        }
+        Ok(timeout)
     }
 
     pub fn build_agent_timeout(&self) -> BpResult<Duration> {
@@ -503,6 +535,17 @@ mod tests {
             config.build_agent_build_cache_dir().unwrap(),
             PathBuf::from("/tmp/buildplane-build-cache")
         );
+        assert_eq!(
+            config.build_agent_source_download_timeout().unwrap(),
+            Duration::from_secs(60)
+        );
+        assert_eq!(
+            config
+                .build_agent_max_extracted_source_size_bytes()
+                .unwrap()
+                .get(),
+            64 * 1024 * 1024
+        );
     }
 
     #[test]
@@ -511,6 +554,8 @@ mod tests {
             (BUILD_AGENT_TIMEOUT_SECS, "120"),
             (BUILD_AGENT_SOURCE_DIR, "/srv/agent"),
             (BUILD_AGENT_BUILD_CACHE_DIR, "/var/cache/agent"),
+            (BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS, "45"),
+            (BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES, "2048"),
         ]);
 
         assert_eq!(
@@ -524,6 +569,32 @@ mod tests {
         assert_eq!(
             config.build_agent_build_cache_dir().unwrap(),
             PathBuf::from("/var/cache/agent")
+        );
+        assert_eq!(
+            config.build_agent_source_download_timeout().unwrap(),
+            Duration::from_secs(45)
+        );
+        assert_eq!(
+            config
+                .build_agent_max_extracted_source_size_bytes()
+                .unwrap()
+                .get(),
+            2048
+        );
+    }
+
+    #[test]
+    fn build_agent_source_limits_reject_zero() {
+        let config = EnvVarConfig::from_map([
+            (BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS, "0"),
+            (BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES, "0"),
+        ]);
+
+        assert!(config.build_agent_source_download_timeout().is_err());
+        assert!(
+            config
+                .build_agent_max_extracted_source_size_bytes()
+                .is_err()
         );
     }
 

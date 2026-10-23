@@ -13,6 +13,14 @@ pub enum StorageError {
         size: usize,
         max_bytes: u64,
     },
+    #[error(
+        "source archive is {size} bytes, exceeding the maximum source archive size of {max_bytes} bytes"
+    )]
+    SourceArchiveTooLarge { size: u64, max_bytes: u64 },
+    #[error(
+        "extracted source is {size} bytes, exceeding the maximum extracted source size of {max_bytes} bytes"
+    )]
+    ExtractedSourceTooLarge { size: u64, max_bytes: u64 },
     #[error("failed to load AWS credentials: {0}")]
     Credentials(#[from] CredentialsError),
     #[error("invalid S3 endpoint URL: {source}")]
@@ -62,7 +70,9 @@ impl StorageError {
             | Self::InvalidEndpointHost { .. }
             | Self::MissingCredentials
             | Self::ObjectTooLarge { .. }
-            | Self::ArtifactTooLarge { .. } => Retryability::Permanent,
+            | Self::ArtifactTooLarge { .. }
+            | Self::SourceArchiveTooLarge { .. }
+            | Self::ExtractedSourceTooLarge { .. } => Retryability::Permanent,
             Self::Credentials(error) => Retryability::from_credentials(error),
         }
     }
