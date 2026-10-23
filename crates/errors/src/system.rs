@@ -1,9 +1,12 @@
 use crate::retryability::Retryability;
+use buildplane_types::new_types::ArithmeticError;
 use std::error::Error as StdError;
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum SystemError {
+    #[error(transparent)]
+    Arithmetic(#[from] ArithmeticError),
     #[error(transparent)]
     External(#[from] Box<dyn StdError + Send + Sync + 'static>),
     #[error("Poisoned Lock")]
@@ -27,7 +30,8 @@ impl SystemError {
         match self {
             Self::External(_) => Retryability::Retryable,
             Self::Task(error) => Retryability::from_join_error(error),
-            Self::Tracing(_)
+            Self::Arithmetic(_)
+            | Self::Tracing(_)
             | Self::PoisonedLock
             | Self::SystemTimeBeforeEpoch
             | Self::SemaphoreClosed => Retryability::Permanent,

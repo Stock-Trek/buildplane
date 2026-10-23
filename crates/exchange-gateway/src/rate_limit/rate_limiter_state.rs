@@ -1,6 +1,6 @@
 use buildplane_errors::RateLimitError;
 use buildplane_errors::{BpError, BpResult};
-use buildplane_exchange_types::new_types::{Nanoseconds, UsageCount};
+use buildplane_exchange_types::new_types::{Nanoseconds, NonZero, UsageCount};
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -10,7 +10,7 @@ const MAX_THROTTLE_AFTER: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Clone)]
 pub struct RateLimiterState {
-    interval_nanos: Nanoseconds,
+    interval_nanos: NonZero<Nanoseconds>,
     capacity_per_interval: UsageCount,
     current_capacity: UsageCount,
     last_calculation: Instant,
@@ -35,12 +35,11 @@ impl RateLimiterState {
         capacity_per_interval: UsageCount,
         now: Arc<dyn Fn() -> Instant + Send + Sync>,
     ) -> BpResult<Self> {
-        if interval_nanos <= Nanoseconds::ZERO {
-            return Err(BpError::RateLimit(RateLimitError::InvalidRateLimitInterval));
-        }
         if capacity_per_interval <= UsageCount::ZERO {
             return Err(BpError::RateLimit(RateLimitError::InvalidRateLimitCapacity));
         }
+        let interval_nanos = NonZero::new(interval_nanos)
+            .map_err(|_| BpError::RateLimit(RateLimitError::InvalidRateLimitInterval))?;
         Ok(Self {
             interval_nanos,
             capacity_per_interval,
@@ -52,7 +51,7 @@ impl RateLimiterState {
         })
     }
     pub fn interval_nanos(&self) -> Nanoseconds {
-        self.interval_nanos
+        self.interval_nanos.get()
     }
     pub fn capacity_per_interval(&self) -> UsageCount {
         self.capacity_per_interval
@@ -60,9 +59,9 @@ impl RateLimiterState {
     pub fn cost_exceeds_capacity(&self, cost: UsageCount) -> bool {
         cost > self.capacity_per_interval
     }
-    pub fn remaining_capacity(&mut self) -> UsageCount {
-        self.update_capacity();
-        self.current_capacity
+    pub fn remaining_capacity(&mut self) -> BpResult<UsageCount> {
+        self.update_capacity()?;
+        Ok(self.current_capacity)
     }
     pub fn did_consume(&mut self, cost: UsageCount) -> BpResult<()> {
         if self.cost_exceeds_capacity(cost) {
@@ -70,7 +69,7 @@ impl RateLimiterState {
                 RateLimitError::RequestExceedsRateLimit {
                     cost,
                     capacity: self.capacity_per_interval,
-                    interval_nanos: self.interval_nanos,
+                    interval_nanos: self.interval_nanos.get(),
                 },
             ));
         }
@@ -80,7 +79,7 @@ impl RateLimiterState {
         if self.did_quick_consume(cost) {
             Ok(())
         } else {
-            self.update_capacity();
+            self.update_capacity()?;
             if self.did_quick_consume(cost) {
                 Ok(())
             } else {
@@ -157,11 +156,11 @@ impl RateLimiterState {
         }
         consumed
     }
-    fn update_capacity(&mut self) {
+    fn update_capacity(&mut self) -> BpResult<()> {
         let now = self.now();
         if let Some(throttled_until) = self.throttled_until {
             if now < throttled_until {
-                return;
+                return Ok(());
             }
             self.throttled_until = None;
             self.last_calculation = throttled_until;
@@ -173,14 +172,15 @@ impl RateLimiterState {
         let elapsed_nanos =
             Nanoseconds(now.duration_since(self.last_calculation).as_nanos() as i64);
         let total_nanos = self.excess_interval_nanos + elapsed_nanos;
-        let complete_intervals = (total_nanos / self.interval_nanos) as u64;
+        let complete_intervals = total_nanos.checked_div(self.interval_nanos)? as u64;
         if complete_intervals > 0 {
             let capacity_to_add = self.capacity_per_interval * complete_intervals;
             let capacity_potentially_over_max = self.current_capacity + capacity_to_add;
             self.current_capacity = capacity_potentially_over_max.min(self.capacity_per_interval);
-            self.excess_interval_nanos = total_nanos % self.interval_nanos.0;
+            self.excess_interval_nanos = total_nanos.checked_rem(self.interval_nanos)?;
             self.last_calculation = now;
         }
+        Ok(())
     }
 }
 
@@ -217,7 +217,10 @@ mod tests {
         state.throttle_after(Duration::ZERO);
 
         assert!(!state.is_throttled());
-        assert_eq!(state.remaining_capacity(), UsageCount(10));
+        assert_eq!(
+            state.remaining_capacity().expect("remaining capacity"),
+            UsageCount(10)
+        );
     }
 
     #[test]
@@ -227,7 +230,10 @@ mod tests {
         state.throttle(now - Duration::from_secs(1));
 
         assert!(!state.is_throttled());
-        assert_eq!(state.remaining_capacity(), UsageCount(10));
+        assert_eq!(
+            state.remaining_capacity().expect("remaining capacity"),
+            UsageCount(10)
+        );
     }
 
     #[test]
@@ -236,7 +242,10 @@ mod tests {
         state.throttle_after(Duration::from_secs(60));
 
         assert!(state.is_throttled());
-        assert_eq!(state.remaining_capacity(), UsageCount::ZERO);
+        assert_eq!(
+            state.remaining_capacity().expect("remaining capacity"),
+            UsageCount::ZERO
+        );
     }
 
     #[test]
@@ -254,21 +263,33 @@ mod tests {
 
         // Bank 30s of progress towards the next interval.
         *now.lock().expect("clock lock") = base + Duration::from_secs(90);
-        assert_eq!(state.remaining_capacity(), UsageCount(10));
+        assert_eq!(
+            state.remaining_capacity().expect("remaining capacity"),
+            UsageCount(10)
+        );
 
         // The exchange throttles us for 30s from t=90s, i.e. until t=120s.
         state.throttle_after(Duration::from_secs(30));
-        assert_eq!(state.remaining_capacity(), UsageCount::ZERO);
+        assert_eq!(
+            state.remaining_capacity().expect("remaining capacity"),
+            UsageCount::ZERO
+        );
 
         // 30s after the throttle deadline only half an interval has elapsed since
         // the bucket was drained, so the progress banked before the throttle must
         // not be reused to refill the bucket early.
         *now.lock().expect("clock lock") = base + Duration::from_secs(150);
         assert!(!state.is_throttled());
-        assert_eq!(state.remaining_capacity(), UsageCount::ZERO);
+        assert_eq!(
+            state.remaining_capacity().expect("remaining capacity"),
+            UsageCount::ZERO
+        );
 
         // A full interval after the deadline the bucket refills completely.
         *now.lock().expect("clock lock") = base + Duration::from_secs(180);
-        assert_eq!(state.remaining_capacity(), UsageCount(10));
+        assert_eq!(
+            state.remaining_capacity().expect("remaining capacity"),
+            UsageCount(10)
+        );
     }
 }

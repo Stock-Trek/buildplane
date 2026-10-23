@@ -4,7 +4,7 @@ use crate::{
         response::BinanceResponse, supporting_types::BinanceOrderStatusResponse,
     },
     http::{HttpMethod, HttpRequest},
-    new_types::{Milliseconds, UsageCount},
+    new_types::{TimestampMilliseconds, UsageCount},
     rate_limited::RateLimitRestriction,
     request::{ETHttpRequest, ETRequest, ETWebsocketRequest, WebsocketResponseMatcher},
     signer::Signer,
@@ -66,7 +66,7 @@ impl ETRequest for BinanceOpenOrdersStatusRequest {
     fn set_api_key(&mut self, api_key: Option<String>) {
         self.apiKey = api_key;
     }
-    fn set_timestamp(&mut self, timestamp: Milliseconds) {
+    fn set_timestamp(&mut self, timestamp: TimestampMilliseconds) {
         self.timestamp = timestamp.0;
     }
     fn query_params(&self, percent_encode: bool) -> String {

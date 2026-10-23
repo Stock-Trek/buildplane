@@ -5,7 +5,7 @@ use crate::{
         response::{BinanceResponse, BinanceResponsePayload},
     },
     http::{HttpMethod, HttpRequest},
-    new_types::{Milliseconds, UsageCount},
+    new_types::{TimestampMilliseconds, UsageCount},
     rate_limited::RateLimitRestriction,
     request::{ETHttpRequest, ETRequest, ETWebsocketRequest, WebsocketResponseMatcher},
     server_time::{ServerTimeHttpRequest, ServerTimeResponse, ServerTimeWebsocketRequest},
@@ -36,7 +36,7 @@ impl ServerTimeHttpRequest<BinanceResponse<BinanceTimeResponse>> for BinanceTime
 impl ServerTimeWebsocketRequest<BinanceResponse<BinanceTimeResponse>> for BinanceTimeRequest {}
 
 impl ServerTimeResponse for BinanceResponse<BinanceTimeResponse> {
-    fn server_time(&self) -> BpResult<Milliseconds> {
+    fn server_time(&self) -> BpResult<TimestampMilliseconds> {
         match &self.payload {
             BinanceResponsePayload::Failure(error) => {
                 let retry_after = self.metadata.retry_after.or_else(|| error.retry_after());
@@ -44,7 +44,9 @@ impl ServerTimeResponse for BinanceResponse<BinanceTimeResponse> {
                     error.exchange_error(self.metadata.status, retry_after),
                 ))
             }
-            BinanceResponsePayload::Success(payload) => Ok(Milliseconds(payload.serverTime)),
+            BinanceResponsePayload::Success(payload) => {
+                Ok(TimestampMilliseconds(payload.serverTime))
+            }
         }
     }
 }
@@ -65,7 +67,7 @@ impl ETRequest for BinanceTimeRequest {
         }
     }
     fn set_api_key(&mut self, _api_key: Option<String>) {}
-    fn set_timestamp(&mut self, _timestamp: Milliseconds) {}
+    fn set_timestamp(&mut self, _timestamp: TimestampMilliseconds) {}
     fn query_params(&self, percent_encode: bool) -> String {
         self.query_params(true, percent_encode)
     }

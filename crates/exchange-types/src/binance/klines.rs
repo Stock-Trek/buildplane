@@ -7,7 +7,7 @@ use crate::{
     },
     http::{HttpMethod, HttpRequest},
     klines::{Kline, KlinesHttpRequest, KlinesResponse, KlinesWebsocketRequest},
-    new_types::{Milliseconds, UsageCount},
+    new_types::{TimestampMilliseconds, UsageCount},
     rate_limited::RateLimitRestriction,
     request::{ETHttpRequest, ETRequest, ETWebsocketRequest, WebsocketResponseMatcher},
     signer::Signer,
@@ -27,8 +27,8 @@ use strum::Display;
 pub struct BinanceKlinesRequest {
     pub symbol: String,
     pub interval: BinanceKlinesInterval,
-    pub startTime: Option<Milliseconds>,
-    pub endTime: Option<Milliseconds>,
+    pub startTime: Option<TimestampMilliseconds>,
+    pub endTime: Option<TimestampMilliseconds>,
     pub timezone: Option<String>,
     pub limit: Option<BinanceKlinesLimit>,
 }
@@ -50,13 +50,13 @@ pub type BinanceKlinesResponse = Vec<BinanceKlineResponse>;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BinanceKlineResponse(
-    Milliseconds,
+    TimestampMilliseconds,
     String,
     String,
     String,
     String,
     String,
-    Milliseconds,
+    TimestampMilliseconds,
     #[allow(unused)] String,
     u32,
     #[allow(unused)] String,
@@ -177,7 +177,7 @@ impl ETRequest for BinanceKlinesRequest {
         }
     }
     fn set_api_key(&mut self, _api_key: Option<String>) {}
-    fn set_timestamp(&mut self, _timestamp: Milliseconds) {}
+    fn set_timestamp(&mut self, _timestamp: TimestampMilliseconds) {}
     fn query_params(&self, percent_encode: bool) -> String {
         self.query_params(true, percent_encode)
     }

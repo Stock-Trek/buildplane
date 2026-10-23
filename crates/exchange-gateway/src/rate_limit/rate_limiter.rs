@@ -57,10 +57,11 @@ impl RateLimiter {
             .rate_limiters
             .lock()
             .map_err(|_| BpError::System(SystemError::PoisonedLock))?;
-        Ok(limiters_guard
-            .iter_mut()
-            .map(|limiter| (limiter.interval_nanos(), limiter.remaining_capacity()))
-            .collect())
+        let mut capacities = HashMap::new();
+        for limiter in limiters_guard.iter_mut() {
+            capacities.insert(limiter.interval_nanos(), limiter.remaining_capacity()?);
+        }
+        Ok(capacities)
     }
     pub fn refund(&self, cost: UsageCount) -> BpResult<()> {
         let mut limiters_guard = self

@@ -13,7 +13,7 @@ use buildplane_exchange_types::{
     },
     encode::ByteEncoder,
     klines::{Kline, KlinesResponse},
-    new_types::Milliseconds,
+    new_types::TimestampMilliseconds,
     signer::Signer,
 };
 use buildplane_type_bridge::{BinanceConverter, Converter};
@@ -44,8 +44,8 @@ impl ExchangeUpdater for BinanceUpdater {
         };
         let mut request = BinanceKlinesRequest::new(symbol, BinanceKlinesInterval::ONE_MINUTE);
         let (start_millis, end_millis) = Self::kline_time_bounds(start_time, end_time);
-        request.startTime = Some(Milliseconds(start_millis));
-        request.endTime = Some(Milliseconds(end_millis));
+        request.startTime = Some(TimestampMilliseconds(start_millis));
+        request.endTime = Some(TimestampMilliseconds(end_millis));
         request.limit = KLINE_LIMIT
             .map(|limit| {
                 BinanceKlinesLimit::try_new(limit)

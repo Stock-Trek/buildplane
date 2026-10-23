@@ -1,5 +1,5 @@
 use crate::{
-    new_types::Milliseconds,
+    new_types::TimestampMilliseconds,
     request::{ETHttpRequest, ETWebsocketRequest},
     response::{ETHttpResponse, ETWebsocketResponse},
 };
@@ -24,8 +24,8 @@ pub trait KlinesResponse {
 
 #[derive(Debug, Clone)]
 pub struct Kline {
-    pub open_time: Milliseconds,
-    pub close_time: Milliseconds,
+    pub open_time: TimestampMilliseconds,
+    pub close_time: TimestampMilliseconds,
     pub open: Decimal,
     pub high: Decimal,
     pub low: Decimal,

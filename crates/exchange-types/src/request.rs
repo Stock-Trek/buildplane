@@ -1,7 +1,7 @@
 use crate::{
     exchange::ETExchange,
     http::{HttpMethod, HttpRequest},
-    new_types::{Milliseconds, UsageCount},
+    new_types::{TimestampMilliseconds, UsageCount},
     rate_limited::RateLimitRestriction,
     response::{ETHttpResponse, ETWebsocketResponse},
     signer::Signer,
@@ -20,7 +20,7 @@ pub trait ETRequest: Clone + Debug + Serialize {
         false
     }
     fn set_api_key(&mut self, api_key: Option<String>);
-    fn set_timestamp(&mut self, timestamp: Milliseconds);
+    fn set_timestamp(&mut self, timestamp: TimestampMilliseconds);
     fn query_params(&self, percent_encode: bool) -> String;
 }
 

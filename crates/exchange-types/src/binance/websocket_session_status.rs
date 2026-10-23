@@ -3,7 +3,7 @@ use crate::{
         exchange::BinanceExchange, request::BinanceRequestFactory, response::BinanceResponse,
         supporting_types::BinanceWebsocketSessionResponse,
     },
-    new_types::{Milliseconds, UsageCount},
+    new_types::{TimestampMilliseconds, UsageCount},
     rate_limited::RateLimitRestriction,
     request::{ETRequest, ETWebsocketRequest, WebsocketResponseMatcher},
     signer::Signer,
@@ -39,7 +39,7 @@ impl ETRequest for BinanceSessionStatusRequest {
         }
     }
     fn set_api_key(&mut self, _api_key: Option<String>) {}
-    fn set_timestamp(&mut self, _timestamp: Milliseconds) {}
+    fn set_timestamp(&mut self, _timestamp: TimestampMilliseconds) {}
     fn query_params(&self, percent_encode: bool) -> String {
         self.query_params(true, percent_encode)
     }

@@ -18,7 +18,7 @@ use buildplane_errors::{ConnectorError, RateLimitError, SendFailure, TimeoutErro
 use buildplane_exchange_types::{
     exchange::ETExchange,
     http::HttpResponse,
-    new_types::{Milliseconds, UsageCount},
+    new_types::{TimestampMilliseconds, UsageCount},
     rate_limited::{RateLimit, RateLimitRestriction},
     request::{ETHttpRequest, ETRequest, ETWebsocketRequest},
     response::{ETHttpResponse, ETResponse, ETWebsocketResponse},
@@ -196,7 +196,7 @@ where
     pub fn remaining_rate_limit_capacity(&self) -> BpResult<HashMap<RateLimit, UsageCount>> {
         self.rate_limiters.remaining_capacity()
     }
-    pub fn server_time_estimate(&self) -> BpResult<Milliseconds> {
+    pub fn server_time_estimate(&self) -> BpResult<TimestampMilliseconds> {
         self.clock.server_time_estimate()
     }
     fn validate_rate_limits<Request>(

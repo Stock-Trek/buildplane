@@ -1,7 +1,7 @@
 use buildplane_exchange_types::{
     binance::{klines_limit::BinanceKlinesLimit, recv_window::BinanceRecvWindow},
     encode::ByteEncoder,
-    new_types::{Milliseconds, UsageCount},
+    new_types::{Milliseconds, NonZero, UsageCount},
 };
 
 #[test]
@@ -36,5 +36,13 @@ fn new_type_arithmetic_saturates_instead_of_overflowing() {
     assert_eq!(UsageCount(u64::MAX) + UsageCount::ONE, UsageCount(u64::MAX));
     assert_eq!(UsageCount::ZERO - UsageCount::ONE, UsageCount::ZERO);
     assert_eq!(UsageCount::TWO * u64::MAX, UsageCount(u64::MAX));
-    assert_eq!(UsageCount::TEN / UsageCount(3), 3);
+}
+
+#[test]
+fn new_type_division_and_remainder_are_checked() {
+    let divisor = NonZero::new(UsageCount(3)).expect("non-zero divisor");
+    assert_eq!(UsageCount::TEN.checked_div(divisor), Ok(3));
+    assert_eq!(UsageCount::TEN.checked_rem(divisor), Ok(UsageCount::ONE));
+    assert!(UsageCount::TEN.checked_div(UsageCount::ZERO).is_err());
+    assert!(UsageCount::TEN.checked_rem(UsageCount::ZERO).is_err());
 }

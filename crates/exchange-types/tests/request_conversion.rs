@@ -10,7 +10,7 @@ use buildplane_exchange_types::{
         websocket_session_logout::BinanceSessionLogoutRequest,
     },
     http::HttpMethod,
-    new_types::Milliseconds,
+    new_types::TimestampMilliseconds,
     request::{ETHttpRequest, ETRequest, ETWebsocketRequest},
     signer::Signer,
     websocket_id::ETWebsocketId,
@@ -37,7 +37,7 @@ fn signed_http_request_embeds_verifiable_signature_and_api_key_header() {
         BinanceOrderType::LIMIT,
         Decimal::new(5, 1),
     );
-    request.set_timestamp(Milliseconds(1_700_000_000_000));
+    request.set_timestamp(TimestampMilliseconds(1_700_000_000_000));
     let http = request.try_into_http(&signer).unwrap();
     assert_eq!(http.method, HttpMethod::POST);
     assert_eq!(http.path, "order");
@@ -94,7 +94,7 @@ fn signed_websocket_request_includes_verifiable_signature_and_api_key() {
     let api_key = "api-key";
     let signer = signer(api_key, "secret-key");
     let mut request = BinanceSessionLogonRequest::new();
-    request.set_timestamp(Milliseconds(1_234_567_890));
+    request.set_timestamp(TimestampMilliseconds(1_234_567_890));
     let (message, matcher) = request
         .try_into_websocket(&signer, ETWebsocketId::Int(42))
         .unwrap();

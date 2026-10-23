@@ -1,5 +1,5 @@
 use crate::{
-    new_types::Milliseconds,
+    new_types::TimestampMilliseconds,
     request::{ETHttpRequest, ETWebsocketRequest},
     response::{ETHttpResponse, ETWebsocketResponse},
 };
@@ -18,5 +18,5 @@ where
 }
 
 pub trait ServerTimeResponse {
-    fn server_time(&self) -> BpResult<Milliseconds>;
+    fn server_time(&self) -> BpResult<TimestampMilliseconds>;
 }
