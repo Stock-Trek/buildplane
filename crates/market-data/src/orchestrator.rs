@@ -91,9 +91,12 @@ impl Orchestrator {
                     .await?;
                 Ok(JobOutcome {
                     windows_ingested: windows_ingested.windows_ingested,
-                    windows_skipped: windows_ingested.windows_skipped,
+                    windows_compacted: windows_ingested.windows_compacted,
+                    windows_incomplete: windows_ingested.windows_incomplete,
+                    windows_deadline: windows_ingested.windows_deadline,
                     compaction_targets: 0,
-                    incomplete: windows_ingested.windows_skipped > 0,
+                    incomplete: windows_ingested.windows_incomplete > 0
+                        || windows_ingested.windows_deadline > 0,
                 })
             }
             Job::Compact(compact) => {
@@ -102,7 +105,9 @@ impl Orchestrator {
                 Compactor::prefix(s3_client, transfer_client, bucket, &prefix, deadline).await?;
                 Ok(JobOutcome {
                     windows_ingested: 0,
-                    windows_skipped: 0,
+                    windows_compacted: 0,
+                    windows_incomplete: 0,
+                    windows_deadline: 0,
                     compaction_targets: 1,
                     incomplete: false,
                 })
@@ -133,7 +138,9 @@ impl Orchestrator {
         if !deadline.has_remaining() {
             return update_result.map(|update| JobOutcome {
                 windows_ingested: update.windows_ingested,
-                windows_skipped: update.windows_skipped,
+                windows_compacted: update.windows_compacted,
+                windows_incomplete: update.windows_incomplete,
+                windows_deadline: update.windows_deadline,
                 compaction_targets: 0,
                 incomplete: true,
             });
@@ -145,9 +152,11 @@ impl Orchestrator {
         match (update_result, compact_result) {
             (Ok(update), Ok(compaction_targets)) => Ok(JobOutcome {
                 windows_ingested: update.windows_ingested,
-                windows_skipped: update.windows_skipped,
+                windows_compacted: update.windows_compacted,
+                windows_incomplete: update.windows_incomplete,
+                windows_deadline: update.windows_deadline,
                 compaction_targets,
-                incomplete: update.windows_skipped > 0,
+                incomplete: update.windows_incomplete > 0 || update.windows_deadline > 0,
             }),
             (Err(error), Ok(_)) | (Ok(_), Err(error)) => Err(error),
             (Err(update_error), Err(compact_error)) => {

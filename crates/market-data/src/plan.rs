@@ -40,7 +40,7 @@ pub struct WindowPlan {
     /// Windows that still need to be ingested.
     pub windows: Vec<Window>,
     /// Windows covered by an already compacted period.
-    pub windows_skipped: usize,
+    pub windows_compacted: usize,
     /// Details of the compacted periods that were skipped.
     pub skipped_compacted: Vec<CompactedSkip>,
 }
@@ -99,7 +99,7 @@ impl Planner {
                     QuantizedTime::previous_top(end_time, UPDATE_QUANTIZATION)?,
                     end_time,
                 )],
-                windows_skipped: 0,
+                windows_compacted: 0,
                 skipped_compacted: Vec::new(),
             });
         };
@@ -166,7 +166,7 @@ impl Planner {
                 let skipped_end = boundary.min(end_time);
                 let windows = Self::window_count(start, skipped_end)?;
                 if windows > 0 {
-                    plan.windows_skipped += windows;
+                    plan.windows_compacted += windows;
                     plan.skipped_compacted.push(CompactedSkip {
                         start,
                         end: skipped_end,
@@ -511,7 +511,7 @@ mod tests {
                 window(utc(2024, 1, 1, 1, 6), utc(2024, 1, 1, 1, 12)),
             ]
         );
-        assert_eq!(plan.windows_skipped, 10);
+        assert_eq!(plan.windows_compacted, 10);
         assert_eq!(
             plan.skipped_compacted,
             vec![CompactedSkip {
@@ -534,7 +534,7 @@ mod tests {
         )
         .unwrap();
         assert!(plan.windows.is_empty());
-        assert_eq!(plan.windows_skipped, 5);
+        assert_eq!(plan.windows_compacted, 5);
         assert_eq!(plan.skipped_compacted[0].end, utc(2024, 1, 1, 0, 30));
     }
 
@@ -548,7 +548,7 @@ mod tests {
         )
         .unwrap();
         assert!(plan.windows.is_empty());
-        assert_eq!(plan.windows_skipped, 2);
+        assert_eq!(plan.windows_compacted, 2);
     }
 
     #[test]
@@ -579,7 +579,7 @@ mod tests {
     }
 
     #[test]
-    fn compacted_windows_are_reported_as_skipped() {
+    fn compacted_windows_are_reported_as_compacted() {
         let existing = paths(&["2024/01/01/03.parquet"]);
         let plan = Planner::plan_windows_with_skipped(
             &existing,
@@ -594,11 +594,11 @@ mod tests {
                 window(utc(2024, 1, 1, 4, 6), utc(2024, 1, 1, 4, 12)),
             ]
         );
-        assert_eq!(plan.windows_skipped, 10);
+        assert_eq!(plan.windows_compacted, 10);
     }
 
     #[test]
-    fn forced_backfill_reports_compacted_windows_as_skipped() {
+    fn forced_backfill_reports_compacted_windows_as_compacted() {
         let existing = paths(&["2024/01/01/00.parquet"]);
         let plan = Planner::plan_backfill_windows_with_skipped(
             &existing,
@@ -614,7 +614,7 @@ mod tests {
                 window(utc(2024, 1, 1, 1, 6), utc(2024, 1, 1, 1, 12)),
             ]
         );
-        assert_eq!(plan.windows_skipped, 10);
+        assert_eq!(plan.windows_compacted, 10);
     }
 
     #[test]
