@@ -11,4 +11,5 @@ rust_decimal.workspace = true
 serde.workspace = true
 stock-trek-types.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 uuid.workspace = true
