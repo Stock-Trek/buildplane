@@ -28,7 +28,7 @@ impl BuildRequest {
             signed_post: BuildRequestSignedPost {
                 url: self.signed_post.url.clone(),
                 fields: self.signed_post.fields.clone(),
-                max_artifact_size_bytes: self.signed_post.max_artifact_size_bytes(),
+                max_artifact_size_bytes: Some(self.signed_post.max_artifact_size_bytes()),
             },
         };
         Ok(serde_json::to_vec(&payload)?)
@@ -39,9 +39,9 @@ impl BuildRequest {
 mod tests {
     use super::*;
     use buildplane_messages::build_request::BuildRequest as BuildRequestPayload;
-    use std::collections::BTreeMap;
+    use std::{collections::BTreeMap, num::NonZeroU64};
 
-    fn request(commit_hash: Option<&str>, max_artifact_size_bytes: Option<u64>) -> BuildRequest {
+    fn request(commit_hash: Option<&str>, max_artifact_size_bytes: NonZeroU64) -> BuildRequest {
         BuildRequest {
             source: GitSource::GitHub {
                 host: "github.com".to_string(),
@@ -66,9 +66,12 @@ mod tests {
 
     #[test]
     fn payload_contains_build_fields() {
-        let payload: BuildRequestPayload =
-            serde_json::from_slice(&request(Some("abc123"), Some(1024)).payload().unwrap())
-                .unwrap();
+        let payload: BuildRequestPayload = serde_json::from_slice(
+            &request(Some("abc123"), NonZeroU64::new(1024).unwrap())
+                .payload()
+                .unwrap(),
+        )
+        .unwrap();
 
         assert_eq!(payload.git_host, "github.com");
         assert_eq!(payload.git_provider, "github");
@@ -79,19 +82,22 @@ mod tests {
         assert_eq!(payload.signed_get_url, "https://example.com/source.zip");
         assert_eq!(payload.signed_post.url, "https://example.com/upload");
         assert_eq!(payload.signed_post.fields["key"], "artifacts/${filename}");
-        assert_eq!(payload.signed_post.max_artifact_size_bytes, Some(1024));
+        assert_eq!(
+            payload.signed_post.max_artifact_size_bytes,
+            NonZeroU64::new(1024)
+        );
     }
 
     #[test]
-    fn payload_omits_optional_fields_when_absent() {
-        let payload: serde_json::Value =
-            serde_json::from_slice(&request(None, None).payload().unwrap()).unwrap();
+    fn payload_omits_absent_commit_hash_and_always_includes_the_artifact_limit() {
+        let payload: serde_json::Value = serde_json::from_slice(
+            &request(None, NonZeroU64::new(1024).unwrap())
+                .payload()
+                .unwrap(),
+        )
+        .unwrap();
 
         assert!(payload.get("commit_hash").is_none());
-        assert!(
-            payload["signed_post"]
-                .get("max_artifact_size_bytes")
-                .is_none()
-        );
+        assert_eq!(payload["signed_post"]["max_artifact_size_bytes"], 1024);
     }
 }

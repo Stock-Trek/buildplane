@@ -10,6 +10,7 @@
 use buildplane_errors::{BpError, BpResult, IoError, StorageError};
 use std::{
     io::{Cursor, Read, Write},
+    num::NonZeroU64,
     path::{Component, Path, PathBuf},
     time::Duration,
 };
@@ -20,25 +21,27 @@ const USER_GENERATED_DIR: &str = "crates/runner/src/user_generated";
 const USER_GENERATED_PREFIX: &str = "crates/runner/src/user_generated/";
 
 pub const DEFAULT_SOURCE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(60);
-pub const DEFAULT_MAX_SOURCE_ARCHIVE_BYTES: u64 = 16 * 1024 * 1024;
-pub const DEFAULT_MAX_EXTRACTED_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
+pub const DEFAULT_MAX_SOURCE_ARCHIVE_BYTES: NonZeroU64 =
+    NonZeroU64::new(16 * 1024 * 1024).expect("default source archive limit is non-zero");
+pub const DEFAULT_MAX_EXTRACTED_SOURCE_BYTES: NonZeroU64 =
+    NonZeroU64::new(64 * 1024 * 1024).expect("default extracted source limit is non-zero");
 
 /// Resource limits applied while downloading and extracting user sources.
 ///
-/// A zero byte limit disables that limit. The defaults are always bounded so
-/// an archive cannot exhaust the agent's memory or ephemeral disk.
+/// Every limit is non-zero and therefore always enforced, so an archive cannot
+/// exhaust the agent's memory or ephemeral disk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SourceLimits {
     pub download_timeout: Duration,
-    pub max_archive_bytes: u64,
-    pub max_extracted_bytes: u64,
+    pub max_archive_bytes: NonZeroU64,
+    pub max_extracted_bytes: NonZeroU64,
 }
 
 impl SourceLimits {
     pub const fn new(
         download_timeout: Duration,
-        max_archive_bytes: u64,
-        max_extracted_bytes: u64,
+        max_archive_bytes: NonZeroU64,
+        max_extracted_bytes: NonZeroU64,
     ) -> Self {
         Self {
             download_timeout,
@@ -95,7 +98,7 @@ impl Source {
     async fn read_body(
         mut response: reqwest::Response,
         url: &str,
-        max_bytes: u64,
+        max_bytes: NonZeroU64,
     ) -> BpResult<Vec<u8>> {
         if let Some(length) = response.content_length() {
             Self::ensure_archive_within_limit(length, max_bytes)?;
@@ -112,11 +115,11 @@ impl Source {
         Ok(bytes)
     }
 
-    fn ensure_archive_within_limit(size: u64, max_bytes: u64) -> BpResult<()> {
-        if max_bytes > 0 && size > max_bytes {
+    fn ensure_archive_within_limit(size: u64, max_bytes: NonZeroU64) -> BpResult<()> {
+        if size > max_bytes.get() {
             return Err(BpError::Storage(StorageError::SourceArchiveTooLarge {
                 size,
-                max_bytes,
+                max_bytes: max_bytes.get(),
             }));
         }
         Ok(())
@@ -128,7 +131,11 @@ impl Source {
             .saturating_add(u64::try_from(additional).unwrap_or(u64::MAX))
     }
 
-    pub fn extract(&self, destination: &Path, max_extracted_bytes: u64) -> BpResult<Vec<PathBuf>> {
+    pub fn extract(
+        &self,
+        destination: &Path,
+        max_extracted_bytes: NonZeroU64,
+    ) -> BpResult<Vec<PathBuf>> {
         let mut archive = ZipArchive::new(Cursor::new(&self.bytes))
             .map_err(|error| BpError::Io(IoError::Zip(error)))?;
 
@@ -181,11 +188,7 @@ impl Source {
             let mut output = std::fs::File::create(&path).map_err(|source| {
                 BpError::io("write source file", path.display().to_string(), source)
             })?;
-            let allowance = if max_extracted_bytes > 0 {
-                max_extracted_bytes.saturating_sub(extracted_bytes)
-            } else {
-                u64::MAX
-            };
+            let allowance = max_extracted_bytes.get().saturating_sub(extracted_bytes);
             let mut limited = (&mut entry).take(allowance.saturating_add(1));
             let written = std::io::copy(&mut limited, &mut output).map_err(|source| {
                 BpError::io("write source file", path.display().to_string(), source)
@@ -193,12 +196,12 @@ impl Source {
             output.flush().map_err(|source| {
                 BpError::io("write source file", path.display().to_string(), source)
             })?;
-            if max_extracted_bytes > 0 && written > allowance {
+            if written > allowance {
                 drop(output);
                 let _ = std::fs::remove_file(&path);
                 return Err(BpError::Storage(StorageError::ExtractedSourceTooLarge {
                     size: extracted_bytes.saturating_add(written),
-                    max_bytes: max_extracted_bytes,
+                    max_bytes: max_extracted_bytes.get(),
                 }));
             }
             extracted_bytes = extracted_bytes.saturating_add(written);
@@ -214,12 +217,12 @@ impl Source {
         Ok(files)
     }
 
-    fn add_extracted_bytes(current: u64, additional: u64, max_bytes: u64) -> BpResult<u64> {
+    fn add_extracted_bytes(current: u64, additional: u64, max_bytes: NonZeroU64) -> BpResult<u64> {
         let size = current.saturating_add(additional);
-        if max_bytes > 0 && size > max_bytes {
+        if size > max_bytes.get() {
             return Err(BpError::Storage(StorageError::ExtractedSourceTooLarge {
                 size,
-                max_bytes,
+                max_bytes: max_bytes.get(),
             }));
         }
         Ok(size)
@@ -270,7 +273,9 @@ mod tests {
             )]),
         };
 
-        let files = source.extract(directory.path(), 1024).unwrap();
+        let files = source
+            .extract(directory.path(), NonZeroU64::new(1024).unwrap())
+            .unwrap();
 
         assert_eq!(files.len(), 1);
         assert_eq!(std::fs::read(&files[0]).unwrap(), b"pub struct Example;");
@@ -283,7 +288,9 @@ mod tests {
             bytes: archive(&[("crates/runner/src/user_generated/algorithm.rs", &[0u8; 256])]),
         };
 
-        let error = source.extract(directory.path(), 128).unwrap_err();
+        let error = source
+            .extract(directory.path(), NonZeroU64::new(128).unwrap())
+            .unwrap_err();
 
         assert!(matches!(
             error,
@@ -315,7 +322,11 @@ mod tests {
                 )
                 .await;
         });
-        let limits = SourceLimits::new(Duration::from_secs(5), 4, 1024);
+        let limits = SourceLimits::new(
+            Duration::from_secs(5),
+            NonZeroU64::new(4).unwrap(),
+            NonZeroU64::new(1024).unwrap(),
+        );
 
         let error = match Source::download(&format!("http://{address}/sources.zip"), limits).await {
             Ok(_) => panic!("expected oversized download to be rejected"),

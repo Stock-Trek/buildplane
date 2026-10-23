@@ -25,7 +25,7 @@ pub struct AgentConfig {
     pub source_dir: PathBuf,
     pub build_cache_dir: PathBuf,
     pub source_download_timeout: Duration,
-    pub max_source_archive_size_bytes: u64,
+    pub max_source_archive_size_bytes: NonZeroU64,
     pub max_extracted_source_size_bytes: NonZeroU64,
 }
 
@@ -59,7 +59,7 @@ impl AgentConfig {
             build_cache_dir: vars.required_path(BUILD_AGENT_BUILD_CACHE_DIR)?,
             source_download_timeout,
             max_source_archive_size_bytes: vars
-                .required_parsed(S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES)?,
+                .required_nonzero_u64(S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES)?,
             max_extracted_source_size_bytes: vars
                 .required_nonzero_u64(BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES)?,
         })
@@ -92,7 +92,10 @@ mod tests {
         assert_eq!(config.lambda_function_name, "buildplane-agent");
         assert_eq!(config.build_timeout, Duration::from_secs(300));
         assert_eq!(config.source_dir, PathBuf::from("/var/task"));
-        assert_eq!(config.max_source_archive_size_bytes, 16 * 1024 * 1024);
+        assert_eq!(
+            config.max_source_archive_size_bytes,
+            NonZeroU64::new(16 * 1024 * 1024).unwrap()
+        );
     }
 
     #[test]
@@ -119,6 +122,22 @@ mod tests {
 
         let mut values = REQUIRED.to_vec();
         values[2] = (BUILD_AGENT_TIMEOUT_SECS, "0");
+        assert!(AgentConfig::from_vars(&vars(&values)).is_err());
+
+        let mut values = REQUIRED.to_vec();
+        let archive_index = values
+            .iter()
+            .position(|(name, _)| *name == S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES)
+            .unwrap();
+        values[archive_index] = (S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES, "0");
+        assert!(AgentConfig::from_vars(&vars(&values)).is_err());
+
+        let mut values = REQUIRED.to_vec();
+        let extracted_index = values
+            .iter()
+            .position(|(name, _)| *name == BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES)
+            .unwrap();
+        values[extracted_index] = (BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES, "0");
         assert!(AgentConfig::from_vars(&vars(&values)).is_err());
 
         let mut values = REQUIRED.to_vec();

@@ -17,6 +17,7 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
+    num::NonZeroU64,
     time::{Duration, SystemTime},
 };
 use time::OffsetDateTime;
@@ -30,8 +31,8 @@ const S3_SIGNED_URL_EXPIRY_SECS: &str = "S3_SIGNED_URL_EXPIRY_SECS";
 #[derive(Debug, Clone)]
 pub struct S3Config {
     pub user_artifacts_bucket: String,
-    pub max_source_archive_size_bytes: u64,
-    pub max_artifact_size_bytes: u64,
+    pub max_source_archive_size_bytes: NonZeroU64,
+    pub max_artifact_size_bytes: NonZeroU64,
     pub signed_url_expiry: Duration,
     pub endpoint_url: Option<String>,
 }
@@ -39,7 +40,7 @@ pub struct S3Config {
 pub struct PresignedPost {
     pub url: String,
     pub fields: BTreeMap<String, String>,
-    max_artifact_size_bytes: Option<u64>,
+    max_artifact_size_bytes: NonZeroU64,
 }
 
 pub struct UploadedObject {
@@ -53,7 +54,7 @@ struct ObjectLocation {
 }
 
 impl PresignedPost {
-    pub fn max_artifact_size_bytes(&self) -> Option<u64> {
+    pub fn max_artifact_size_bytes(&self) -> NonZeroU64 {
         self.max_artifact_size_bytes
     }
 }
@@ -63,7 +64,7 @@ impl PresignedPost {
     pub(crate) fn for_test(
         url: String,
         fields: BTreeMap<String, String>,
-        max_artifact_size_bytes: Option<u64>,
+        max_artifact_size_bytes: NonZeroU64,
     ) -> Self {
         Self {
             url,
@@ -156,10 +157,8 @@ impl S3 {
         contents: Vec<u8>,
         deadline: Deadline,
     ) -> BpResult<UploadedObject> {
-        let max_source_archive_size_bytes = self.config.max_source_archive_size_bytes;
-        if max_source_archive_size_bytes > 0
-            && contents.len() as u64 > max_source_archive_size_bytes
-        {
+        let max_source_archive_size_bytes = self.config.max_source_archive_size_bytes.get();
+        if contents.len() as u64 > max_source_archive_size_bytes {
             return Err(BpError::Storage(StorageError::ObjectTooLarge {
                 key: key.to_owned(),
                 size: contents.len(),
@@ -506,7 +505,7 @@ impl S3 {
             &amz_date,
             expires_at,
             credentials.session_token(),
-            self.config.max_artifact_size_bytes,
+            self.config.max_artifact_size_bytes.get(),
         );
         let policy_base64 = BASE64.encode(serde_json::to_string(&policy)?);
         let signing_key = Self::signing_key(credentials.secret_access_key(), &date, &self.region);
@@ -525,8 +524,7 @@ impl S3 {
         Ok(PresignedPost {
             url: self.bucket_url(),
             fields,
-            max_artifact_size_bytes: (self.config.max_artifact_size_bytes > 0)
-                .then_some(self.config.max_artifact_size_bytes),
+            max_artifact_size_bytes: self.config.max_artifact_size_bytes,
         })
     }
 
@@ -570,13 +568,11 @@ impl S3 {
             json!({ "x-amz-credential": credential }),
             json!({ "x-amz-date": amz_date }),
         ];
-        if max_artifact_size_bytes > 0 {
-            conditions.push(json!([
-                "content-length-range",
-                MIN_OBJECT_SIZE_BYTES,
-                max_artifact_size_bytes
-            ]));
-        }
+        conditions.push(json!([
+            "content-length-range",
+            MIN_OBJECT_SIZE_BYTES,
+            max_artifact_size_bytes
+        ]));
         if let Some(token) = session_token {
             conditions.push(json!({ "x-amz-security-token": token }));
         }
@@ -655,8 +651,8 @@ mod tests {
             },
             S3Config {
                 user_artifacts_bucket: "stock-trek-user-artifacts".to_string(),
-                max_source_archive_size_bytes: 0,
-                max_artifact_size_bytes: 0,
+                max_source_archive_size_bytes: NonZeroU64::new(16 * 1024 * 1024).unwrap(),
+                max_artifact_size_bytes: NonZeroU64::new(16 * 1024 * 1024).unwrap(),
                 signed_url_expiry: Duration::from_secs(900),
                 endpoint_url: None,
             },

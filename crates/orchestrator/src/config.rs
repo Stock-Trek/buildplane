@@ -113,8 +113,8 @@ impl OrchestratorConfig {
             s3: S3Config {
                 user_artifacts_bucket: vars.required(S3_BUCKET_USER_ARTIFACTS)?,
                 max_source_archive_size_bytes: vars
-                    .required_parsed(S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES)?,
-                max_artifact_size_bytes: vars.required_parsed(S3_MAX_ARTIFACT_SIZE_BYTES)?,
+                    .required_nonzero_u64(S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES)?,
+                max_artifact_size_bytes: vars.required_nonzero_u64(S3_MAX_ARTIFACT_SIZE_BYTES)?,
                 signed_url_expiry,
                 endpoint_url: Some(endpoint_url),
             },
@@ -130,6 +130,7 @@ impl OrchestratorConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::num::NonZeroU64;
 
     const REQUIRED: [(&str, &str); 24] = [
         (RUST_LOG, "info"),
@@ -168,6 +169,14 @@ mod tests {
 
         assert_eq!(config.lambda_function_name, "buildplane-orchestrator");
         assert_eq!(config.s3.user_artifacts_bucket, "user-artifacts");
+        assert_eq!(
+            config.s3.max_source_archive_size_bytes,
+            NonZeroU64::new(16 * 1024 * 1024).unwrap()
+        );
+        assert_eq!(
+            config.s3.max_artifact_size_bytes,
+            NonZeroU64::new(16 * 1024 * 1024).unwrap()
+        );
         assert_eq!(config.sqs_process_concurrency.get(), 10);
         assert_eq!(config.deadline_buffer, Duration::from_secs(5));
     }
@@ -203,6 +212,8 @@ mod tests {
             (GITHUB_APP_ID, "not a number"),
             (SQS_PROCESS_CONCURRENCY, "0"),
             (S3_SIGNED_URL_EXPIRY_SECS, "0"),
+            (S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES, "0"),
+            (S3_MAX_ARTIFACT_SIZE_BYTES, "0"),
             (AWS_ENDPOINT_URL_S3, "ftp://minio.example.test"),
             (GITHUB_ENTERPRISE_ALLOWED_HOSTS, "not a host!"),
             (RUST_LOG, "not a valid [directive"),
