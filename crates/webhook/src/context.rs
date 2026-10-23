@@ -52,9 +52,9 @@ impl RsWebhookContext {
         let sdk_config = Aws::load_sdk_config(aws_timeouts).await;
         let aws = Aws::from_env(&sdk_config, aws_timeouts, config)?;
         let dedup = DeliveryDedup::from_env(config)?;
-        let refresh_cooldown = config.webhook_refresh_cooldown;
-        let failure_backoff = config.webhook_secret_failure_backoff;
-        let deadline_buffer = config.deadline_buffer;
+        let refresh_cooldown = config.webhook_refresh_cooldown()?;
+        let failure_backoff = config.webhook_secret_failure_backoff()?;
+        let deadline_buffer = config.deadline_buffer()?;
         let context = Self {
             aws,
             sdk_config,
@@ -72,7 +72,7 @@ impl RsWebhookContext {
         // Warm the cache eagerly, but tolerate a transient Infisical outage:
         // startup must not fail, and the first request will retry once the
         // failure backoff expires.
-        let cold_start_refresh_timeout = config.webhook_cold_start_refresh_timeout;
+        let cold_start_refresh_timeout = config.webhook_cold_start_refresh_timeout()?;
         let deadline = Deadline::new(
             SystemTime::now() + cold_start_refresh_timeout,
             context.deadline_buffer,

@@ -23,8 +23,8 @@ pub struct DeliveryDedup {
 
 impl DeliveryDedup {
     pub fn from_env(config: &EnvVarConfig) -> BpResult<Self> {
-        let capacity = config.webhook_dedup_max_deliveries;
-        let ttl = config.webhook_dedup_ttl;
+        let capacity = config.webhook_dedup_max_deliveries()?;
+        let ttl = config.webhook_dedup_ttl()?;
         Ok(Self::new(capacity, ttl))
     }
 

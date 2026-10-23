@@ -25,23 +25,20 @@ async fn main() -> BpResult<()> {
         .cloudwatch_namespace("buildplane/agent")
         .with_dimension(
             "function",
-            config
-                .lambda_function_name
-                .clone()
-                .unwrap_or_else(|| DEFAULT_FUNCTION_NAME.to_owned()),
+            config.lambda_function_name(DEFAULT_FUNCTION_NAME)?,
         )
         .lambda_cold_start_metric(buildplane_metrics::descriptions::COLD_STARTS_TOTAL)
         .init()?;
     DescriptionsMetrics::describe();
     let source_limits = SourceLimits::new(
-        config.build_agent_source_download_timeout,
-        config.s3_max_source_archive_size_bytes,
-        config.build_agent_max_extracted_source_size_bytes.get(),
+        config.build_agent_source_download_timeout()?,
+        config.s3_max_source_archive_size_bytes()?,
+        config.build_agent_max_extracted_source_size_bytes()?.get(),
     );
     let handler = Handler::with_source_limits(
-        config.build_agent_timeout,
-        config.build_agent_source_dir.clone(),
-        config.build_agent_build_cache_dir.clone(),
+        config.build_agent_timeout()?,
+        config.build_agent_source_dir()?,
+        config.build_agent_build_cache_dir()?,
         source_limits,
     );
     run(

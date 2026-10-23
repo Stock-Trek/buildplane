@@ -76,11 +76,11 @@ impl GitHubAuth {
             DEFAULT_OPERATION_TIMEOUT,
         )?;
         let allowed_hosts = HostAllowlist::from_env(config)?;
-        let max_cached_installations = config.github_max_cached_installations;
+        let max_cached_installations = config.github_max_cached_installations()?;
         let directory_limits = DirectoryLimits {
-            max_depth: config.git_max_directory_depth.get(),
-            max_files: config.git_max_directory_files.get(),
-            max_total_bytes: config.git_max_directory_bytes.get(),
+            max_depth: config.git_max_directory_depth()?.get(),
+            max_files: config.git_max_directory_files()?.get(),
+            max_total_bytes: config.git_max_directory_bytes()?.get(),
         };
         Self::build(
             app,
