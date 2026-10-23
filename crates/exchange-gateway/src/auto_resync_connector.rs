@@ -8,7 +8,7 @@ use buildplane_errors::{BpError, BpResult};
 use buildplane_errors::{ConnectorError, SystemError};
 use buildplane_exchange_types::{
     exchange::ETExchange,
-    new_types::{Milliseconds, UsageCount},
+    new_types::{TimestampMilliseconds, UsageCount},
     rate_limited::RateLimit,
     request::{ETHttpRequest, ETWebsocketRequest},
 };
@@ -134,7 +134,7 @@ where
     pub fn remaining_rate_limit_capacity(&self) -> BpResult<HashMap<RateLimit, UsageCount>> {
         self.connector.remaining_rate_limit_capacity()
     }
-    pub fn server_time_estimate(&self) -> BpResult<Milliseconds> {
+    pub fn server_time_estimate(&self) -> BpResult<TimestampMilliseconds> {
         self.connector.server_time_estimate()
     }
     pub fn on_clock_sync_failure<F>(&self, callback: F)

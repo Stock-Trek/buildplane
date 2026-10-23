@@ -167,7 +167,7 @@ impl Ingest {
 mod tests {
     use super::*;
     use arrow_array::Array;
-    use buildplane_exchange_types::new_types::Milliseconds;
+    use buildplane_exchange_types::new_types::TimestampMilliseconds;
     use chrono::TimeZone;
     use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 
@@ -183,8 +183,8 @@ mod tests {
 
     fn candle() -> Kline {
         Kline {
-            open_time: Milliseconds(utc(2024, 1, 1, 0, 0).timestamp_millis()),
-            close_time: Milliseconds(utc(2024, 1, 1, 0, 1).timestamp_millis()),
+            open_time: TimestampMilliseconds(utc(2024, 1, 1, 0, 0).timestamp_millis()),
+            close_time: TimestampMilliseconds(utc(2024, 1, 1, 0, 1).timestamp_millis()),
             open: decimal("123.456789012345678"),
             high: decimal("124.000000000000001"),
             low: decimal("122.999999999999999"),

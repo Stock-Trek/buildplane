@@ -9,7 +9,7 @@ use crate::{
     },
     encode::ByteEncoder,
     http::{HttpMethod, HttpRequest},
-    new_types::{Milliseconds, UsageCount},
+    new_types::{TimestampMilliseconds, UsageCount},
     rate_limited::RateLimitRestriction,
     request::{ETHttpRequest, ETRequest, ETWebsocketRequest, WebsocketResponseMatcher},
     signer::Signer,
@@ -181,7 +181,7 @@ impl ETRequest for BinanceExchangeInfoRequest {
         }
     }
     fn set_api_key(&mut self, _api_key: Option<String>) {}
-    fn set_timestamp(&mut self, _timestamp: Milliseconds) {}
+    fn set_timestamp(&mut self, _timestamp: TimestampMilliseconds) {}
     fn query_params(&self, percent_encode: bool) -> String {
         self.query_params(percent_encode)
     }

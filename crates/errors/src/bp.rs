@@ -6,6 +6,7 @@ use crate::{
     timeout::TimeoutError, validation::ValidationError,
 };
 use buildplane_messages::sqs_message::SqsMessageError;
+use buildplane_types::new_types::ArithmeticError;
 use buildplane_types::protocol::ProtocolError;
 use lambda_runtime::Diagnostic;
 use std::{path::PathBuf, process::ExitStatus, time::Duration};
@@ -285,6 +286,12 @@ impl From<BpError> for Diagnostic {
             error_type: value.error_type().into(),
             error_message: value.to_string(),
         }
+    }
+}
+
+impl From<ArithmeticError> for BpError {
+    fn from(error: ArithmeticError) -> Self {
+        Self::System(SystemError::Arithmetic(error))
     }
 }
 

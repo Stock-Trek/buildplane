@@ -1,6 +1,6 @@
 use buildplane_errors::{BpError, BpResult};
 use buildplane_errors::{ConnectorError, SystemError};
-use buildplane_exchange_types::new_types::Milliseconds;
+use buildplane_exchange_types::new_types::{DurationMilliseconds, TimestampMilliseconds};
 use std::{
     sync::{
         Mutex,
@@ -43,10 +43,15 @@ impl Clock {
             .map_err(|_| BpError::System(SystemError::PoisonedLock))?;
         Ok(last_sync.is_some())
     }
-    pub fn sync(&self, server_time: Milliseconds, round_trip_duration: Duration) -> BpResult<()> {
+    pub fn sync(
+        &self,
+        server_time: TimestampMilliseconds,
+        round_trip_duration: Duration,
+    ) -> BpResult<()> {
         let system_time = Self::system_time()?;
-        let round_trip_time = Milliseconds(round_trip_duration.as_millis() as i64);
-        let system_time_estimate = system_time - (round_trip_time / 2);
+        let round_trip_time = DurationMilliseconds(round_trip_duration.as_millis() as i64);
+        let half_round_trip = round_trip_time.checked_div(2_i64)?;
+        let system_time_estimate = system_time - half_round_trip;
         let offset_estimate = system_time_estimate - server_time;
         self.server_offset_millis
             .store(offset_estimate.0, Ordering::Relaxed);
@@ -57,24 +62,24 @@ impl Clock {
         *last_sync = Some(Instant::now());
         Ok(())
     }
-    pub fn server_time_estimate(&self) -> BpResult<Milliseconds> {
+    pub fn server_time_estimate(&self) -> BpResult<TimestampMilliseconds> {
         if !self.is_synced()? {
             return Err(BpError::Connector(ConnectorError::ClockNotSynced));
         }
         self.server_time_estimate_unchecked()
     }
-    pub fn server_time_estimate_unchecked(&self) -> BpResult<Milliseconds> {
+    pub fn server_time_estimate_unchecked(&self) -> BpResult<TimestampMilliseconds> {
         Ok(Self::system_time()? - self.server_offset())
     }
 
-    fn system_time() -> BpResult<Milliseconds> {
+    fn system_time() -> BpResult<TimestampMilliseconds> {
         let system_time = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| BpError::System(SystemError::SystemTimeBeforeEpoch))?;
-        Ok(Milliseconds(system_time.as_millis() as i64))
+        Ok(TimestampMilliseconds(system_time.as_millis() as i64))
     }
-    fn server_offset(&self) -> Milliseconds {
-        Milliseconds(self.server_offset_millis.load(Ordering::Relaxed))
+    fn server_offset(&self) -> DurationMilliseconds {
+        DurationMilliseconds(self.server_offset_millis.load(Ordering::Relaxed))
     }
 }
 
@@ -95,7 +100,7 @@ mod tests {
     #[test]
     fn server_time_estimate_succeeds_after_sync() {
         let clock = Clock::new();
-        let server_time = Milliseconds(1_700_000_000_000);
+        let server_time = TimestampMilliseconds(1_700_000_000_000);
         clock.sync(server_time, Duration::from_millis(20)).unwrap();
         assert!(clock.is_synced().unwrap());
         let estimate = clock.server_time_estimate().unwrap();
