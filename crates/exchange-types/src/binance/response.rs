@@ -100,7 +100,7 @@ where
                 Err(_) => continue,
                 Ok(nanos) => nanos,
             };
-            let interval_nanos = Nanoseconds(nanoseconds.0 * rate_limit.intervalNum as i64);
+            let interval_nanos = nanoseconds * i64::from(rate_limit.intervalNum);
             let restriction = match rate_limit.rateLimitType {
                 BinanceRateLimitType::CONNECTIONS => RateLimitRestriction::Connection,
                 BinanceRateLimitType::ORDERS => RateLimitRestriction::OrderCount,
@@ -108,8 +108,12 @@ where
                 BinanceRateLimitType::REQUEST_WEIGHT => RateLimitRestriction::Weight,
                 BinanceRateLimitType::Unknown => continue,
             };
-            let limit = Some(UsageCount(rate_limit.limit as u64));
-            let used = rate_limit.count.map(|c| UsageCount(c as u64));
+            let limit = Some(UsageCount(
+                u64::try_from(rate_limit.limit).unwrap_or_default(),
+            ));
+            let used = rate_limit
+                .count
+                .map(|c| UsageCount(u64::try_from(c).unwrap_or_default()));
             usage.insert(
                 RateLimit {
                     restriction,
@@ -170,7 +174,7 @@ where
                         "Retry-After".into(),
                     )));
                 }
-                Ok(parsed) => Some(Seconds(parsed as i64)),
+                Ok(parsed) => Some(Seconds(i64::try_from(parsed).unwrap_or(i64::MAX))),
             },
         };
         let mut usage = Self::parse_usage_from_headers(&response.headers);

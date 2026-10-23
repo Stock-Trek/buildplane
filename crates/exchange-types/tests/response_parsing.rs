@@ -168,6 +168,45 @@ fn websocket_response_records_frame_rate_limits() {
 }
 
 #[test]
+fn http_response_saturates_large_retry_after() {
+    let response = HttpResponse {
+        status: 429,
+        headers: vec![("Retry-After".into(), u64::MAX.to_string())],
+        body: br#"{"serverTime":123}"#.to_vec(),
+    };
+    let parsed = BinanceResponse::<BinanceTimeResponse>::try_from_http(response).unwrap();
+    assert_eq!(parsed.retry_after(), Some(Seconds(i64::MAX)));
+}
+
+#[test]
+fn websocket_response_saturates_rate_limit_values() {
+    let frame = json!({
+        "id": 1,
+        "status": 200,
+        "rateLimits": [
+            {
+                "rateLimitType": "REQUEST_WEIGHT",
+                "interval": "DAY",
+                "intervalNum": u32::MAX,
+                "limit": i64::MIN,
+                "count": i64::MIN
+            }
+        ],
+        "result": {"serverTime": 1}
+    });
+    let parsed = BinanceResponse::<BinanceTimeResponse>::try_from_websocket(frame).unwrap();
+    let usage = parsed.rate_limit_usage().unwrap();
+    let rate_usage = usage
+        .get(&RateLimit {
+            restriction: RateLimitRestriction::Weight,
+            interval_nanos: Nanoseconds(i64::MAX),
+        })
+        .unwrap();
+    assert_eq!(rate_usage.limit, Some(UsageCount(0)));
+    assert_eq!(rate_usage.used, Some(UsageCount(0)));
+}
+
+#[test]
 fn websocket_response_without_result_or_error_is_a_failure() {
     let frame = json!({"id": 1, "status": 200});
     let parsed = BinanceResponse::<BinanceTimeResponse>::try_from_websocket(frame).unwrap();
