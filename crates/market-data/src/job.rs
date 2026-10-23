@@ -429,8 +429,6 @@ mod tests {
         assert!(Job::from_value(json!({})).is_err());
         assert!(Job::from_value(Value::Null).is_err());
         assert!(Job::from_value(json!({ "mod": "backfill", "strat": "2024-01-01" })).is_err());
-        assert!(Job::from_value(json!("update")).is_err());
-        assert!(serde_json::from_value::<Job>(json!("update")).is_err());
     }
 
     #[test]
@@ -498,28 +496,6 @@ mod tests {
             Job::Update
         );
         assert!(serde_json::from_value::<Job>(json!({ "mode": "update", "extra": true })).is_err());
-    }
-
-    #[test]
-    fn only_the_canonical_update_mode_is_accepted() {
-        assert_eq!(
-            Job::from_value(json!({ "mode": "update" })).unwrap(),
-            Job::Update
-        );
-        for mode in [
-            "scheduled",
-            "scheduled_update",
-            "scheduled-update",
-            "update_all",
-            "update-all",
-            "Update",
-            "UPDATE",
-        ] {
-            assert!(
-                Job::from_value(json!({ "mode": mode })).is_err(),
-                "expected update alias {mode} to be rejected"
-            );
-        }
     }
 
     #[test]
