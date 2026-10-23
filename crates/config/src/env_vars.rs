@@ -82,25 +82,25 @@ pub struct EnvVarConfig {
     log_filter: Option<String>,
     backfill_start: Option<DateTime<Utc>>,
     deadline_buffer: Duration,
-    github_app_id: Option<u64>,
-    github_app_private_key: Option<String>,
+    github_app_id: u64,
+    github_app_private_key: String,
     github_enterprise_allowed_hosts: Vec<String>,
     github_max_cached_installations: NonZeroUsize,
     git_max_directory_depth: NonZeroUsize,
     git_max_directory_files: NonZeroUsize,
     git_max_directory_bytes: NonZeroU64,
-    sqs_queue_url: Option<String>,
+    sqs_queue_url: String,
     sqs_dedup_max_messages: NonZeroUsize,
     sqs_dedup_ttl: Duration,
     sqs_process_concurrency: NonZeroUsize,
-    s3_bucket: Option<String>,
-    s3_bucket_user_artifacts: Option<String>,
+    s3_bucket: String,
+    s3_bucket_user_artifacts: String,
     s3_max_source_archive_size_bytes: u64,
     s3_max_artifact_size_bytes: u64,
     s3_signed_url_expiry: Duration,
     aws_endpoint_url_s3: Option<String>,
     build_agent_build_cache_dir: PathBuf,
-    build_agent_function_name: Option<String>,
+    build_agent_function_name: String,
     build_agent_source_dir: PathBuf,
     build_agent_max_extracted_source_size_bytes: NonZeroU64,
     build_agent_source_download_timeout: Duration,
@@ -110,10 +110,10 @@ pub struct EnvVarConfig {
     webhook_refresh_cooldown: Duration,
     webhook_secret_failure_backoff: Duration,
     webhook_cold_start_refresh_timeout: Duration,
-    infisical_identity_id: Option<String>,
-    infisical_project_id: Option<String>,
-    infisical_environment: Option<String>,
-    infisical_base_url: Option<String>,
+    infisical_identity_id: String,
+    infisical_project_id: String,
+    infisical_environment: String,
+    infisical_base_url: String,
     vars: HashMap<OsString, OsString>,
 }
 
@@ -126,8 +126,7 @@ impl EnvVarConfig {
     /// Builds a configuration from an explicit set of variables.
     ///
     /// Every recognised variable is parsed here, so construction fails if any
-    /// present value is invalid. Required variables may be absent because each
-    /// service only requires the subset of configuration it actually uses.
+    /// required variable is absent, empty, or invalid.
     pub fn from_map<I, K, V>(vars: I) -> BpResult<Self>
     where
         I: IntoIterator<Item = (K, V)>,
@@ -175,16 +174,14 @@ impl EnvVarConfig {
             ));
         }
 
-        let infisical_base_url = reader.present(INFISICAL_BASE_URL)?;
-        if let Some(base_url) = &infisical_base_url {
-            let url = Url::parse(base_url)
-                .map_err(|error| BpError::config_invalid_source(INFISICAL_BASE_URL, error))?;
-            if url.scheme() != "https" {
-                return Err(BpError::config_invalid(
-                    INFISICAL_BASE_URL,
-                    format!("must use the \"https\" scheme, got \"{}\"", url.scheme()),
-                ));
-            }
+        let infisical_base_url = reader.required(INFISICAL_BASE_URL)?;
+        let url = Url::parse(&infisical_base_url)
+            .map_err(|error| BpError::config_invalid_source(INFISICAL_BASE_URL, error))?;
+        if url.scheme() != "https" {
+            return Err(BpError::config_invalid(
+                INFISICAL_BASE_URL,
+                format!("must use the \"https\" scheme, got \"{}\"", url.scheme()),
+            ));
         }
 
         let config = Self {
@@ -192,10 +189,10 @@ impl EnvVarConfig {
             log_filter,
             backfill_start,
             deadline_buffer: reader.duration(DEADLINE_BUFFER_SECS, DEFAULT_DEADLINE_BUFFER)?,
-            github_app_id: reader.optional_parsed(GITHUB_APP_ID)?,
+            github_app_id: reader.required_parsed(GITHUB_APP_ID)?,
             github_app_private_key: reader
-                .present(GITHUB_APP_PRIVATE_KEY)?
-                .map(|key| key.replace("\\n", "\n")),
+                .required(GITHUB_APP_PRIVATE_KEY)?
+                .replace("\\n", "\n"),
             github_enterprise_allowed_hosts: reader.optional_csv(ENTERPRISE_ALLOWED_HOSTS)?,
             github_max_cached_installations: Self::nonzero_usize(
                 GITHUB_MAX_CACHED_INSTALLATIONS,
@@ -225,7 +222,7 @@ impl EnvVarConfig {
                     DirectoryLimits::default().max_total_bytes,
                 )?,
             )?,
-            sqs_queue_url: reader.present(SQS_QUEUE_URL)?,
+            sqs_queue_url: reader.required(SQS_QUEUE_URL)?,
             sqs_dedup_max_messages: Self::nonzero_usize(
                 SQS_DEDUP_MAX_MESSAGES,
                 reader.parsed(SQS_DEDUP_MAX_MESSAGES, DEFAULT_SQS_DEDUP_MAX_MESSAGES)?,
@@ -235,8 +232,8 @@ impl EnvVarConfig {
                 SQS_PROCESS_CONCURRENCY,
                 reader.parsed(SQS_PROCESS_CONCURRENCY, DEFAULT_SQS_PROCESS_CONCURRENCY)?,
             )?,
-            s3_bucket: reader.present(S3_BUCKET)?,
-            s3_bucket_user_artifacts: reader.present(S3_BUCKET_USER_ARTIFACTS)?,
+            s3_bucket: reader.required(S3_BUCKET)?,
+            s3_bucket_user_artifacts: reader.required(S3_BUCKET_USER_ARTIFACTS)?,
             s3_max_source_archive_size_bytes: reader.parsed(
                 S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES,
                 DEFAULT_S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES,
@@ -251,7 +248,7 @@ impl EnvVarConfig {
                 BUILD_AGENT_BUILD_CACHE_DIR,
                 DEFAULT_BUILD_AGENT_BUILD_CACHE_DIR,
             )?,
-            build_agent_function_name: reader.present(BUILD_AGENT_FUNCTION_NAME)?,
+            build_agent_function_name: reader.required(BUILD_AGENT_FUNCTION_NAME)?,
             build_agent_source_dir: reader
                 .path(BUILD_AGENT_SOURCE_DIR, DEFAULT_BUILD_AGENT_SOURCE_DIR)?,
             build_agent_max_extracted_source_size_bytes: Self::nonzero_u64(
@@ -285,9 +282,9 @@ impl EnvVarConfig {
                 WEBHOOK_COLD_START_REFRESH_TIMEOUT_SECS,
                 DEFAULT_WEBHOOK_COLD_START_REFRESH_TIMEOUT,
             )?,
-            infisical_identity_id: reader.present(INFISICAL_IDENTITY_ID)?,
-            infisical_project_id: reader.present(INFISICAL_PROJECT_ID)?,
-            infisical_environment: reader.present(INFISICAL_ENVIRONMENT)?,
+            infisical_identity_id: reader.required(INFISICAL_IDENTITY_ID)?,
+            infisical_project_id: reader.required(INFISICAL_PROJECT_ID)?,
+            infisical_environment: reader.required(INFISICAL_ENVIRONMENT)?,
             infisical_base_url,
             vars: reader.vars,
         };
@@ -365,11 +362,11 @@ impl EnvVarConfig {
         self.deadline_buffer
     }
 
-    pub fn github_app_id(&self) -> Option<u64> {
+    pub fn github_app_id(&self) -> u64 {
         self.github_app_id
     }
 
-    pub fn github_app_private_key(&self) -> Option<String> {
+    pub fn github_app_private_key(&self) -> String {
         self.github_app_private_key.clone()
     }
 
@@ -393,7 +390,7 @@ impl EnvVarConfig {
         self.git_max_directory_bytes
     }
 
-    pub fn sqs_queue_url(&self) -> Option<String> {
+    pub fn sqs_queue_url(&self) -> String {
         self.sqs_queue_url.clone()
     }
 
@@ -409,11 +406,11 @@ impl EnvVarConfig {
         self.sqs_process_concurrency
     }
 
-    pub fn s3_bucket(&self) -> Option<String> {
+    pub fn s3_bucket(&self) -> String {
         self.s3_bucket.clone()
     }
 
-    pub fn s3_bucket_user_artifacts(&self) -> Option<String> {
+    pub fn s3_bucket_user_artifacts(&self) -> String {
         self.s3_bucket_user_artifacts.clone()
     }
 
@@ -437,7 +434,7 @@ impl EnvVarConfig {
         self.build_agent_build_cache_dir.clone()
     }
 
-    pub fn build_agent_function_name(&self) -> Option<String> {
+    pub fn build_agent_function_name(&self) -> String {
         self.build_agent_function_name.clone()
     }
 
@@ -477,19 +474,19 @@ impl EnvVarConfig {
         self.webhook_cold_start_refresh_timeout
     }
 
-    pub fn infisical_identity_id(&self) -> Option<String> {
+    pub fn infisical_identity_id(&self) -> String {
         self.infisical_identity_id.clone()
     }
 
-    pub fn infisical_project_id(&self) -> Option<String> {
+    pub fn infisical_project_id(&self) -> String {
         self.infisical_project_id.clone()
     }
 
-    pub fn infisical_environment(&self) -> Option<String> {
+    pub fn infisical_environment(&self) -> String {
         self.infisical_environment.clone()
     }
 
-    pub fn infisical_base_url(&self) -> Option<String> {
+    pub fn infisical_base_url(&self) -> String {
         self.infisical_base_url.clone()
     }
 
@@ -581,13 +578,6 @@ impl EnvVarConfig {
     }
 }
 
-impl Default for EnvVarConfig {
-    fn default() -> Self {
-        Self::from_map(Vec::<(String, String)>::new())
-            .expect("the default environment configuration must be valid")
-    }
-}
-
 /// Parses values from the raw environment before they are moved into
 /// [`EnvVarConfig`]'s typed fields.
 struct EnvVarReader {
@@ -608,6 +598,24 @@ impl EnvVarReader {
 
     fn optional(&self, name: &str) -> BpResult<Option<String>> {
         Ok(self.raw(name)?.filter(|value| !value.is_empty()))
+    }
+
+    fn required(&self, name: &str) -> BpResult<String> {
+        match self.raw(name)? {
+            Some(value) if value.is_empty() => Err(BpError::config_empty(name)),
+            Some(value) => Ok(value),
+            None => Err(BpError::config_missing(name)),
+        }
+    }
+
+    fn required_parsed<T>(&self, key: &str) -> BpResult<T>
+    where
+        T: std::str::FromStr,
+        T::Err: std::error::Error + Send + Sync + 'static,
+    {
+        self.required(key)?
+            .parse::<T>()
+            .map_err(|error| BpError::config_invalid_source(key, error))
     }
 
     fn present(&self, name: &str) -> BpResult<Option<String>> {
@@ -634,23 +642,6 @@ impl EnvVarReader {
             .map_err(|error| BpError::config_invalid_source(key, error))
     }
 
-    fn optional_parsed<T>(&self, key: &str) -> BpResult<Option<T>>
-    where
-        T: std::str::FromStr,
-        T::Err: std::error::Error + Send + Sync + 'static,
-    {
-        let Some(value) = self.raw(key)? else {
-            return Ok(None);
-        };
-        if value.is_empty() {
-            return Err(BpError::config_empty(key));
-        }
-        value
-            .parse::<T>()
-            .map(Some)
-            .map_err(|error| BpError::config_invalid_source(key, error))
-    }
-
     fn duration(&self, key: &str, default: Duration) -> BpResult<Duration> {
         Ok(Duration::from_secs(self.parsed(key, default.as_secs())?))
     }
@@ -674,6 +665,34 @@ mod tests {
     use super::*;
     use buildplane_errors::ConfigError;
 
+    const REQUIRED_ENV: [(&str, &str); 10] = [
+        (GITHUB_APP_ID, "1"),
+        (GITHUB_APP_PRIVATE_KEY, "private-key"),
+        (SQS_QUEUE_URL, "https://sqs.test/queue"),
+        (S3_BUCKET, "bucket"),
+        (S3_BUCKET_USER_ARTIFACTS, "user-artifacts"),
+        (BUILD_AGENT_FUNCTION_NAME, "buildplane-agent"),
+        (INFISICAL_IDENTITY_ID, "identity-id"),
+        (INFISICAL_PROJECT_ID, "project-id"),
+        (INFISICAL_ENVIRONMENT, "dev"),
+        (INFISICAL_BASE_URL, "https://infisical.test"),
+    ];
+
+    fn config<I, K, V>(extra: I) -> BpResult<EnvVarConfig>
+    where
+        I: IntoIterator<Item = (K, V)>,
+        K: Into<OsString>,
+        V: Into<OsString>,
+    {
+        let required = REQUIRED_ENV
+            .iter()
+            .map(|(key, value)| (OsString::from(key), OsString::from(value)));
+        let extra = extra
+            .into_iter()
+            .map(|(key, value)| (key.into(), value.into()));
+        EnvVarConfig::from_map(required.chain(extra))
+    }
+
     #[test]
     fn constructor_rejects_invalid_values_for_present_variables() {
         let cases = [
@@ -686,14 +705,34 @@ mod tests {
         ];
 
         for (key, value) in cases {
-            let result = EnvVarConfig::from_map([(key, value)]);
+            let result = config([(key, value)]);
             assert!(result.is_err(), "{key} should be rejected");
         }
     }
 
     #[test]
-    fn constructor_accepts_valid_values_and_absent_required_variables() {
-        let config = EnvVarConfig::from_map([
+    fn constructor_rejects_missing_required_variables() {
+        for (required, _) in REQUIRED_ENV {
+            let vars = REQUIRED_ENV
+                .iter()
+                .copied()
+                .filter(|(key, _)| *key != required)
+                .collect::<Vec<_>>();
+            let error = EnvVarConfig::from_map(vars).unwrap_err();
+
+            assert!(
+                matches!(
+                    &error,
+                    BpError::Config(ConfigError::Missing { name }) if name == required
+                ),
+                "{required} should be required: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn constructor_accepts_valid_values() {
+        let config = config([
             (BUILD_AGENT_TIMEOUT_SECS, "120"),
             (S3_SIGNED_URL_EXPIRY_SECS, "60"),
             (INFISICAL_BASE_URL, "https://infisical.test"),
@@ -709,24 +748,23 @@ mod tests {
 
     #[test]
     fn constructor_rejects_invalid_url_overrides() {
-        let result = EnvVarConfig::from_map([("BP_URL_TEST_HTTP_REAL", "not a url")]);
+        let result = config([("BP_URL_TEST_HTTP_REAL", "not a url")]);
         assert!(result.is_err());
 
-        let result =
-            EnvVarConfig::from_map([("BP_URL_TEST_WEBSOCKET_REAL", "https://example.test")]);
+        let result = config([("BP_URL_TEST_WEBSOCKET_REAL", "https://example.test")]);
         assert!(result.is_err());
     }
 
     #[test]
     fn constructor_rejects_invalid_log_filters() {
-        let result = EnvVarConfig::from_map([("RUST_LOG", "not a valid [directive")]);
+        let result = config([("RUST_LOG", "not a valid [directive")]);
 
         assert!(result.is_err());
     }
 
     #[test]
     fn required_reports_missing_variable_name() {
-        let config = EnvVarConfig::from_map(Vec::<(String, String)>::new()).unwrap();
+        let config = config(Vec::<(String, String)>::new()).unwrap();
 
         let error = config
             .required("BUILDPLANE_TEST_MISSING_ENV_VAR")
@@ -746,7 +784,7 @@ mod tests {
 
     #[test]
     fn required_reports_empty_variable_as_empty() {
-        let config = EnvVarConfig::from_map([("BUILDPLANE_TEST_EMPTY_ENV_VAR", "")]).unwrap();
+        let config = config([("BUILDPLANE_TEST_EMPTY_ENV_VAR", "")]).unwrap();
 
         let error = config
             .required("BUILDPLANE_TEST_EMPTY_ENV_VAR")
@@ -766,7 +804,7 @@ mod tests {
 
         let name = "BUILDPLANE_TEST_NOT_UNICODE_ENV_VAR";
         let value = OsString::from_vec(b"super-secret-\xff".to_vec());
-        let config = EnvVarConfig::from_map([(OsString::from(name), value)]).unwrap();
+        let config = config([(OsString::from(name), value)]).unwrap();
 
         let error = config.required(name).unwrap_err();
 
@@ -782,7 +820,7 @@ mod tests {
 
     #[test]
     fn optional_treats_missing_variable_as_absent() {
-        let config = EnvVarConfig::from_map(Vec::<(String, String)>::new()).unwrap();
+        let config = config(Vec::<(String, String)>::new()).unwrap();
 
         let value = config.optional("BUILDPLANE_TEST_MISSING_ENV_VAR").unwrap();
 
@@ -791,7 +829,7 @@ mod tests {
 
     #[test]
     fn build_agent_settings_have_defaults() {
-        let config = EnvVarConfig::from_map(Vec::<(String, String)>::new()).unwrap();
+        let config = config(Vec::<(String, String)>::new()).unwrap();
 
         assert_eq!(config.build_agent_timeout(), Duration::from_secs(300));
         assert_eq!(config.build_agent_source_dir(), PathBuf::from("/var/task"));
@@ -811,7 +849,7 @@ mod tests {
 
     #[test]
     fn build_agent_settings_are_parsed() {
-        let config = EnvVarConfig::from_map([
+        let config = config([
             (BUILD_AGENT_TIMEOUT_SECS, "120"),
             (BUILD_AGENT_SOURCE_DIR, "/srv/agent"),
             (BUILD_AGENT_BUILD_CACHE_DIR, "/var/cache/agent"),
@@ -838,15 +876,13 @@ mod tests {
 
     #[test]
     fn build_agent_source_limits_reject_zero() {
-        assert!(EnvVarConfig::from_map([(BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS, "0")]).is_err());
-        assert!(
-            EnvVarConfig::from_map([(BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES, "0")]).is_err()
-        );
+        assert!(config([(BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS, "0")]).is_err());
+        assert!(config([(BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES, "0")]).is_err());
     }
 
     #[test]
     fn git_directory_limits_are_parsed() {
-        let config = EnvVarConfig::from_map([
+        let config = config([
             (GIT_MAX_DIRECTORY_DEPTH, "4"),
             (GIT_MAX_DIRECTORY_FILES, "12"),
             (GIT_MAX_DIRECTORY_BYTES, "2048"),
@@ -860,7 +896,7 @@ mod tests {
 
     #[test]
     fn duration_variables_use_secs_suffix() {
-        let config = EnvVarConfig::from_map([
+        let config = config([
             ("DEADLINE_BUFFER_SECS", "1"),
             ("S3_SIGNED_URL_EXPIRY_SECS", "2"),
             ("SQS_DEDUP_TTL_SECS", "3"),
@@ -888,7 +924,7 @@ mod tests {
 
     #[test]
     fn empty_duration_is_rejected_by_constructor() {
-        let error = EnvVarConfig::from_map([("DEADLINE_BUFFER_SECS", "")]).unwrap_err();
+        let error = config([("DEADLINE_BUFFER_SECS", "")]).unwrap_err();
 
         assert!(matches!(
             &error,
@@ -898,8 +934,7 @@ mod tests {
 
     #[test]
     fn build_agent_timeout_reports_invalid_values() {
-        let error =
-            EnvVarConfig::from_map([(BUILD_AGENT_TIMEOUT_SECS, "not a number")]).unwrap_err();
+        let error = config([(BUILD_AGENT_TIMEOUT_SECS, "not a number")]).unwrap_err();
 
         assert!(matches!(
             &error,
@@ -910,7 +945,7 @@ mod tests {
 
     #[test]
     fn s3_source_archive_and_artifact_limits_are_independent() {
-        let config = EnvVarConfig::from_map([
+        let config = config([
             ("S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES", "1024"),
             ("S3_MAX_ARTIFACT_SIZE_BYTES", "2048"),
         ])

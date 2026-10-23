@@ -40,9 +40,7 @@ pub struct S3Config {
 impl S3Config {
     pub fn from_env(config: &EnvVarConfig) -> BpResult<Self> {
         Ok(Self {
-            user_artifacts_bucket: config
-                .s3_bucket_user_artifacts()
-                .ok_or_else(|| BpError::config_missing("S3_BUCKET_USER_ARTIFACTS"))?,
+            user_artifacts_bucket: config.s3_bucket_user_artifacts(),
             max_source_archive_size_bytes: config.s3_max_source_archive_size_bytes(),
             max_artifact_size_bytes: config.s3_max_artifact_size_bytes(),
             signed_url_expiry: config.s3_signed_url_expiry(),

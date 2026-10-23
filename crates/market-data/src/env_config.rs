@@ -1,6 +1,6 @@
 use crate::s3::Bucket;
 use buildplane_config::env_vars::EnvVarConfig;
-use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::BpResult;
 use chrono::{DateTime, Utc};
 use std::time::Duration;
 
@@ -17,11 +17,7 @@ pub struct EnvConfig {
 impl EnvConfig {
     pub fn from_shared(config: &EnvVarConfig) -> BpResult<Self> {
         Ok(Self {
-            s3_bucket: Bucket::new(
-                config
-                    .s3_bucket()
-                    .ok_or_else(|| BpError::config_missing("S3_BUCKET"))?,
-            ),
+            s3_bucket: Bucket::new(config.s3_bucket()),
             lambda_function_name: config.lambda_function_name(DEFAULT_LAMBDA_FUNCTION_NAME),
             backfill_start: config.backfill_start(),
             deadline_buffer: config.deadline_buffer(),
