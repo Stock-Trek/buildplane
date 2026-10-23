@@ -4,7 +4,7 @@ pub mod env_config;
 pub mod ingest;
 pub mod job;
 pub mod lock;
-pub mod orchestrator;
+pub mod job_executor;
 pub mod parquet_reader;
 pub mod parquet_writer;
 pub mod plan;
