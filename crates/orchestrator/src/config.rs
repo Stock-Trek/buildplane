@@ -22,7 +22,6 @@ const GIT_MAX_DIRECTORY_DEPTH: &str = "GIT_MAX_DIRECTORY_DEPTH";
 const GIT_MAX_DIRECTORY_FILES: &str = "GIT_MAX_DIRECTORY_FILES";
 const RUST_LOG: &str = "RUST_LOG";
 const S3_BUCKET_USER_ARTIFACTS: &str = "S3_BUCKET_USER_ARTIFACTS";
-const S3_ENDPOINT_URL: &str = "S3_ENDPOINT_URL";
 const S3_MAX_ARTIFACT_SIZE_BYTES: &str = "S3_MAX_ARTIFACT_SIZE_BYTES";
 const S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES: &str = "S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES";
 const S3_SIGNED_URL_EXPIRY_SECS: &str = "S3_SIGNED_URL_EXPIRY_SECS";
@@ -83,9 +82,7 @@ impl OrchestratorConfig {
         let allowed_hosts =
             HostAllowlist::from_hosts(vars.required_csv(GITHUB_ENTERPRISE_ALLOWED_HOSTS)?)?;
 
-        let endpoint_url = vars
-            .optional_url(AWS_ENDPOINT_URL_S3, &["http", "https"])?
-            .or(vars.optional_url(S3_ENDPOINT_URL, &["http", "https"])?);
+        let endpoint_url = vars.required_url(AWS_ENDPOINT_URL_S3, &["http", "https"])?;
         let signed_url_expiry = vars.required_duration_secs(S3_SIGNED_URL_EXPIRY_SECS)?;
         if signed_url_expiry.is_zero() || signed_url_expiry > MAX_SIGNED_URL_EXPIRY {
             return Err(BpError::config_invalid(
@@ -119,7 +116,7 @@ impl OrchestratorConfig {
                     .required_parsed(S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES)?,
                 max_artifact_size_bytes: vars.required_parsed(S3_MAX_ARTIFACT_SIZE_BYTES)?,
                 signed_url_expiry,
-                endpoint_url,
+                endpoint_url: Some(endpoint_url),
             },
             build_agent_function_name: vars.required(BUILD_AGENT_FUNCTION_NAME)?,
         })
@@ -134,7 +131,7 @@ impl OrchestratorConfig {
 mod tests {
     use super::*;
 
-    const REQUIRED: [(&str, &str); 23] = [
+    const REQUIRED: [(&str, &str); 24] = [
         (RUST_LOG, "info"),
         (AWS_LAMBDA_FUNCTION_NAME, "buildplane-orchestrator"),
         (DEADLINE_BUFFER_SECS, "5"),
@@ -154,6 +151,7 @@ mod tests {
         (SQS_DEDUP_TTL_SECS, "3600"),
         (SQS_PROCESS_CONCURRENCY, "10"),
         (S3_BUCKET_USER_ARTIFACTS, "user-artifacts"),
+        (AWS_ENDPOINT_URL_S3, "http://localhost:9000"),
         (S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES, "16777216"),
         (S3_MAX_ARTIFACT_SIZE_BYTES, "16777216"),
         (S3_SIGNED_URL_EXPIRY_SECS, "3600"),
@@ -175,35 +173,12 @@ mod tests {
     }
 
     #[test]
-    fn s3_endpoint_url_is_optional() {
+    fn reads_s3_endpoint_url() {
         let config = OrchestratorConfig::from_vars(&vars(&REQUIRED)).unwrap();
-        assert_eq!(config.s3.endpoint_url, None);
-    }
-
-    #[test]
-    fn reads_s3_endpoint_url_from_aws_or_s3_variables() {
-        let mut values = REQUIRED.to_vec();
-        values.push((AWS_ENDPOINT_URL_S3, "http://localhost:9000"));
-        let config = OrchestratorConfig::from_vars(&vars(&values)).unwrap();
         assert_eq!(
             config.s3.endpoint_url.as_deref(),
             Some("http://localhost:9000")
         );
-
-        let mut values = REQUIRED.to_vec();
-        values.push((S3_ENDPOINT_URL, "https://minio.example.test"));
-        let config = OrchestratorConfig::from_vars(&vars(&values)).unwrap();
-        assert_eq!(
-            config.s3.endpoint_url.as_deref(),
-            Some("https://minio.example.test")
-        );
-    }
-
-    #[test]
-    fn rejects_invalid_s3_endpoint_url() {
-        let mut values = REQUIRED.to_vec();
-        values.push((AWS_ENDPOINT_URL_S3, "ftp://minio.example.test"));
-        assert!(OrchestratorConfig::from_vars(&vars(&values)).is_err());
     }
 
     #[test]
@@ -228,6 +203,7 @@ mod tests {
             (GITHUB_APP_ID, "not a number"),
             (SQS_PROCESS_CONCURRENCY, "0"),
             (S3_SIGNED_URL_EXPIRY_SECS, "0"),
+            (AWS_ENDPOINT_URL_S3, "ftp://minio.example.test"),
             (GITHUB_ENTERPRISE_ALLOWED_HOSTS, "not a host!"),
             (RUST_LOG, "not a valid [directive"),
         ] {
