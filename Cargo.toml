@@ -50,7 +50,7 @@ prost-build = "0.14"
 protoc-bin-vendored = "3"
 query-params = { version = "2", registry = "shipyard" }
 rand = "0.8"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls", "stream"] }
 rsa = { version = "0.9", features = ["sha2"] }
 rust_decimal = "1"
 secrecy = { version = "0.10", features = ["serde"] }
