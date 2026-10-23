@@ -301,7 +301,6 @@ where
             let costs = self
                 .validate_rate_limits(&request)
                 .map_err(BpError::send_not_sent)?;
-            RateLimitGuard::new(&self.rate_limiters, costs.clone()).disarm();
             self.send_http(request, costs).await
         };
         Ok(Submission::new(future))
@@ -346,7 +345,13 @@ where
                     );
                 }
             };
-            let error = match self.client.send(http_request, self.request_timeout).await {
+            let result = {
+                let guard = RateLimitGuard::new(&self.rate_limiters, costs.clone());
+                let result = self.client.send(http_request, self.request_timeout).await;
+                guard.disarm();
+                result
+            };
+            let error = match result {
                 Ok(http_response) => match self.handle_http_response(http_response) {
                     Ok(response) => return Ok(SubmissionOutcome::Submitted(response)),
                     Err(error) => error,
@@ -520,7 +525,6 @@ where
             let costs = self
                 .validate_rate_limits(&request)
                 .map_err(BpError::send_not_sent)?;
-            RateLimitGuard::new(&self.rate_limiters, costs.clone()).disarm();
             self.send_websocket(request, costs).await
         };
         Ok(Submission::new(future))
@@ -571,7 +575,13 @@ where
                     );
                 }
             };
-            let error = match self.send_wait(websocket_request, response_matcher).await {
+            let result = {
+                let guard = RateLimitGuard::new(&self.rate_limiters, costs.clone());
+                let result = self.send_wait(websocket_request, response_matcher).await;
+                guard.disarm();
+                result
+            };
+            let error = match result {
                 Ok(response) => return Ok(SubmissionOutcome::Submitted(response)),
                 Err(error) => error,
             };
@@ -705,7 +715,16 @@ mod tests {
         }
     }
 
-    fn connector() -> Connector<BinanceExchange, UnknownOutcomeClient> {
+    struct PendingClient;
+
+    #[async_trait::async_trait]
+    impl HttpClient for PendingClient {
+        async fn send(&self, _request: HttpRequest, _timeout: Duration) -> BpResult<HttpResponse> {
+            std::future::pending().await
+        }
+    }
+
+    fn connector_with<Client>(client: Client) -> Connector<BinanceExchange, Client> {
         let exchange = BinanceExchange;
         Connector {
             rate_limiters: Connector::rate_limiters(exchange.default_capacity())
@@ -713,20 +732,22 @@ mod tests {
             exchange,
             clock: Clock::default(),
             signer: Signer::new_unencrypted(ByteEncoder::HexLower),
-            client: UnknownOutcomeClient,
+            client,
             request_timeout: Duration::from_secs(1),
             max_retries: 0,
             websocket_listener: None,
         }
     }
 
+    fn connector() -> Connector<BinanceExchange, UnknownOutcomeClient> {
+        connector_with(UnknownOutcomeClient)
+    }
+
     fn klines_request() -> BinanceKlinesRequest {
         BinanceKlinesRequest::new("BTCUSDT".into(), BinanceKlinesInterval::ONE_MINUTE)
     }
 
-    fn remaining_weight(
-        connector: &Connector<BinanceExchange, UnknownOutcomeClient>,
-    ) -> UsageCount {
+    fn remaining_weight<Client>(connector: &Connector<BinanceExchange, Client>) -> UsageCount {
         connector
             .remaining_rate_limit_capacity()
             .expect("remaining capacity")
@@ -761,6 +782,34 @@ mod tests {
             remaining_weight(&connector),
             initial_weight - UsageCount::TWO
         );
+    }
+
+    #[tokio::test]
+    async fn dropping_in_flight_http_submission_refunds_rate_limits() {
+        let connector = connector_with(PendingClient);
+        let initial_weight = remaining_weight(&connector);
+
+        let mut submission = Box::pin(
+            connector
+                .submit_http(klines_request())
+                .expect("submission construction")
+                .wait(),
+        );
+
+        poll_fn(|cx| {
+            assert!(submission.as_mut().poll(cx).is_pending());
+            Poll::Ready(())
+        })
+        .await;
+
+        assert_eq!(
+            remaining_weight(&connector),
+            initial_weight - UsageCount::TWO
+        );
+
+        drop(submission);
+
+        assert_eq!(remaining_weight(&connector), initial_weight);
     }
 
     #[tokio::test]
