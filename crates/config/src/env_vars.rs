@@ -71,115 +71,250 @@ const MAX_SIGNED_URL_EXPIRY: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 
 /// The complete set of environment variables the services read.
 ///
-/// The process environment is captured once by [`EnvVarConfig::from_env`] and
-/// every value is exposed through a typed accessor, so environment parsing is
-/// collated in a single place and can be injected in tests via
-/// [`EnvVarConfig::from_map`].
-#[derive(Debug, Clone, Default)]
+/// Every recognised variable is captured and validated once by
+/// [`EnvVarConfig::from_env`], so invalid configuration fails at startup instead
+/// of on the first request that happens to read it. Parsed values live in typed
+/// fields; the raw map is retained only for variables whose names are built at
+/// runtime, such as exchange URL overrides and per-service timeout settings.
+#[derive(Debug, Clone)]
 pub struct EnvVarConfig {
+    lambda_function_name: Option<String>,
+    log_filter: Option<String>,
+    backfill_start: Option<DateTime<Utc>>,
+    deadline_buffer: Duration,
+    github_app_id: Option<u64>,
+    github_app_private_key: Option<String>,
+    github_enterprise_allowed_hosts: Vec<String>,
+    github_max_cached_installations: NonZeroUsize,
+    git_max_directory_depth: NonZeroUsize,
+    git_max_directory_files: NonZeroUsize,
+    git_max_directory_bytes: NonZeroU64,
+    sqs_queue_url: Option<String>,
+    sqs_dedup_max_messages: NonZeroUsize,
+    sqs_dedup_ttl: Duration,
+    sqs_process_concurrency: NonZeroUsize,
+    s3_bucket: Option<String>,
+    s3_bucket_user_artifacts: Option<String>,
+    s3_max_source_archive_size_bytes: u64,
+    s3_max_artifact_size_bytes: u64,
+    s3_signed_url_expiry: Duration,
+    aws_endpoint_url_s3: Option<String>,
+    build_agent_build_cache_dir: PathBuf,
+    build_agent_function_name: Option<String>,
+    build_agent_source_dir: PathBuf,
+    build_agent_max_extracted_source_size_bytes: NonZeroU64,
+    build_agent_source_download_timeout: Duration,
+    build_agent_timeout: Duration,
+    webhook_dedup_max_deliveries: NonZeroUsize,
+    webhook_dedup_ttl: Duration,
+    webhook_refresh_cooldown: Duration,
+    webhook_secret_failure_backoff: Duration,
+    webhook_cold_start_refresh_timeout: Duration,
+    infisical_identity_id: Option<String>,
+    infisical_project_id: Option<String>,
+    infisical_environment: Option<String>,
+    infisical_base_url: Option<String>,
     vars: HashMap<OsString, OsString>,
 }
 
 impl EnvVarConfig {
     /// Captures and validates the process environment.
-    ///
-    /// Every recognised variable that is present is parsed eagerly, so an
-    /// invalid value fails at startup instead of on the first request that
-    /// happens to read it. Required variables are validated when they are set;
-    /// each service still decides which required variables it needs when it
-    /// builds its typed configuration.
     pub fn from_env() -> BpResult<Self> {
-        let config = Self {
-            vars: std::env::vars_os().collect(),
-        };
-        config.validate()?;
-        Ok(config)
+        Self::from_map(std::env::vars_os())
     }
 
-    pub fn from_map<I, K, V>(vars: I) -> Self
+    /// Builds a configuration from an explicit set of variables.
+    ///
+    /// Every recognised variable is parsed here, so construction fails if any
+    /// present value is invalid. Required variables may be absent because each
+    /// service only requires the subset of configuration it actually uses.
+    pub fn from_map<I, K, V>(vars: I) -> BpResult<Self>
     where
         I: IntoIterator<Item = (K, V)>,
         K: Into<OsString>,
         V: Into<OsString>,
     {
-        Self {
+        let reader = EnvVarReader {
             vars: vars
                 .into_iter()
                 .map(|(key, value)| (key.into(), value.into()))
                 .collect(),
-        }
-    }
+        };
 
-    /// Validates every recognised environment variable that is present.
-    ///
-    /// Defaults are valid by construction, so variables that are absent are
-    /// left for the service-specific configuration to require or default.
-    pub fn validate(&self) -> BpResult<()> {
-        self.lambda_function_name("")?;
-        if let Some(directives) = self.log_filter()? {
-            EnvFilter::try_new(&directives)
+        let log_filter = reader.optional(RUST_LOG)?;
+        if let Some(directives) = &log_filter {
+            EnvFilter::try_new(directives)
                 .map_err(|error| BpError::config_invalid_source(EnvFilter::DEFAULT_ENV, error))?;
         }
-        self.backfill_start()?;
-        self.deadline_buffer()?;
-        self.validate_if_present(GITHUB_APP_ID, || self.github_app_id())?;
-        self.validate_if_present(GITHUB_APP_PRIVATE_KEY, || self.github_app_private_key())?;
-        self.github_enterprise_allowed_hosts()?;
-        self.github_max_cached_installations()?;
-        self.git_max_directory_depth()?;
-        self.git_max_directory_files()?;
-        self.git_max_directory_bytes()?;
-        self.validate_if_present(SQS_QUEUE_URL, || self.sqs_queue_url())?;
-        self.sqs_dedup_max_messages()?;
-        self.sqs_dedup_ttl()?;
-        self.sqs_process_concurrency()?;
-        self.validate_if_present(S3_BUCKET, || self.s3_bucket())?;
-        self.validate_if_present(S3_BUCKET_USER_ARTIFACTS, || self.s3_bucket_user_artifacts())?;
-        self.s3_max_source_archive_size_bytes()?;
-        self.s3_max_artifact_size_bytes()?;
-        self.s3_signed_url_expiry()?;
-        self.aws_endpoint_url_s3()?;
-        self.build_agent_build_cache_dir()?;
-        self.validate_if_present(BUILD_AGENT_FUNCTION_NAME, || {
-            self.build_agent_function_name()
-        })?;
-        self.build_agent_source_dir()?;
-        self.build_agent_max_extracted_source_size_bytes()?;
-        self.build_agent_source_download_timeout()?;
-        self.build_agent_timeout()?;
-        self.webhook_dedup_max_deliveries()?;
-        self.webhook_dedup_ttl()?;
-        self.webhook_refresh_cooldown()?;
-        self.webhook_secret_failure_backoff()?;
-        self.webhook_cold_start_refresh_timeout()?;
-        self.validate_if_present(INFISICAL_IDENTITY_ID, || self.infisical_identity_id())?;
-        self.validate_if_present(INFISICAL_PROJECT_ID, || self.infisical_project_id())?;
-        self.validate_if_present(INFISICAL_ENVIRONMENT, || self.infisical_environment())?;
-        self.validate_if_present(INFISICAL_BASE_URL, || self.infisical_base_url())?;
-        for key in [
-            "AWS_CONNECT_TIMEOUT_SECS",
-            "AWS_OPERATION_TIMEOUT_SECS",
-            "GITHUB_CONNECT_TIMEOUT_SECS",
-            "GITHUB_OPERATION_TIMEOUT_SECS",
-        ] {
-            self.validate_if_present(key, || self.duration(key, Duration::ZERO).map(drop))?;
+
+        let backfill_start = match reader.optional(BACKFILL_START)? {
+            Some(value) => Some(Self::parse_timestamp(BACKFILL_START, value.trim())?),
+            None => None,
+        };
+
+        let s3_signed_url_expiry =
+            reader.duration(S3_SIGNED_URL_EXPIRY_SECS, DEFAULT_S3_SIGNED_URL_EXPIRY)?;
+        if s3_signed_url_expiry.is_zero() || s3_signed_url_expiry > MAX_SIGNED_URL_EXPIRY {
+            return Err(BpError::config_invalid(
+                S3_SIGNED_URL_EXPIRY_SECS,
+                format!(
+                    "must be between 1 and {} seconds (7 days)",
+                    MAX_SIGNED_URL_EXPIRY.as_secs()
+                ),
+            ));
         }
-        self.validate_url_overrides()?;
-        Ok(())
+
+        let build_agent_source_download_timeout = reader.duration(
+            BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS,
+            DEFAULT_BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT,
+        )?;
+        if build_agent_source_download_timeout.is_zero() {
+            return Err(BpError::config_invalid(
+                BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS,
+                "must be greater than zero",
+            ));
+        }
+
+        let infisical_base_url = reader.present(INFISICAL_BASE_URL)?;
+        if let Some(base_url) = &infisical_base_url {
+            let url = Url::parse(base_url)
+                .map_err(|error| BpError::config_invalid_source(INFISICAL_BASE_URL, error))?;
+            if url.scheme() != "https" {
+                return Err(BpError::config_invalid(
+                    INFISICAL_BASE_URL,
+                    format!("must use the \"https\" scheme, got \"{}\"", url.scheme()),
+                ));
+            }
+        }
+
+        let config = Self {
+            lambda_function_name: reader.present(AWS_LAMBDA_FUNCTION_NAME)?,
+            log_filter,
+            backfill_start,
+            deadline_buffer: reader.duration(DEADLINE_BUFFER_SECS, DEFAULT_DEADLINE_BUFFER)?,
+            github_app_id: reader.optional_parsed(GITHUB_APP_ID)?,
+            github_app_private_key: reader
+                .present(GITHUB_APP_PRIVATE_KEY)?
+                .map(|key| key.replace("\\n", "\n")),
+            github_enterprise_allowed_hosts: reader.optional_csv(ENTERPRISE_ALLOWED_HOSTS)?,
+            github_max_cached_installations: Self::nonzero_usize(
+                GITHUB_MAX_CACHED_INSTALLATIONS,
+                reader.parsed(
+                    GITHUB_MAX_CACHED_INSTALLATIONS,
+                    DEFAULT_GITHUB_MAX_CACHED_INSTALLATIONS,
+                )?,
+            )?,
+            git_max_directory_depth: Self::nonzero_usize(
+                GIT_MAX_DIRECTORY_DEPTH,
+                reader.parsed(
+                    GIT_MAX_DIRECTORY_DEPTH,
+                    DirectoryLimits::default().max_depth,
+                )?,
+            )?,
+            git_max_directory_files: Self::nonzero_usize(
+                GIT_MAX_DIRECTORY_FILES,
+                reader.parsed(
+                    GIT_MAX_DIRECTORY_FILES,
+                    DirectoryLimits::default().max_files,
+                )?,
+            )?,
+            git_max_directory_bytes: Self::nonzero_u64(
+                GIT_MAX_DIRECTORY_BYTES,
+                reader.parsed(
+                    GIT_MAX_DIRECTORY_BYTES,
+                    DirectoryLimits::default().max_total_bytes,
+                )?,
+            )?,
+            sqs_queue_url: reader.present(SQS_QUEUE_URL)?,
+            sqs_dedup_max_messages: Self::nonzero_usize(
+                SQS_DEDUP_MAX_MESSAGES,
+                reader.parsed(SQS_DEDUP_MAX_MESSAGES, DEFAULT_SQS_DEDUP_MAX_MESSAGES)?,
+            )?,
+            sqs_dedup_ttl: reader.duration(SQS_DEDUP_TTL_SECS, DEFAULT_SQS_DEDUP_TTL)?,
+            sqs_process_concurrency: Self::nonzero_usize(
+                SQS_PROCESS_CONCURRENCY,
+                reader.parsed(SQS_PROCESS_CONCURRENCY, DEFAULT_SQS_PROCESS_CONCURRENCY)?,
+            )?,
+            s3_bucket: reader.present(S3_BUCKET)?,
+            s3_bucket_user_artifacts: reader.present(S3_BUCKET_USER_ARTIFACTS)?,
+            s3_max_source_archive_size_bytes: reader.parsed(
+                S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES,
+                DEFAULT_S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES,
+            )?,
+            s3_max_artifact_size_bytes: reader.parsed(
+                S3_MAX_ARTIFACT_SIZE_BYTES,
+                DEFAULT_S3_MAX_ARTIFACT_SIZE_BYTES,
+            )?,
+            s3_signed_url_expiry,
+            aws_endpoint_url_s3: reader.optional(AWS_ENDPOINT_URL_S3)?,
+            build_agent_build_cache_dir: reader.path(
+                BUILD_AGENT_BUILD_CACHE_DIR,
+                DEFAULT_BUILD_AGENT_BUILD_CACHE_DIR,
+            )?,
+            build_agent_function_name: reader.present(BUILD_AGENT_FUNCTION_NAME)?,
+            build_agent_source_dir: reader
+                .path(BUILD_AGENT_SOURCE_DIR, DEFAULT_BUILD_AGENT_SOURCE_DIR)?,
+            build_agent_max_extracted_source_size_bytes: Self::nonzero_u64(
+                BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES,
+                reader.parsed(
+                    BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES,
+                    DEFAULT_BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES,
+                )?,
+            )?,
+            build_agent_source_download_timeout,
+            build_agent_timeout: reader
+                .duration(BUILD_AGENT_TIMEOUT_SECS, DEFAULT_BUILD_AGENT_TIMEOUT)?,
+            webhook_dedup_max_deliveries: Self::nonzero_usize(
+                WEBHOOK_DEDUP_MAX_DELIVERIES,
+                reader.parsed(
+                    WEBHOOK_DEDUP_MAX_DELIVERIES,
+                    DEFAULT_WEBHOOK_DEDUP_MAX_DELIVERIES,
+                )?,
+            )?,
+            webhook_dedup_ttl: reader
+                .duration(WEBHOOK_DEDUP_TTL_SECS, DEFAULT_WEBHOOK_DEDUP_TTL)?,
+            webhook_refresh_cooldown: reader.duration(
+                WEBHOOK_REFRESH_COOLDOWN_SECS,
+                DEFAULT_WEBHOOK_REFRESH_COOLDOWN,
+            )?,
+            webhook_secret_failure_backoff: reader.duration(
+                WEBHOOK_SECRET_FAILURE_BACKOFF_SECS,
+                DEFAULT_WEBHOOK_SECRET_FAILURE_BACKOFF,
+            )?,
+            webhook_cold_start_refresh_timeout: reader.duration(
+                WEBHOOK_COLD_START_REFRESH_TIMEOUT_SECS,
+                DEFAULT_WEBHOOK_COLD_START_REFRESH_TIMEOUT,
+            )?,
+            infisical_identity_id: reader.present(INFISICAL_IDENTITY_ID)?,
+            infisical_project_id: reader.present(INFISICAL_PROJECT_ID)?,
+            infisical_environment: reader.present(INFISICAL_ENVIRONMENT)?,
+            infisical_base_url,
+            vars: reader.vars,
+        };
+
+        config.validate_dynamic_vars()?;
+        Ok(config)
     }
 
-    fn validate_url_overrides(&self) -> BpResult<()> {
+    fn validate_dynamic_vars(&self) -> BpResult<()> {
         for (key, value) in &self.vars {
             let Some(key) = key.to_str() else {
                 continue;
             };
-            let allowed_schemes = if key.ends_with("_HTTP_REAL") || key.ends_with("_HTTP_PAPER") {
-                &["http", "https"][..]
-            } else if key.ends_with("_WEBSOCKET_REAL") || key.ends_with("_WEBSOCKET_PAPER") {
-                &["ws", "wss"][..]
-            } else {
-                continue;
-            };
+
+            if key.ends_with("_CONNECT_TIMEOUT_SECS") || key.ends_with("_OPERATION_TIMEOUT_SECS") {
+                self.duration(key, Duration::ZERO)?;
+            }
+
+            let allowed_schemes: &[&str] =
+                if key.ends_with("_HTTP_REAL") || key.ends_with("_HTTP_PAPER") {
+                    &["http", "https"]
+                } else if key.ends_with("_WEBSOCKET_REAL") || key.ends_with("_WEBSOCKET_PAPER") {
+                    &["ws", "wss"]
+                } else {
+                    continue;
+                };
+
             let value = value
                 .to_str()
                 .ok_or_else(|| BpError::config_not_unicode(key))?;
@@ -202,268 +337,184 @@ impl EnvVarConfig {
         Ok(())
     }
 
-    fn validate_if_present<T>(
-        &self,
-        key: &str,
-        accessor: impl FnOnce() -> BpResult<T>,
-    ) -> BpResult<()> {
-        if self.vars.contains_key(OsStr::new(key)) {
-            accessor()?;
-        }
-        Ok(())
+    fn nonzero_usize(name: &str, value: usize) -> BpResult<NonZeroUsize> {
+        NonZeroUsize::new(value)
+            .ok_or_else(|| BpError::config_invalid(name, "must be greater than zero"))
+    }
+
+    fn nonzero_u64(name: &str, value: u64) -> BpResult<NonZeroU64> {
+        NonZeroU64::new(value)
+            .ok_or_else(|| BpError::config_invalid(name, "must be greater than zero"))
     }
 
     pub fn lambda_function_name(&self, default: &str) -> BpResult<String> {
-        self.parsed(AWS_LAMBDA_FUNCTION_NAME, default.to_owned())
+        Ok(self
+            .lambda_function_name
+            .clone()
+            .unwrap_or_else(|| default.to_owned()))
     }
 
     pub fn log_filter(&self) -> BpResult<Option<String>> {
-        self.optional(RUST_LOG)
+        Ok(self.log_filter.clone())
     }
 
     pub fn backfill_start(&self) -> BpResult<Option<DateTime<Utc>>> {
-        let Some(value) = self.optional(BACKFILL_START)? else {
-            return Ok(None);
-        };
-        Self::parse_timestamp(BACKFILL_START, value.trim()).map(Some)
+        Ok(self.backfill_start)
     }
 
     pub fn deadline_buffer(&self) -> BpResult<Duration> {
-        self.duration(DEADLINE_BUFFER_SECS, DEFAULT_DEADLINE_BUFFER)
+        Ok(self.deadline_buffer)
     }
 
     pub fn github_app_id(&self) -> BpResult<u64> {
-        self.required_parsed(GITHUB_APP_ID)
+        self.github_app_id
+            .ok_or_else(|| BpError::config_missing(GITHUB_APP_ID))
     }
 
     pub fn github_app_private_key(&self) -> BpResult<String> {
-        Ok(self.required(GITHUB_APP_PRIVATE_KEY)?.replace("\\n", "\n"))
+        self.github_app_private_key
+            .clone()
+            .ok_or_else(|| BpError::config_missing(GITHUB_APP_PRIVATE_KEY))
     }
 
     pub fn github_enterprise_allowed_hosts(&self) -> BpResult<Vec<String>> {
-        self.optional_csv(ENTERPRISE_ALLOWED_HOSTS)
+        Ok(self.github_enterprise_allowed_hosts.clone())
     }
 
     pub fn github_max_cached_installations(&self) -> BpResult<NonZeroUsize> {
-        let installations = self.parsed(
-            GITHUB_MAX_CACHED_INSTALLATIONS,
-            DEFAULT_GITHUB_MAX_CACHED_INSTALLATIONS,
-        )?;
-        NonZeroUsize::new(installations).ok_or_else(|| {
-            BpError::config_invalid(GITHUB_MAX_CACHED_INSTALLATIONS, "must be greater than zero")
-        })
+        Ok(self.github_max_cached_installations)
     }
 
     pub fn git_max_directory_depth(&self) -> BpResult<NonZeroUsize> {
-        let depth = self.parsed(
-            GIT_MAX_DIRECTORY_DEPTH,
-            DirectoryLimits::default().max_depth,
-        )?;
-        NonZeroUsize::new(depth).ok_or_else(|| {
-            BpError::config_invalid(GIT_MAX_DIRECTORY_DEPTH, "must be greater than zero")
-        })
+        Ok(self.git_max_directory_depth)
     }
 
     pub fn git_max_directory_files(&self) -> BpResult<NonZeroUsize> {
-        let files = self.parsed(
-            GIT_MAX_DIRECTORY_FILES,
-            DirectoryLimits::default().max_files,
-        )?;
-        NonZeroUsize::new(files).ok_or_else(|| {
-            BpError::config_invalid(GIT_MAX_DIRECTORY_FILES, "must be greater than zero")
-        })
+        Ok(self.git_max_directory_files)
     }
 
     pub fn git_max_directory_bytes(&self) -> BpResult<NonZeroU64> {
-        let bytes = self.parsed(
-            GIT_MAX_DIRECTORY_BYTES,
-            DirectoryLimits::default().max_total_bytes,
-        )?;
-        NonZeroU64::new(bytes).ok_or_else(|| {
-            BpError::config_invalid(GIT_MAX_DIRECTORY_BYTES, "must be greater than zero")
-        })
+        Ok(self.git_max_directory_bytes)
     }
 
     pub fn sqs_queue_url(&self) -> BpResult<String> {
-        self.required(SQS_QUEUE_URL)
+        self.sqs_queue_url
+            .clone()
+            .ok_or_else(|| BpError::config_missing(SQS_QUEUE_URL))
     }
 
     pub fn sqs_dedup_max_messages(&self) -> BpResult<NonZeroUsize> {
-        let messages = self.parsed(SQS_DEDUP_MAX_MESSAGES, DEFAULT_SQS_DEDUP_MAX_MESSAGES)?;
-        NonZeroUsize::new(messages).ok_or_else(|| {
-            BpError::config_invalid(SQS_DEDUP_MAX_MESSAGES, "must be greater than zero")
-        })
+        Ok(self.sqs_dedup_max_messages)
     }
 
     pub fn sqs_dedup_ttl(&self) -> BpResult<Duration> {
-        self.duration(SQS_DEDUP_TTL_SECS, DEFAULT_SQS_DEDUP_TTL)
+        Ok(self.sqs_dedup_ttl)
     }
 
     pub fn sqs_process_concurrency(&self) -> BpResult<NonZeroUsize> {
-        let concurrency = self.parsed(SQS_PROCESS_CONCURRENCY, DEFAULT_SQS_PROCESS_CONCURRENCY)?;
-        NonZeroUsize::new(concurrency).ok_or_else(|| {
-            BpError::config_invalid(SQS_PROCESS_CONCURRENCY, "must be greater than zero")
-        })
+        Ok(self.sqs_process_concurrency)
     }
 
     pub fn s3_bucket(&self) -> BpResult<String> {
-        self.required(S3_BUCKET)
+        self.s3_bucket
+            .clone()
+            .ok_or_else(|| BpError::config_missing(S3_BUCKET))
     }
 
     pub fn s3_bucket_user_artifacts(&self) -> BpResult<String> {
-        self.required(S3_BUCKET_USER_ARTIFACTS)
+        self.s3_bucket_user_artifacts
+            .clone()
+            .ok_or_else(|| BpError::config_missing(S3_BUCKET_USER_ARTIFACTS))
     }
 
     pub fn s3_max_source_archive_size_bytes(&self) -> BpResult<u64> {
-        self.parsed(
-            S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES,
-            DEFAULT_S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES,
-        )
+        Ok(self.s3_max_source_archive_size_bytes)
     }
 
     pub fn s3_max_artifact_size_bytes(&self) -> BpResult<u64> {
-        self.parsed(
-            S3_MAX_ARTIFACT_SIZE_BYTES,
-            DEFAULT_S3_MAX_ARTIFACT_SIZE_BYTES,
-        )
+        Ok(self.s3_max_artifact_size_bytes)
     }
 
     pub fn s3_signed_url_expiry(&self) -> BpResult<Duration> {
-        let expiry = self.duration(S3_SIGNED_URL_EXPIRY_SECS, DEFAULT_S3_SIGNED_URL_EXPIRY)?;
-        if expiry.is_zero() || expiry > MAX_SIGNED_URL_EXPIRY {
-            return Err(BpError::config_invalid(
-                S3_SIGNED_URL_EXPIRY_SECS,
-                format!(
-                    "must be between 1 and {} seconds (7 days)",
-                    MAX_SIGNED_URL_EXPIRY.as_secs()
-                ),
-            ));
-        }
-        Ok(expiry)
+        Ok(self.s3_signed_url_expiry)
     }
 
     pub fn aws_endpoint_url_s3(&self) -> BpResult<Option<String>> {
-        self.optional(AWS_ENDPOINT_URL_S3)
+        Ok(self.aws_endpoint_url_s3.clone())
     }
 
     pub fn build_agent_build_cache_dir(&self) -> BpResult<PathBuf> {
-        self.path(
-            BUILD_AGENT_BUILD_CACHE_DIR,
-            DEFAULT_BUILD_AGENT_BUILD_CACHE_DIR,
-        )
+        Ok(self.build_agent_build_cache_dir.clone())
     }
 
     pub fn build_agent_function_name(&self) -> BpResult<String> {
-        self.required(BUILD_AGENT_FUNCTION_NAME)
+        self.build_agent_function_name
+            .clone()
+            .ok_or_else(|| BpError::config_missing(BUILD_AGENT_FUNCTION_NAME))
     }
 
     pub fn build_agent_source_dir(&self) -> BpResult<PathBuf> {
-        self.path(BUILD_AGENT_SOURCE_DIR, DEFAULT_BUILD_AGENT_SOURCE_DIR)
+        Ok(self.build_agent_source_dir.clone())
     }
 
     pub fn build_agent_max_extracted_source_size_bytes(&self) -> BpResult<NonZeroU64> {
-        let bytes = self.parsed(
-            BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES,
-            DEFAULT_BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES,
-        )?;
-        NonZeroU64::new(bytes).ok_or_else(|| {
-            BpError::config_invalid(
-                BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES,
-                "must be greater than zero",
-            )
-        })
+        Ok(self.build_agent_max_extracted_source_size_bytes)
     }
 
     pub fn build_agent_source_download_timeout(&self) -> BpResult<Duration> {
-        let timeout = self.duration(
-            BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS,
-            DEFAULT_BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT,
-        )?;
-        if timeout.is_zero() {
-            return Err(BpError::config_invalid(
-                BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS,
-                "must be greater than zero",
-            ));
-        }
-        Ok(timeout)
+        Ok(self.build_agent_source_download_timeout)
     }
 
     pub fn build_agent_timeout(&self) -> BpResult<Duration> {
-        self.duration(BUILD_AGENT_TIMEOUT_SECS, DEFAULT_BUILD_AGENT_TIMEOUT)
+        Ok(self.build_agent_timeout)
     }
 
     pub fn webhook_dedup_max_deliveries(&self) -> BpResult<NonZeroUsize> {
-        let deliveries = self.parsed(
-            WEBHOOK_DEDUP_MAX_DELIVERIES,
-            DEFAULT_WEBHOOK_DEDUP_MAX_DELIVERIES,
-        )?;
-        NonZeroUsize::new(deliveries).ok_or_else(|| {
-            BpError::config_invalid(WEBHOOK_DEDUP_MAX_DELIVERIES, "must be greater than zero")
-        })
+        Ok(self.webhook_dedup_max_deliveries)
     }
 
     pub fn webhook_dedup_ttl(&self) -> BpResult<Duration> {
-        self.duration(WEBHOOK_DEDUP_TTL_SECS, DEFAULT_WEBHOOK_DEDUP_TTL)
+        Ok(self.webhook_dedup_ttl)
     }
 
     pub fn webhook_refresh_cooldown(&self) -> BpResult<Duration> {
-        self.duration(
-            WEBHOOK_REFRESH_COOLDOWN_SECS,
-            DEFAULT_WEBHOOK_REFRESH_COOLDOWN,
-        )
+        Ok(self.webhook_refresh_cooldown)
     }
 
     pub fn webhook_secret_failure_backoff(&self) -> BpResult<Duration> {
-        self.duration(
-            WEBHOOK_SECRET_FAILURE_BACKOFF_SECS,
-            DEFAULT_WEBHOOK_SECRET_FAILURE_BACKOFF,
-        )
+        Ok(self.webhook_secret_failure_backoff)
     }
 
     pub fn webhook_cold_start_refresh_timeout(&self) -> BpResult<Duration> {
-        self.duration(
-            WEBHOOK_COLD_START_REFRESH_TIMEOUT_SECS,
-            DEFAULT_WEBHOOK_COLD_START_REFRESH_TIMEOUT,
-        )
+        Ok(self.webhook_cold_start_refresh_timeout)
     }
 
     pub fn infisical_identity_id(&self) -> BpResult<String> {
-        self.required(INFISICAL_IDENTITY_ID)
+        self.infisical_identity_id
+            .clone()
+            .ok_or_else(|| BpError::config_missing(INFISICAL_IDENTITY_ID))
     }
 
     pub fn infisical_project_id(&self) -> BpResult<String> {
-        self.required(INFISICAL_PROJECT_ID)
+        self.infisical_project_id
+            .clone()
+            .ok_or_else(|| BpError::config_missing(INFISICAL_PROJECT_ID))
     }
 
     pub fn infisical_environment(&self) -> BpResult<String> {
-        self.required(INFISICAL_ENVIRONMENT)
+        self.infisical_environment
+            .clone()
+            .ok_or_else(|| BpError::config_missing(INFISICAL_ENVIRONMENT))
     }
 
     pub fn infisical_base_url(&self) -> BpResult<String> {
-        let base_url = self.required(INFISICAL_BASE_URL)?;
-        let url = Url::parse(&base_url)
-            .map_err(|error| BpError::config_invalid_source(INFISICAL_BASE_URL, error))?;
-        if url.scheme() != "https" {
-            return Err(BpError::config_invalid(
-                INFISICAL_BASE_URL,
-                format!("must use the \"https\" scheme, got \"{}\"", url.scheme()),
-            ));
-        }
-        Ok(base_url)
+        self.infisical_base_url
+            .clone()
+            .ok_or_else(|| BpError::config_missing(INFISICAL_BASE_URL))
     }
 
     pub fn duration(&self, key: &str, default: Duration) -> BpResult<Duration> {
         Ok(Duration::from_secs(self.parsed(key, default.as_secs())?))
-    }
-
-    fn required_parsed<T>(&self, key: &str) -> BpResult<T>
-    where
-        T: std::str::FromStr,
-        T::Err: std::error::Error + Send + Sync + 'static,
-    {
-        self.required(key)?
-            .parse::<T>()
-            .map_err(|error| BpError::config_invalid_source(key, error))
     }
 
     fn parsed<T>(&self, key: &str, default: T) -> BpResult<T>
@@ -480,12 +531,6 @@ impl EnvVarConfig {
         value
             .parse::<T>()
             .map_err(|error| BpError::config_invalid_source(key, error))
-    }
-
-    fn path(&self, key: &str, default: &str) -> BpResult<PathBuf> {
-        Ok(self
-            .optional(key)?
-            .map_or_else(|| PathBuf::from(default), PathBuf::from))
     }
 
     fn parse_timestamp(name: &str, value: &str) -> BpResult<DateTime<Utc>> {
@@ -506,13 +551,6 @@ impl EnvVarConfig {
             name,
             format!("must be an RFC 3339 timestamp or YYYY-MM-DD date, got {value}"),
         )
-    }
-
-    fn optional_csv(&self, name: &str) -> BpResult<Vec<String>> {
-        match self.optional(name)? {
-            Some(value) => Ok(Self::split_csv(&value)),
-            None => Ok(Vec::new()),
-        }
     }
 
     /// Read an environment variable by name without applying any parsing.
@@ -537,6 +575,7 @@ impl EnvVarConfig {
             .ok_or_else(|| BpError::config_missing(name))
     }
 
+    #[cfg(test)]
     fn optional(&self, name: &str) -> BpResult<Option<String>> {
         Ok(self.raw(name)?.filter(|value| !value.is_empty()))
     }
@@ -562,25 +601,118 @@ impl EnvVarConfig {
     }
 }
 
+impl Default for EnvVarConfig {
+    fn default() -> Self {
+        Self::from_map(Vec::<(String, String)>::new())
+            .expect("the default environment configuration must be valid")
+    }
+}
+
+/// Parses values from the raw environment before they are moved into
+/// [`EnvVarConfig`]'s typed fields.
+struct EnvVarReader {
+    vars: HashMap<OsString, OsString>,
+}
+
+impl EnvVarReader {
+    fn raw(&self, name: &str) -> BpResult<Option<String>> {
+        match self.vars.get(OsStr::new(name)) {
+            Some(value) => value
+                .clone()
+                .into_string()
+                .map(Some)
+                .map_err(|_| BpError::config_not_unicode(name)),
+            None => Ok(None),
+        }
+    }
+
+    fn optional(&self, name: &str) -> BpResult<Option<String>> {
+        Ok(self.raw(name)?.filter(|value| !value.is_empty()))
+    }
+
+    fn present(&self, name: &str) -> BpResult<Option<String>> {
+        match self.raw(name)? {
+            Some(value) if value.is_empty() => Err(BpError::config_empty(name)),
+            Some(value) => Ok(Some(value)),
+            None => Ok(None),
+        }
+    }
+
+    fn parsed<T>(&self, key: &str, default: T) -> BpResult<T>
+    where
+        T: std::str::FromStr,
+        T::Err: std::error::Error + Send + Sync + 'static,
+    {
+        let Some(value) = self.raw(key)? else {
+            return Ok(default);
+        };
+        if value.is_empty() {
+            return Err(BpError::config_empty(key));
+        }
+        value
+            .parse::<T>()
+            .map_err(|error| BpError::config_invalid_source(key, error))
+    }
+
+    fn optional_parsed<T>(&self, key: &str) -> BpResult<Option<T>>
+    where
+        T: std::str::FromStr,
+        T::Err: std::error::Error + Send + Sync + 'static,
+    {
+        let Some(value) = self.raw(key)? else {
+            return Ok(None);
+        };
+        if value.is_empty() {
+            return Err(BpError::config_empty(key));
+        }
+        value
+            .parse::<T>()
+            .map(Some)
+            .map_err(|error| BpError::config_invalid_source(key, error))
+    }
+
+    fn duration(&self, key: &str, default: Duration) -> BpResult<Duration> {
+        Ok(Duration::from_secs(self.parsed(key, default.as_secs())?))
+    }
+
+    fn path(&self, key: &str, default: &str) -> BpResult<PathBuf> {
+        Ok(self
+            .optional(key)?
+            .map_or_else(|| PathBuf::from(default), PathBuf::from))
+    }
+
+    fn optional_csv(&self, name: &str) -> BpResult<Vec<String>> {
+        match self.optional(name)? {
+            Some(value) => Ok(EnvVarConfig::split_csv(&value)),
+            None => Ok(Vec::new()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use buildplane_errors::ConfigError;
 
     #[test]
-    fn validate_rejects_invalid_values_for_present_variables() {
-        let config = EnvVarConfig::from_map([
+    fn constructor_rejects_invalid_values_for_present_variables() {
+        let cases = [
             (BUILD_AGENT_TIMEOUT_SECS, "not a number"),
             (S3_SIGNED_URL_EXPIRY_SECS, "0"),
             (INFISICAL_BASE_URL, "http://infisical.test"),
             ("AWS_CONNECT_TIMEOUT_SECS", "soon"),
-        ]);
+            (GITHUB_APP_ID, "not a number"),
+            (S3_BUCKET, ""),
+        ];
 
-        assert!(config.validate().is_err());
+        for (key, value) in cases {
+            let result = EnvVarConfig::from_map([(key, value)]);
+            assert!(result.is_err(), "{key} should be rejected");
+        }
     }
 
     #[test]
-    fn validate_accepts_valid_values_and_absent_required_variables() {
+    fn constructor_accepts_valid_values_and_absent_required_variables() {
         let config = EnvVarConfig::from_map([
             (BUILD_AGENT_TIMEOUT_SECS, "120"),
             (S3_SIGNED_URL_EXPIRY_SECS, "60"),
@@ -589,33 +721,35 @@ mod tests {
             ("BP_URL_TEST_HTTP_REAL", "https://example.test/api"),
             ("BP_URL_TEST_WEBSOCKET_REAL", "wss://example.test/ws"),
             ("RUST_LOG", "info,buildplane_config=debug"),
-        ]);
+        ])
+        .unwrap();
 
-        config.validate().unwrap();
+        assert_eq!(
+            config.build_agent_timeout().unwrap(),
+            Duration::from_secs(120)
+        );
     }
 
     #[test]
-    fn validate_rejects_invalid_url_overrides() {
-        let config = EnvVarConfig::from_map([("BP_URL_TEST_HTTP_REAL", "not a url")]);
+    fn constructor_rejects_invalid_url_overrides() {
+        let result = EnvVarConfig::from_map([("BP_URL_TEST_HTTP_REAL", "not a url")]);
+        assert!(result.is_err());
 
-        assert!(config.validate().is_err());
-
-        let config =
+        let result =
             EnvVarConfig::from_map([("BP_URL_TEST_WEBSOCKET_REAL", "https://example.test")]);
-
-        assert!(config.validate().is_err());
+        assert!(result.is_err());
     }
 
     #[test]
-    fn validate_rejects_invalid_log_filters() {
-        let config = EnvVarConfig::from_map([("RUST_LOG", "not a valid [directive")]);
+    fn constructor_rejects_invalid_log_filters() {
+        let result = EnvVarConfig::from_map([("RUST_LOG", "not a valid [directive")]);
 
-        assert!(config.validate().is_err());
+        assert!(result.is_err());
     }
 
     #[test]
     fn required_reports_missing_variable_name() {
-        let config = EnvVarConfig::from_map(Vec::<(String, String)>::new());
+        let config = EnvVarConfig::from_map(Vec::<(String, String)>::new()).unwrap();
 
         let error = config
             .required("BUILDPLANE_TEST_MISSING_ENV_VAR")
@@ -635,7 +769,7 @@ mod tests {
 
     #[test]
     fn required_reports_empty_variable_as_empty() {
-        let config = EnvVarConfig::from_map([("BUILDPLANE_TEST_EMPTY_ENV_VAR", "")]);
+        let config = EnvVarConfig::from_map([("BUILDPLANE_TEST_EMPTY_ENV_VAR", "")]).unwrap();
 
         let error = config
             .required("BUILDPLANE_TEST_EMPTY_ENV_VAR")
@@ -655,7 +789,7 @@ mod tests {
 
         let name = "BUILDPLANE_TEST_NOT_UNICODE_ENV_VAR";
         let value = OsString::from_vec(b"super-secret-\xff".to_vec());
-        let config = EnvVarConfig::from_map([(OsString::from(name), value)]);
+        let config = EnvVarConfig::from_map([(OsString::from(name), value)]).unwrap();
 
         let error = config.required(name).unwrap_err();
 
@@ -671,7 +805,7 @@ mod tests {
 
     #[test]
     fn optional_treats_missing_variable_as_absent() {
-        let config = EnvVarConfig::from_map(Vec::<(String, String)>::new());
+        let config = EnvVarConfig::from_map(Vec::<(String, String)>::new()).unwrap();
 
         let value = config.optional("BUILDPLANE_TEST_MISSING_ENV_VAR").unwrap();
 
@@ -680,7 +814,7 @@ mod tests {
 
     #[test]
     fn build_agent_settings_have_defaults() {
-        let config = EnvVarConfig::from_map(Vec::<(String, String)>::new());
+        let config = EnvVarConfig::from_map(Vec::<(String, String)>::new()).unwrap();
 
         assert_eq!(
             config.build_agent_timeout().unwrap(),
@@ -715,7 +849,8 @@ mod tests {
             (BUILD_AGENT_BUILD_CACHE_DIR, "/var/cache/agent"),
             (BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS, "45"),
             (BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES, "2048"),
-        ]);
+        ])
+        .unwrap();
 
         assert_eq!(
             config.build_agent_timeout().unwrap(),
@@ -744,16 +879,9 @@ mod tests {
 
     #[test]
     fn build_agent_source_limits_reject_zero() {
-        let config = EnvVarConfig::from_map([
-            (BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS, "0"),
-            (BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES, "0"),
-        ]);
-
-        assert!(config.build_agent_source_download_timeout().is_err());
+        assert!(EnvVarConfig::from_map([(BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS, "0")]).is_err());
         assert!(
-            config
-                .build_agent_max_extracted_source_size_bytes()
-                .is_err()
+            EnvVarConfig::from_map([(BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES, "0")]).is_err()
         );
     }
 
@@ -763,7 +891,8 @@ mod tests {
             (GIT_MAX_DIRECTORY_DEPTH, "4"),
             (GIT_MAX_DIRECTORY_FILES, "12"),
             (GIT_MAX_DIRECTORY_BYTES, "2048"),
-        ]);
+        ])
+        .unwrap();
 
         assert_eq!(config.git_max_directory_depth().unwrap().get(), 4);
         assert_eq!(config.git_max_directory_files().unwrap().get(), 12);
@@ -780,7 +909,8 @@ mod tests {
             ("WEBHOOK_DEDUP_TTL_SECS", "5"),
             ("WEBHOOK_REFRESH_COOLDOWN_SECS", "6"),
             ("WEBHOOK_SECRET_FAILURE_BACKOFF_SECS", "7"),
-        ]);
+        ])
+        .unwrap();
 
         assert_eq!(config.deadline_buffer().unwrap(), Duration::from_secs(1));
         assert_eq!(
@@ -804,10 +934,8 @@ mod tests {
     }
 
     #[test]
-    fn empty_duration_reports_empty() {
-        let config = EnvVarConfig::from_map([("DEADLINE_BUFFER_SECS", "")]);
-
-        let error = config.deadline_buffer().unwrap_err();
+    fn empty_duration_is_rejected_by_constructor() {
+        let error = EnvVarConfig::from_map([("DEADLINE_BUFFER_SECS", "")]).unwrap_err();
 
         assert!(matches!(
             &error,
@@ -817,9 +945,8 @@ mod tests {
 
     #[test]
     fn build_agent_timeout_reports_invalid_values() {
-        let config = EnvVarConfig::from_map([(BUILD_AGENT_TIMEOUT_SECS, "not a number")]);
-
-        let error = config.build_agent_timeout().unwrap_err();
+        let error =
+            EnvVarConfig::from_map([(BUILD_AGENT_TIMEOUT_SECS, "not a number")]).unwrap_err();
 
         assert!(matches!(
             &error,
@@ -833,7 +960,8 @@ mod tests {
         let config = EnvVarConfig::from_map([
             ("S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES", "1024"),
             ("S3_MAX_ARTIFACT_SIZE_BYTES", "2048"),
-        ]);
+        ])
+        .unwrap();
 
         assert_eq!(config.s3_max_source_archive_size_bytes().unwrap(), 1024);
         assert_eq!(config.s3_max_artifact_size_bytes().unwrap(), 2048);
