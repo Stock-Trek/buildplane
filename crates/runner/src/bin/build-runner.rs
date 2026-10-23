@@ -6,7 +6,7 @@
 //!
 //! ```json
 //! {
-//!   "command": "Execute",
+//!   "command": "execute",
 //!   "strategyName": "AlgorithmStub",
 //!   "strategyContextPath": "/tmp/strategy-context.bin",
 //!   "portfolioPath": "/tmp/portfolio.bin"
