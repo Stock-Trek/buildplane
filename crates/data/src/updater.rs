@@ -11,8 +11,9 @@ use arrow_schema::SchemaRef;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
 use buildplane_errors::{BpError, BpResult};
-use buildplane_errors::{ExchangeError, SystemError};
+use buildplane_errors::{ExchangeError, SystemError, TimeoutError};
 use buildplane_exchange_types::urls::TradingMode;
+use buildplane_time::deadline::Deadline;
 use chrono::{DateTime, Utc};
 use std::{
     collections::{HashMap, HashSet},
@@ -84,6 +85,7 @@ impl KlinesUpdater {
         transfer_client: &TransferClient,
         bucket: &Bucket,
         backfill_start: Option<DateTime<Utc>>,
+        deadline: Deadline,
     ) -> BpResult<UpdateOutcome> {
         info!("update");
         let now = Utc::now();
@@ -93,6 +95,11 @@ impl KlinesUpdater {
         let mut outcome = UpdateOutcome::default();
         let mut errors = Vec::new();
         for (cex_id, trading_mode, trading_pairs) in common_trading_pairs() {
+            if let Err(error) = deadline.remaining() {
+                warn!("stopping update before deadline: {error}");
+                errors.push(error);
+                break;
+            }
             let s3_client = s3_client.clone();
             let transfer_client = transfer_client.clone();
             let bucket = bucket.clone();
@@ -121,6 +128,7 @@ impl KlinesUpdater {
                         backfill_start,
                         updater,
                     },
+                    deadline,
                 )
                 .await;
                 if let Err(error) = &result {
@@ -158,6 +166,7 @@ impl KlinesUpdater {
         transfer_client: &TransferClient,
         bucket: &Bucket,
         backfill: &BackfillJob,
+        deadline: Deadline,
     ) -> BpResult<UpdateOutcome> {
         let resolved = backfill.resolve()?;
         let updater = self.exchange_updater(resolved.cex_id, resolved.trading_mode)?;
@@ -173,6 +182,7 @@ impl KlinesUpdater {
             "backfill {:?} between {} and {} (force: {})",
             resolved.trading_pair, backfill.start, backfill.end, backfill.force
         );
+        deadline.remaining()?;
         let existing = S3::list_files(s3_client, bucket, &base_path_prefix)
             .await?
             .into_iter()
@@ -192,6 +202,7 @@ impl KlinesUpdater {
         let schema = Ingest::schema();
         let mut outcome = UpdateOutcome::default();
         for window in windows {
+            deadline.remaining()?;
             let ingest_outcome = Ingest::ingest_window(
                 transfer_client,
                 bucket,
@@ -237,6 +248,7 @@ impl KlinesUpdater {
         transfer_client: &TransferClient,
         bucket: &Bucket,
         update: ExchangeUpdate,
+        deadline: Deadline,
     ) -> BpResult<UpdateOutcome> {
         let ExchangeUpdate {
             cex_id,
@@ -256,6 +268,11 @@ impl KlinesUpdater {
         let mut outcome = UpdateOutcome::default();
         let mut errors = Vec::new();
         for trading_pair in trading_pairs {
+            if let Err(error) = deadline.remaining() {
+                warn!("stopping exchange update before deadline: {error}");
+                errors.push(error);
+                break;
+            }
             info!("update symbol {:?}", trading_pair);
             let bucket = bucket.clone();
             let schema = schema.clone();
@@ -279,6 +296,7 @@ impl KlinesUpdater {
                     &semaphore,
                     updater_clone.as_ref(),
                     &update,
+                    deadline,
                 )
                 .await;
                 if let Err(error) = &result {
@@ -319,6 +337,7 @@ impl KlinesUpdater {
         semaphore: &Semaphore,
         updater: &dyn ExchangeUpdater,
         update: &TradingPairUpdate,
+        deadline: Deadline,
     ) -> BpResult<UpdateOutcome> {
         let TradingPairUpdate {
             cex_id,
@@ -328,10 +347,12 @@ impl KlinesUpdater {
             end_time,
             backfill_start,
         } = update;
-        let _permit = semaphore
-            .acquire()
+        let remaining = deadline.remaining()?;
+        let _permit = tokio::time::timeout(remaining, semaphore.acquire())
             .await
+            .map_err(|_| BpError::Timeout(TimeoutError::DeadlineExceeded))?
             .map_err(|_| BpError::System(SystemError::SemaphoreClosed))?;
+        deadline.remaining()?;
         let candles_base_path = format!(
             "{}/{}/{}/{}",
             trading_mode, cex_id, trading_pair.base, trading_pair.quote
@@ -348,6 +369,7 @@ impl KlinesUpdater {
             .collect::<HashSet<_>>();
         let mut outcome = UpdateOutcome::default();
         for window in plan::Planner::plan_windows(&existing, *end_time, *backfill_start)? {
+            deadline.remaining()?;
             let ingest_outcome = Ingest::ingest_window(
                 transfer_client,
                 bucket,

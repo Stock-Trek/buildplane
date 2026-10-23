@@ -9,6 +9,7 @@ use crate::{
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
 use buildplane_errors::{BpError, BpResult};
+use buildplane_time::deadline::Deadline;
 use futures::TryStreamExt;
 use parquet::arrow::{AsyncArrowWriter, ParquetRecordBatchStreamBuilder};
 use std::{
@@ -97,8 +98,17 @@ impl Compactor {
         transfer_client: &TransferClient,
         bucket: &Bucket,
         prefix: &ObjectKey,
+        deadline: Deadline,
     ) -> BpResult<()> {
-        Self::folder(s3_client, transfer_client, bucket, prefix, PARQUET_SUFFIX).await
+        Self::folder(
+            s3_client,
+            transfer_client,
+            bucket,
+            prefix,
+            PARQUET_SUFFIX,
+            deadline,
+        )
+        .await
     }
 
     async fn folder(
@@ -107,7 +117,9 @@ impl Compactor {
         bucket: &Bucket,
         prefix: &ObjectKey,
         suffix: &str,
+        deadline: Deadline,
     ) -> BpResult<()> {
+        deadline.remaining()?;
         info!("compact folder with prefix {}", prefix);
         let expected_subfolders = match SubFolders::subfolders_from_path(prefix.as_str()) {
             Ok(subfolders) => subfolders,
@@ -127,27 +139,30 @@ impl Compactor {
                     compacted_file
                 );
                 S3::delete(s3_client, bucket, &staged_file).await?;
-                Self::delete_sources(s3_client, bucket, prefix, &expected_files).await?;
+                Self::delete_sources(s3_client, bucket, prefix, &expected_files, deadline).await?;
                 return Ok(());
             }
             if S3::has_file(s3_client, bucket, &staged_file).await? {
                 info!("publishing staged compacted file {}", staged_file);
                 S3::copy_file(s3_client, bucket, &staged_file, &compacted_file).await?;
-                Self::delete_sources(s3_client, bucket, prefix, &expected_files).await?;
+                Self::delete_sources(s3_client, bucket, prefix, &expected_files, deadline).await?;
                 S3::delete(s3_client, bucket, &staged_file).await?;
                 return Ok(());
             }
         }
-        let subfolders_files = Self::subfolders_files(s3_client, bucket, prefix, suffix).await?;
+        let subfolders_files =
+            Self::subfolders_files(s3_client, bucket, prefix, suffix, deadline).await?;
         let recursed = !subfolders_files.subfolders.is_empty();
         for subfolder in &subfolders_files.subfolders {
             let subfolder_full_path = ObjectKey::new(format!("{}{}", prefix, subfolder));
+            deadline.remaining()?;
             Box::pin(Self::folder(
                 s3_client,
                 transfer_client,
                 bucket,
                 &subfolder_full_path,
                 suffix,
+                deadline,
             ))
             .await?;
         }
@@ -159,7 +174,7 @@ impl Compactor {
         // listing taken before recursing can be stale. Re-list to see them
         // within the same invocation instead of waiting for the next run.
         let subfolders_files = if recursed {
-            Self::subfolders_files(s3_client, bucket, prefix, suffix).await?
+            Self::subfolders_files(s3_client, bucket, prefix, suffix, deadline).await?
         } else {
             subfolders_files
         };
@@ -196,6 +211,7 @@ impl Compactor {
             prefix,
             &target.source_files,
             &target.compacted_file,
+            deadline,
         )
         .await?;
         Ok(())
@@ -210,7 +226,9 @@ impl Compactor {
         bucket: &Bucket,
         prefix: &ObjectKey,
         files: &[ObjectKey],
+        deadline: Deadline,
     ) -> BpResult<()> {
+        deadline.remaining()?;
         if files.is_empty() {
             return Ok(());
         }
@@ -223,6 +241,7 @@ impl Compactor {
         bucket: &Bucket,
         prefix: &ObjectKey,
         suffix: &str,
+        deadline: Deadline,
     ) -> BpResult<SubfoldersFiles> {
         info!("find subfolders and files for prefix {}", prefix);
         let mut list_request = s3_client
@@ -235,7 +254,10 @@ impl Compactor {
         let mut paginator = list_request.into_paginator().send();
         let mut files = Vec::new();
         let mut subfolders = Vec::new();
-        while let Some(page_result) = paginator.next().await {
+        while let Some(page_result) = {
+            deadline.remaining()?;
+            paginator.next().await
+        } {
             let page = page_result.map_err(|error| {
                 BpError::s3(
                     "list subfolders and files",
@@ -260,6 +282,7 @@ impl Compactor {
         Ok(SubfoldersFiles { subfolders, files })
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn files(
         s3_client: &S3Client,
         transfer_client: &TransferClient,
@@ -267,23 +290,35 @@ impl Compactor {
         prefix: &ObjectKey,
         files: &[ObjectKey],
         compacted_file: &ObjectKey,
+        deadline: Deadline,
     ) -> BpResult<()> {
+        deadline.remaining()?;
         info!("compact files {:?} to {}", files, compacted_file);
         if files.is_empty() {
             warn!("No data to compact");
             return Ok(());
         }
         let staged_file = Self::staged_file_path(compacted_file);
-        if !Self::compact(s3_client, transfer_client, bucket, files, &staged_file).await? {
+        if !Self::compact(
+            s3_client,
+            transfer_client,
+            bucket,
+            files,
+            &staged_file,
+            deadline,
+        )
+        .await?
+        {
             warn!(
                 "no non-empty data to compact for {:?}; removing empty files",
                 files
             );
-            Self::delete_sources(s3_client, bucket, prefix, files).await?;
+            Self::delete_sources(s3_client, bucket, prefix, files, deadline).await?;
             return Ok(());
         }
+        deadline.remaining()?;
         S3::copy_file(s3_client, bucket, &staged_file, compacted_file).await?;
-        Self::delete_sources(s3_client, bucket, prefix, files).await?;
+        Self::delete_sources(s3_client, bucket, prefix, files, deadline).await?;
         S3::delete(s3_client, bucket, &staged_file).await?;
         Ok(())
     }
@@ -294,11 +329,13 @@ impl Compactor {
         bucket: &Bucket,
         files: &[ObjectKey],
         compacted_file: &ObjectKey,
+        deadline: Deadline,
     ) -> BpResult<bool> {
         info!("compact {} files", files.len());
         let mut temp_file = TempCompactionFile::new();
         let mut writer: Option<AsyncArrowWriter<File>> = None;
         for file_key in files {
+            deadline.remaining()?;
             let file_size = S3::object_size(s3_client, bucket, file_key).await?;
             let reader = ParquetReader::new(transfer_client, bucket, file_key, file_size);
             let mut stream = ParquetRecordBatchStreamBuilder::new(reader)
@@ -306,6 +343,7 @@ impl Compactor {
                 .with_batch_size(READ_BATCH_SIZE)
                 .build()?;
             while let Some(batch) = stream.try_next().await? {
+                deadline.remaining()?;
                 if writer.is_none() {
                     let output = File::create(temp_file.path()).await.map_err(|error| {
                         BpError::io(

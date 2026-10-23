@@ -9,8 +9,10 @@ use crate::{
 };
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
-use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{BpError, BpResult, TimeoutError};
+use buildplane_time::deadline::Deadline;
 use chrono::{DateTime, Utc};
+use std::time::{Duration, SystemTime};
 use tracing::{error, info, warn};
 
 pub struct Orchestrator;
@@ -21,32 +23,56 @@ impl Orchestrator {
     /// This keeps the previous entry point available for callers that do not
     /// need to select a job explicitly.
     pub async fn run(env_config: &EnvConfig) -> BpResult<()> {
-        Self::run_job(env_config, &Job::Update).await.map(|_| ())
+        let deadline = Deadline::new(
+            SystemTime::now() + Duration::from_secs(15 * 60),
+            env_config.deadline_buffer,
+        );
+        Self::run_job(env_config, &Job::Update, deadline)
+            .await
+            .map(|_| ())
     }
 
     /// Acquire the global lock and execute one explicitly selected job.
-    pub async fn run_job(env_config: &EnvConfig, job: &Job) -> BpResult<JobOutcome> {
+    pub async fn run_job(
+        env_config: &EnvConfig,
+        job: &Job,
+        deadline: Deadline,
+    ) -> BpResult<JobOutcome> {
         job.validate()?;
         info!("get s3 and transfer clients");
         let (s3_client, transfer_client) = S3::clients().await;
         let bucket = &env_config.s3_bucket;
         let lock_key = ObjectKey::new(LOCK_KEY);
-        let mut lock = match LockGuard::acquire(&s3_client, bucket, &lock_key).await {
-            Ok(lock) => lock,
-            Err(error) if matches!(job, Job::Update) && error.is_skippable() => {
-                warn!("skipping update because another invocation holds the lock: {error}");
-                return Ok(JobOutcome::default());
+        let mut lock =
+            match LockGuard::acquire_with_deadline(&s3_client, bucket, &lock_key, deadline).await {
+                Ok(lock) => lock,
+                Err(error) if matches!(job, Job::Update) && error.is_skippable() => {
+                    warn!("skipping update because another invocation holds the lock: {error}");
+                    return Ok(JobOutcome::default());
+                }
+                Err(error) => return Err(error),
+            };
+        let result = match deadline.remaining() {
+            Ok(remaining) => {
+                match tokio::time::timeout(
+                    remaining,
+                    Self::process_job(
+                        &s3_client,
+                        &transfer_client,
+                        bucket,
+                        job,
+                        env_config.backfill_start,
+                        deadline,
+                    ),
+                )
+                .await
+                {
+                    Ok(result) => result,
+                    Err(_) => Err(BpError::Timeout(TimeoutError::DeadlineExceeded)),
+                }
             }
-            Err(error) => return Err(error),
+            Err(error) => Err(error),
         };
-        let result = Self::process_job(
-            &s3_client,
-            &transfer_client,
-            bucket,
-            job,
-            env_config.backfill_start,
-        )
-        .await;
         if let Err(release_error) = lock.release().await {
             error!("failed to release lock: {release_error}");
         }
@@ -59,6 +85,7 @@ impl Orchestrator {
         bucket: &Bucket,
         job: &Job,
         scheduled_backfill_start: Option<DateTime<Utc>>,
+        deadline: Deadline,
     ) -> BpResult<JobOutcome> {
         match job {
             Job::Update => {
@@ -67,6 +94,7 @@ impl Orchestrator {
                     transfer_client,
                     bucket,
                     scheduled_backfill_start,
+                    deadline,
                 )
                 .await
             }
@@ -74,7 +102,7 @@ impl Orchestrator {
                 info!("running targeted backfill for {:?}", backfill.pair);
                 let updater = KlinesUpdater::try_new()?;
                 let windows_ingested = updater
-                    .backfill(s3_client, transfer_client, bucket, backfill)
+                    .backfill(s3_client, transfer_client, bucket, backfill, deadline)
                     .await?;
                 Ok(JobOutcome {
                     windows_ingested: windows_ingested.windows_ingested,
@@ -85,7 +113,7 @@ impl Orchestrator {
             Job::Compact(compact) => {
                 let prefix = compact.prefix()?;
                 info!("running targeted compaction for {}", prefix);
-                Compactor::prefix(s3_client, transfer_client, bucket, &prefix).await?;
+                Compactor::prefix(s3_client, transfer_client, bucket, &prefix, deadline).await?;
                 Ok(JobOutcome {
                     windows_ingested: 0,
                     windows_skipped: 0,
@@ -100,15 +128,16 @@ impl Orchestrator {
         transfer_client: &TransferClient,
         bucket: &Bucket,
         backfill_start: Option<DateTime<Utc>>,
+        deadline: Deadline,
     ) -> BpResult<JobOutcome> {
         let updater = KlinesUpdater::try_new()?;
         let update_result = updater
-            .update(s3_client, transfer_client, bucket, backfill_start)
+            .update(s3_client, transfer_client, bucket, backfill_start, deadline)
             .await;
         if let Err(error) = &update_result {
             error!("update failed: {error}");
         }
-        let compact_result = Self::compact_all(s3_client, transfer_client, bucket).await;
+        let compact_result = Self::compact_all(s3_client, transfer_client, bucket, deadline).await;
         if let Err(error) = &compact_result {
             error!("compaction failed: {error}");
         }
@@ -129,6 +158,7 @@ impl Orchestrator {
         s3_client: &S3Client,
         transfer_client: &TransferClient,
         bucket: &Bucket,
+        deadline: Deadline,
     ) -> BpResult<()> {
         info!("compact all");
         let mut prefixes = common_trading_pairs()
@@ -146,7 +176,13 @@ impl Orchestrator {
         prefixes.dedup();
         let mut errors = Vec::new();
         for prefix in prefixes {
-            if let Err(error) = Compactor::prefix(s3_client, transfer_client, bucket, &prefix).await
+            if let Err(error) = deadline.remaining() {
+                warn!("stopping compaction before deadline: {error}");
+                errors.push(error);
+                break;
+            }
+            if let Err(error) =
+                Compactor::prefix(s3_client, transfer_client, bucket, &prefix, deadline).await
             {
                 warn!("failed to compact folder {}: {error}", prefix);
                 errors.push(error);

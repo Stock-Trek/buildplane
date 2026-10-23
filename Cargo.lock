@@ -1027,6 +1027,7 @@ dependencies = [
  "buildplane-errors",
  "buildplane-exchange-gateway",
  "buildplane-exchange-types",
+ "buildplane-time",
  "buildplane-type-bridge",
  "bytes",
  "chrono",
