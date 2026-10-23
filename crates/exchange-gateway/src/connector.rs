@@ -299,12 +299,11 @@ where
         Exchange: Sync,
         Client: Sync,
     {
-        let costs = self
-            .validate_rate_limits(&request)
-            .map_err(BpError::send_not_sent)?;
-        let guard = RateLimitGuard::new(&self.rate_limiters, costs.clone());
         let future = async move {
-            guard.disarm();
+            let costs = self
+                .validate_rate_limits(&request)
+                .map_err(BpError::send_not_sent)?;
+            RateLimitGuard::new(&self.rate_limiters, costs.clone()).disarm();
             self.send_http(request, costs).await
         };
         Ok(Submission::new(future))
@@ -519,12 +518,11 @@ where
         Request: ETWebsocketRequest<Exchange = Exchange> + Send + 'connector,
         Exchange: Sync,
     {
-        let costs = self
-            .validate_rate_limits(&request)
-            .map_err(BpError::send_not_sent)?;
-        let guard = RateLimitGuard::new(&self.rate_limiters, costs.clone());
         let future = async move {
-            guard.disarm();
+            let costs = self
+                .validate_rate_limits(&request)
+                .map_err(BpError::send_not_sent)?;
+            RateLimitGuard::new(&self.rate_limiters, costs.clone()).disarm();
             self.send_websocket(request, costs).await
         };
         Ok(Submission::new(future))
@@ -683,5 +681,111 @@ impl<Exchange, Client> std::fmt::Debug for Connector<Exchange, Client> {
             .field("signer", &"<signer>")
             .field("client", &"<client>")
             .finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use buildplane_exchange_types::{
+        binance::{
+            exchange::BinanceExchange,
+            klines::{BinanceKlinesInterval, BinanceKlinesRequest},
+        },
+        encode::ByteEncoder,
+        http::{HttpRequest, HttpResponse},
+    };
+
+    struct UnknownOutcomeClient;
+
+    #[async_trait::async_trait]
+    impl HttpClient for UnknownOutcomeClient {
+        async fn send(&self, _request: HttpRequest, _timeout: Duration) -> BpResult<HttpResponse> {
+            Err(BpError::send_unknown(BpError::System(
+                buildplane_errors::SystemError::PoisonedLock,
+            )))
+        }
+    }
+
+    fn connector() -> Connector<BinanceExchange, UnknownOutcomeClient> {
+        let exchange = BinanceExchange;
+        Connector {
+            rate_limiters: Connector::rate_limiters(exchange.default_capacity())
+                .expect("valid rate limiters"),
+            exchange,
+            clock: Clock::default(),
+            signer: Signer::new_unencrypted(ByteEncoder::HexLower),
+            client: UnknownOutcomeClient,
+            request_timeout: Duration::from_secs(1),
+            max_retries: 0,
+            websocket_listener: None,
+        }
+    }
+
+    fn klines_request() -> BinanceKlinesRequest {
+        BinanceKlinesRequest::new("BTCUSDT".into(), BinanceKlinesInterval::ONE_MINUTE)
+    }
+
+    fn remaining_weight(
+        connector: &Connector<BinanceExchange, UnknownOutcomeClient>,
+    ) -> UsageCount {
+        connector
+            .remaining_rate_limit_capacity()
+            .expect("remaining capacity")
+            .into_iter()
+            .find_map(|(rate_limit, remaining)| {
+                (rate_limit.restriction == RateLimitRestriction::Weight).then_some(remaining)
+            })
+            .expect("weight rate limit")
+    }
+
+    #[tokio::test]
+    async fn http_submission_acquires_rate_limits_only_when_awaited() {
+        let connector = connector();
+        let initial_weight = remaining_weight(&connector);
+
+        let submission = connector
+            .submit_http(klines_request())
+            .expect("submission construction");
+        assert_eq!(remaining_weight(&connector), initial_weight);
+
+        drop(submission);
+        assert_eq!(remaining_weight(&connector), initial_weight);
+
+        let submission = connector
+            .submit_http(klines_request())
+            .expect("submission construction");
+        assert!(matches!(
+            submission.wait().await,
+            Ok(SubmissionOutcome::Unknown { .. })
+        ));
+        assert_eq!(
+            remaining_weight(&connector),
+            initial_weight - UsageCount::TWO
+        );
+    }
+
+    #[tokio::test]
+    async fn http_rate_limit_rejection_is_deferred_until_awaited() {
+        let connector = connector();
+        connector
+            .rate_limiters
+            .set_retry_after(Duration::from_secs(60))
+            .expect("set retry after");
+
+        let submission = connector
+            .submit_http(klines_request())
+            .expect("submission construction must not acquire rate limits");
+
+        let error = submission
+            .wait()
+            .await
+            .expect_err("rate limited submission");
+        assert_eq!(error.send_failure(), Some(SendFailure::NotSent));
+        assert!(matches!(
+            error,
+            BpError::Connector(ConnectorError::Send { source, .. })
+                if matches!(*source, BpError::RateLimit(RateLimitError::RateLimited))
+        ));
     }
 }
