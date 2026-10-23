@@ -23,7 +23,13 @@ const SOURCE_TARGET_DIR: &str = "target";
 const USER_GENERATED_DIR: &str = "crates/runner/src/user_generated";
 const USER_GENERATED_ARCHIVE: &str = "sources.zip";
 pub const COMPILE_OUTPUT_FILE: &str = "compile-output.txt";
-const WORKSPACE_ENTRIES: &[&str] = &["Cargo.toml", "Cargo.lock", "crates", ".cargo"];
+const WORKSPACE_ENTRIES: &[&str] = &[
+    "Cargo.toml",
+    "Cargo.lock",
+    "crates",
+    ".cargo",
+    "rust-toolchain.toml",
+];
 const CARGO: &str = "cargo";
 const WASMTIME: &str = "wasmtime";
 
