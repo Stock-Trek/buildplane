@@ -38,32 +38,32 @@ impl Orchestrator {
                 }
                 Err(error) => return Err(error),
             };
-        let result = match deadline.remaining() {
-            Ok(remaining) => {
-                tokio::select! {
-                    biased;
-                    _ = lock.wait_until_lost() => {
-                        warn!("lock {} was lost; cancelling job", lock_key);
-                        Err(BpError::Data(DataError::LockLost {
-                            key: lock_key.as_str().to_string(),
-                        }))
-                    }
-                    result = tokio::time::timeout(
-                        remaining,
-                        Self::process_job(
-                            &s3_client,
-                            &transfer_client,
-                            env_config,
-                            job,
-                            deadline,
-                        ),
-                    ) => match result {
-                        Ok(result) => result,
-                        Err(_) => Err(BpError::Timeout(TimeoutError::DeadlineExceeded)),
-                    },
+        let result = if deadline.has_remaining() {
+            let remaining = deadline.remaining_or_zero();
+            tokio::select! {
+                biased;
+                _ = lock.wait_until_lost() => {
+                    warn!("lock {} was lost; cancelling job", lock_key);
+                    Err(BpError::Data(DataError::LockLost {
+                        key: lock_key.as_str().to_string(),
+                    }))
                 }
+                result = tokio::time::timeout(
+                    remaining,
+                    Self::process_job(
+                        &s3_client,
+                        &transfer_client,
+                        env_config,
+                        job,
+                        deadline,
+                    ),
+                ) => match result {
+                    Ok(result) => result,
+                    Err(_) => Err(BpError::Timeout(TimeoutError::DeadlineExceeded)),
+                },
             }
-            Err(error) => Err(error),
+        } else {
+            Err(BpError::Timeout(TimeoutError::DeadlineExceeded))
         };
         if let Err(release_error) = lock.release().await {
             error!("failed to release lock: {release_error}");
@@ -130,7 +130,7 @@ impl Orchestrator {
         if let Err(error) = &update_result {
             error!("update failed: {error}");
         }
-        if deadline.remaining().is_err() {
+        if !deadline.has_remaining() {
             return update_result.map(|update| JobOutcome {
                 windows_ingested: update.windows_ingested,
                 windows_skipped: update.windows_skipped,
@@ -179,7 +179,8 @@ impl Orchestrator {
         let mut errors = Vec::new();
         let mut compaction_targets = 0;
         for prefix in prefixes {
-            if let Err(error) = deadline.remaining() {
+            if !deadline.has_remaining() {
+                let error = BpError::Timeout(TimeoutError::DeadlineExceeded);
                 warn!("stopping compaction before deadline: {error}");
                 errors.push(error);
                 break;

@@ -60,7 +60,7 @@ impl LockGuard {
         key: &ObjectKey,
         deadline: Deadline,
     ) -> BpResult<Self> {
-        let acquire_deadline = Instant::now() + deadline.remaining()?.min(ACQUIRE_TIMEOUT);
+        let acquire_deadline = Instant::now() + deadline.checked_remaining()?.min(ACQUIRE_TIMEOUT);
         Self::acquire_until(s3_client, bucket, key, acquire_deadline).await
     }
 
