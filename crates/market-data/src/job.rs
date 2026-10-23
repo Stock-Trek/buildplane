@@ -159,7 +159,6 @@ impl Job {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BackfillJob {
-    #[serde(alias = "trading_pair", alias = "pair_path")]
     pub pair: TradingPairPath,
     #[serde(deserialize_with = "deserialize_timestamp")]
     pub start: DateTime<Utc>,
@@ -170,7 +169,6 @@ pub struct BackfillJob {
     /// Compacted periods are still skipped because rebuilding a compacted
     /// roll-up is a separate compaction concern. Skipped compacted windows are
     /// reported so a forced backfill cannot silently do nothing.
-    #[serde(alias = "overwrite", alias = "repair")]
     pub force: bool,
 }
 
@@ -208,7 +206,6 @@ impl BackfillJob {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CompactJob {
-    #[serde(alias = "prefix", alias = "path")]
     pub target: String,
 }
 
@@ -353,18 +350,9 @@ impl<'de> Deserialize<'de> for TradingPairPath {
         #[derive(Deserialize)]
         #[serde(deny_unknown_fields)]
         struct TradingPairPathParts {
-            #[serde(alias = "mode", alias = "tradingMode")]
             trading_mode: String,
-            #[serde(
-                alias = "exchange",
-                alias = "cex",
-                alias = "cexId",
-                alias = "exchange_id"
-            )]
             cex_id: String,
-            #[serde(alias = "base_asset", alias = "baseAsset")]
             base: String,
-            #[serde(alias = "quote_asset", alias = "quoteAsset")]
             quote: String,
         }
 
@@ -500,13 +488,13 @@ mod tests {
     }
 
     #[test]
-    fn backfill_is_parsed_with_force_aliases() {
+    fn backfill_is_parsed_with_force() {
         let job = Job::from_value(json!({
             "mode": "backfill",
             "pair": "paper/binance/bitcoin/tetherusd",
             "start": "2024-01-01",
             "end": "2024-01-02T00:00:00Z",
-            "overwrite": true
+            "force": true
         }))
         .unwrap();
         let Job::Backfill(backfill) = job else {
@@ -525,7 +513,7 @@ mod tests {
             "mode": "backfill",
             "pair": {
                 "trading_mode": "Paper",
-                "exchange": "Binance",
+                "cex_id": "Binance",
                 "base": "Bitcoin",
                 "quote": "TetherUSD"
             },
