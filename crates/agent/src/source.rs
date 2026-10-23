@@ -7,8 +7,7 @@
 //! working directory replaces the checked in algorithm stub with the user's
 //! source.
 
-use buildplane_errors::IoError;
-use buildplane_errors::{BpError, BpResult, StorageError};
+use buildplane_errors::{BpError, BpResult, IoError, StorageError};
 use std::{
     io::{Cursor, Read, Write},
     path::{Component, Path, PathBuf},
@@ -18,16 +17,10 @@ use tracing::info;
 use zip::ZipArchive;
 
 const USER_GENERATED_DIR: &str = "crates/runner/src/user_generated";
-
 const USER_GENERATED_PREFIX: &str = "crates/runner/src/user_generated/";
 
-/// The default timeout for downloading the user's source archive.
 pub const DEFAULT_SOURCE_DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(60);
-
-/// The default maximum compressed size of the user's source archive.
 pub const DEFAULT_MAX_SOURCE_ARCHIVE_BYTES: u64 = 16 * 1024 * 1024;
-
-/// The default maximum size of all files extracted from the source archive.
 pub const DEFAULT_MAX_EXTRACTED_SOURCE_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Resource limits applied while downloading and extracting user sources.
@@ -70,12 +63,7 @@ pub struct Source {
 }
 
 impl Source {
-    #[allow(dead_code)]
-    pub async fn download(url: &str) -> BpResult<Self> {
-        Self::download_with_limits(url, SourceLimits::default()).await
-    }
-
-    pub async fn download_with_limits(url: &str, limits: SourceLimits) -> BpResult<Self> {
+    pub async fn download(url: &str, limits: SourceLimits) -> BpResult<Self> {
         let client = reqwest::Client::builder()
             .timeout(limits.download_timeout)
             .build()
@@ -140,16 +128,7 @@ impl Source {
             .saturating_add(u64::try_from(additional).unwrap_or(u64::MAX))
     }
 
-    #[allow(dead_code)]
-    pub fn extract(&self, destination: &Path) -> BpResult<Vec<PathBuf>> {
-        self.extract_with_limit(destination, DEFAULT_MAX_EXTRACTED_SOURCE_BYTES)
-    }
-
-    pub fn extract_with_limit(
-        &self,
-        destination: &Path,
-        max_extracted_bytes: u64,
-    ) -> BpResult<Vec<PathBuf>> {
+    pub fn extract(&self, destination: &Path, max_extracted_bytes: u64) -> BpResult<Vec<PathBuf>> {
         let mut archive = ZipArchive::new(Cursor::new(&self.bytes))
             .map_err(|error| BpError::Io(IoError::Zip(error)))?;
 
@@ -291,7 +270,7 @@ mod tests {
             )]),
         };
 
-        let files = source.extract_with_limit(directory.path(), 1024).unwrap();
+        let files = source.extract(directory.path(), 1024).unwrap();
 
         assert_eq!(files.len(), 1);
         assert_eq!(std::fs::read(&files[0]).unwrap(), b"pub struct Example;");
@@ -304,9 +283,7 @@ mod tests {
             bytes: archive(&[("crates/runner/src/user_generated/algorithm.rs", &[0u8; 256])]),
         };
 
-        let error = source
-            .extract_with_limit(directory.path(), 128)
-            .unwrap_err();
+        let error = source.extract(directory.path(), 128).unwrap_err();
 
         assert!(matches!(
             error,
@@ -340,13 +317,10 @@ mod tests {
         });
         let limits = SourceLimits::new(Duration::from_secs(5), 4, 1024);
 
-        let error =
-            match Source::download_with_limits(&format!("http://{address}/sources.zip"), limits)
-                .await
-            {
-                Ok(_) => panic!("expected oversized download to be rejected"),
-                Err(error) => error,
-            };
+        let error = match Source::download(&format!("http://{address}/sources.zip"), limits).await {
+            Ok(_) => panic!("expected oversized download to be rejected"),
+            Err(error) => error,
+        };
 
         server.await.unwrap();
         assert!(matches!(

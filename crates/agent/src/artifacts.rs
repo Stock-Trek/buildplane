@@ -39,7 +39,7 @@ pub struct Artifacts {
 }
 
 impl Artifacts {
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn new(
         signed_post: SignedPost,
         source_get_url: String,
@@ -123,8 +123,8 @@ impl Artifacts {
     }
 
     async fn unpack_source(&self) -> BpResult<Vec<PathBuf>> {
-        let source = Source::download_with_limits(&self.source_get_url, self.source_limits).await?;
-        source.extract_with_limit(
+        let source = Source::download(&self.source_get_url, self.source_limits).await?;
+        source.extract(
             self.build_dir.path(),
             self.source_limits.max_extracted_bytes,
         )

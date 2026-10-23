@@ -4,7 +4,6 @@ use chrono::{DateTime, Datelike, Duration, TimeZone, Utc, Weekday};
 
 pub struct QuantizedTime;
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub enum Quantization {
     Minutes(TopOfMinute),
@@ -15,7 +14,6 @@ pub enum Quantization {
     Year,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum TopOfMinute {
@@ -32,7 +30,6 @@ pub enum TopOfMinute {
     Thirty = 30,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum TopOfHour {
@@ -44,7 +41,6 @@ pub enum TopOfHour {
     Twelve = 12,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 #[repr(u8)]
 pub enum TopOfMonth {

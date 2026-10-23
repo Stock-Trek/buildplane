@@ -1,6 +1,5 @@
 use crate::{artifacts::Artifacts, s3::SignedPost, source::SourceLimits};
-use buildplane_errors::TimeoutError;
-use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{BpError, BpResult, TimeoutError};
 use buildplane_messages::build_request::BuildRequest;
 use std::{path::PathBuf, time::Duration};
 use tokio::time::timeout;
@@ -14,16 +13,6 @@ pub struct Handler {
 }
 
 impl Handler {
-    #[allow(dead_code)]
-    pub fn new(build_timeout: Duration, source_dir: PathBuf, build_cache_dir: PathBuf) -> Self {
-        Self::with_source_limits(
-            build_timeout,
-            source_dir,
-            build_cache_dir,
-            SourceLimits::default(),
-        )
-    }
-
     pub fn with_source_limits(
         build_timeout: Duration,
         source_dir: PathBuf,

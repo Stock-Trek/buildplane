@@ -48,7 +48,6 @@ impl BinanceKlinesRequest {
 
 pub type BinanceKlinesResponse = Vec<BinanceKlineResponse>;
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct BinanceKlineResponse(
     Milliseconds,
@@ -58,11 +57,11 @@ pub struct BinanceKlineResponse(
     String,
     String,
     Milliseconds,
-    String,
+    #[allow(unused)] String,
     u32,
-    String,
-    String,
-    String,
+    #[allow(unused)] String,
+    #[allow(unused)] String,
+    #[allow(unused)] String,
 );
 
 #[allow(non_camel_case_types)]
