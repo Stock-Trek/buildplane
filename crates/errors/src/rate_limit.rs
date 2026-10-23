@@ -1,4 +1,4 @@
-use crate::retryability::Retryability;
+use crate::{class::ErrorClass, retryability::Retryability};
 use buildplane_types::new_types::{Nanoseconds, UsageCount};
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
@@ -31,6 +31,15 @@ impl RateLimitError {
             Self::InvalidRateLimitCapacity
             | Self::InvalidRateLimitInterval
             | Self::RequestExceedsRateLimit { .. } => Retryability::Permanent,
+        }
+    }
+
+    pub fn class(&self) -> ErrorClass {
+        match self {
+            Self::InvalidRateLimitCapacity
+            | Self::InvalidRateLimitInterval
+            | Self::RateLimited
+            | Self::RequestExceedsRateLimit { .. } => ErrorClass::NONE,
         }
     }
 }

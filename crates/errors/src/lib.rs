@@ -1,5 +1,6 @@
 pub mod binance;
 pub mod bp;
+pub mod class;
 pub mod config;
 pub mod connector;
 pub mod data;
@@ -20,6 +21,7 @@ pub mod validation;
 
 pub use binance::{BinanceError, BinanceErrorData};
 pub use bp::{BpError, BpResult};
+pub use class::ErrorClass;
 pub use config::ConfigError;
 pub use connector::{ConnectorError, SendFailure};
 pub use data::DataError;

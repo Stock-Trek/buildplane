@@ -1,4 +1,4 @@
-use crate::{bp::BpError, retryability::Retryability};
+use crate::{bp::BpError, class::ErrorClass, retryability::Retryability};
 use chrono::{DateTime, Utc};
 use std::error::Error as StdError;
 
@@ -59,6 +59,26 @@ impl DataError {
 
     pub fn error_type(&self) -> &'static str {
         self.into()
+    }
+
+    pub fn class(&self) -> ErrorClass {
+        match self {
+            Self::LockContention { .. } => ErrorClass::SKIPPABLE,
+            Self::CandleConversion { .. }
+            | Self::DateTimeOutOfRange { .. }
+            | Self::InvalidBackfillRange { .. }
+            | Self::InvalidDay { .. }
+            | Self::InvalidHour { .. }
+            | Self::InvalidJob { .. }
+            | Self::InvalidMonth { .. }
+            | Self::InvalidTradingPairPath { .. }
+            | Self::InvalidYearMonth { .. }
+            | Self::LockLost { .. }
+            | Self::MissingLockETag { .. }
+            | Self::Multiple { .. }
+            | Self::TooManyPathSegments { .. }
+            | Self::UnsupportedTradingPair { .. } => ErrorClass::NONE,
+        }
     }
 
     pub fn retryability(&self) -> Retryability {

@@ -1,9 +1,9 @@
 use crate::{
-    binance::BinanceError, config::ConfigError, connector::ConnectorError, connector::SendFailure,
-    data::DataError, exchange::ExchangeError, github::GitHubError, http::HttpError, io::IoError,
-    lambda::LambdaError, rate_limit::RateLimitError, retryability::Retryability,
-    secrets::SecretsError, sqs::SqsError, storage::StorageError, system::SystemError,
-    timeout::TimeoutError, validation::ValidationError,
+    binance::BinanceError, class::ErrorClass, config::ConfigError, connector::ConnectorError,
+    connector::SendFailure, data::DataError, exchange::ExchangeError, github::GitHubError,
+    http::HttpError, io::IoError, lambda::LambdaError, rate_limit::RateLimitError,
+    retryability::Retryability, secrets::SecretsError, sqs::SqsError, storage::StorageError,
+    system::SystemError, timeout::TimeoutError, validation::ValidationError,
 };
 use buildplane_messages::sqs_message::SqsMessageError;
 use buildplane_types::protocol::ProtocolError;
@@ -208,14 +208,7 @@ impl BpError {
     }
 
     pub fn is_skippable(&self) -> bool {
-        matches!(
-            self,
-            Self::Exchange(
-                ExchangeError::MissingSymbol { .. }
-                    | ExchangeError::UnsupportedExchange { .. }
-                    | ExchangeError::UnsupportedTradingMode { .. }
-            ) | Self::Data(DataError::LockContention { .. })
-        )
+        self.class().is_skippable()
     }
 
     pub fn any_sent(&self) -> bool {
@@ -223,10 +216,28 @@ impl BpError {
     }
 
     pub fn is_client_error(&self) -> bool {
-        matches!(
-            self,
-            Self::GitHub(GitHubError::HostInvalid { .. } | GitHubError::HostNotAllowed { .. })
-        )
+        self.class().is_client_error()
+    }
+
+    pub fn class(&self) -> ErrorClass {
+        match self {
+            Self::Binance(error) => error.class(),
+            Self::Config(error) => error.class(),
+            Self::Connector(error) => error.class(),
+            Self::Data(error) => error.class(),
+            Self::Exchange(error) => error.class(),
+            Self::GitHub(error) => error.class(),
+            Self::Http(error) => error.class(),
+            Self::Io(error) => error.class(),
+            Self::Lambda(error) => error.class(),
+            Self::RateLimit(error) => error.class(),
+            Self::Secrets(error) => error.class(),
+            Self::Sqs(error) => error.class(),
+            Self::Storage(error) => error.class(),
+            Self::System(error) => error.class(),
+            Self::Timeout(error) => error.class(),
+            Self::Validation(error) => error.class(),
+        }
     }
 
     pub fn send_failure(&self) -> Option<SendFailure> {
@@ -396,6 +407,77 @@ impl From<SqsMessageError> for BpError {
                 Self::Sqs(SqsError::MessageTooLarge { size, limit })
             }
             SqsMessageError::Serialize(error) => Self::from(error),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn skippable_errors_are_classified_as_skippable() {
+        for error in [
+            BpError::Exchange(ExchangeError::MissingSymbol {
+                trading_pair: "BTCUSDT".to_string(),
+            }),
+            BpError::Exchange(ExchangeError::UnsupportedExchange {
+                exchange: "unknown".to_string(),
+            }),
+            BpError::Exchange(ExchangeError::UnsupportedTradingMode {
+                trading_mode: "unknown".to_string(),
+            }),
+            BpError::Data(DataError::LockContention {
+                key: "lock".to_string(),
+            }),
+        ] {
+            assert!(error.is_skippable(), "{error}");
+            assert!(!error.is_client_error(), "{error}");
+        }
+    }
+
+    #[test]
+    fn other_errors_are_not_skippable() {
+        for error in [
+            BpError::Config(ConfigError::Missing {
+                name: "test".to_string(),
+            }),
+            BpError::Exchange(ExchangeError::BadResponse("test".to_string())),
+            BpError::Data(DataError::LockLost {
+                key: "lock".to_string(),
+            }),
+        ] {
+            assert!(!error.is_skippable(), "{error}");
+        }
+    }
+
+    #[test]
+    fn client_errors_are_classified_as_client_errors() {
+        for error in [
+            BpError::GitHub(GitHubError::HostInvalid {
+                host: "::".to_string(),
+            }),
+            BpError::GitHub(GitHubError::HostNotAllowed {
+                host: "example.com".to_string(),
+            }),
+        ] {
+            assert!(error.is_client_error(), "{error}");
+            assert!(!error.is_skippable(), "{error}");
+        }
+    }
+
+    #[test]
+    fn other_errors_are_not_client_errors() {
+        for error in [
+            BpError::Config(ConfigError::Missing {
+                name: "test".to_string(),
+            }),
+            BpError::GitHub(GitHubError::MissingContent {
+                repo_id: 1,
+                path: "README.md".to_string(),
+            }),
+        ] {
+            assert!(!error.is_client_error(), "{error}");
         }
     }
 }

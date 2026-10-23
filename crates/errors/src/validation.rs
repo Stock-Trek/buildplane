@@ -1,4 +1,4 @@
-use crate::retryability::Retryability;
+use crate::{class::ErrorClass, retryability::Retryability};
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
@@ -20,5 +20,14 @@ impl ValidationError {
 
     pub fn retryability(&self) -> Retryability {
         Retryability::Permanent
+    }
+
+    pub fn class(&self) -> ErrorClass {
+        match self {
+            Self::InvalidPath { .. }
+            | Self::InvalidValue { .. }
+            | Self::MissingValue(_)
+            | Self::Unsupported { .. } => ErrorClass::NONE,
+        }
     }
 }

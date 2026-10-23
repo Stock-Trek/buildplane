@@ -1,4 +1,4 @@
-use crate::retryability::Retryability;
+use crate::{class::ErrorClass, retryability::Retryability};
 use aws_sdk_lambda::operation::invoke::InvokeError as SdkInvokeError;
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
@@ -47,6 +47,17 @@ impl LambdaError {
             Self::Status { .. } | Self::MissingPayload | Self::InvalidPayload { .. } => {
                 Retryability::Permanent
             }
+        }
+    }
+
+    pub fn class(&self) -> ErrorClass {
+        match self {
+            Self::Function { .. }
+            | Self::SdkInvoke(_)
+            | Self::Status { .. }
+            | Self::BuildFailed { .. }
+            | Self::MissingPayload
+            | Self::InvalidPayload { .. } => ErrorClass::NONE,
         }
     }
 }

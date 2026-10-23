@@ -1,4 +1,4 @@
-use crate::retryability::Retryability;
+use crate::{class::ErrorClass, retryability::Retryability};
 use std::time::Duration;
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
@@ -21,5 +21,14 @@ impl TimeoutError {
 
     pub fn retryability(&self) -> Retryability {
         Retryability::Retryable
+    }
+
+    pub fn class(&self) -> ErrorClass {
+        match self {
+            Self::BuildTimeout(_)
+            | Self::DeadlineExceeded
+            | Self::Operation { .. }
+            | Self::TimedOut => ErrorClass::NONE,
+        }
     }
 }

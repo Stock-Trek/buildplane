@@ -1,4 +1,4 @@
-use crate::retryability::Retryability;
+use crate::{class::ErrorClass, retryability::Retryability};
 use buildplane_messages::sqs_message::SqsMessage;
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
@@ -43,6 +43,15 @@ impl SqsError {
             Self::MissingMessageId | Self::MissingMessageBody | Self::MessageTooLarge { .. } => {
                 Retryability::Permanent
             }
+        }
+    }
+
+    pub fn class(&self) -> ErrorClass {
+        match self {
+            Self::MessageTooLarge { .. }
+            | Self::MissingMessageBody
+            | Self::MissingMessageId
+            | Self::PartialBatch { .. } => ErrorClass::NONE,
         }
     }
 

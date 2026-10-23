@@ -1,4 +1,4 @@
-use crate::retryability::Retryability;
+use crate::{class::ErrorClass, retryability::Retryability};
 use std::time::Duration;
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
@@ -19,6 +19,12 @@ impl SecretsError {
         match self {
             Self::RefreshThrottled => Retryability::Permanent,
             Self::Unavailable { .. } => Retryability::Retryable,
+        }
+    }
+
+    pub fn class(&self) -> ErrorClass {
+        match self {
+            Self::RefreshThrottled | Self::Unavailable { .. } => ErrorClass::NONE,
         }
     }
 }

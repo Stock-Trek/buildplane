@@ -1,4 +1,4 @@
-use crate::retryability::Retryability;
+use crate::{class::ErrorClass, retryability::Retryability};
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
@@ -134,6 +134,34 @@ pub enum GitHubError {
 impl GitHubError {
     pub fn error_type(&self) -> &'static str {
         self.into()
+    }
+
+    pub fn class(&self) -> ErrorClass {
+        match self {
+            Self::HostInvalid { .. } | Self::HostNotAllowed { .. } => ErrorClass::CLIENT_ERROR,
+            Self::BuildClient(_)
+            | Self::CommitNotFound { .. }
+            | Self::ContentNotFound { .. }
+            | Self::DecodeContent { .. }
+            | Self::DirectoryDepthExceeded { .. }
+            | Self::DirectoryNotFound { .. }
+            | Self::DirectoryTooLarge { .. }
+            | Self::GetBlob { .. }
+            | Self::GetCommit { .. }
+            | Self::GetContent { .. }
+            | Self::GetRepository { .. }
+            | Self::GetTree { .. }
+            | Self::Installation { .. }
+            | Self::InvalidContentPath { .. }
+            | Self::InvalidRepositoryId { .. }
+            | Self::ListRepositories(_)
+            | Self::MissingContent { .. }
+            | Self::RepositoryNotFound { .. }
+            | Self::TooManyFiles { .. }
+            | Self::TreeTruncated { .. }
+            | Self::UnsupportedContentEncoding { .. }
+            | Self::UnsupportedContentType { .. } => ErrorClass::NONE,
+        }
     }
 
     pub fn retryability(&self) -> Retryability {

@@ -1,4 +1,4 @@
-use crate::retryability::Retryability;
+use crate::{class::ErrorClass, retryability::Retryability};
 use std::error::Error as StdError;
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
@@ -31,6 +31,17 @@ impl SystemError {
             | Self::PoisonedLock
             | Self::SystemTimeBeforeEpoch
             | Self::SemaphoreClosed => Retryability::Permanent,
+        }
+    }
+
+    pub fn class(&self) -> ErrorClass {
+        match self {
+            Self::External(_)
+            | Self::PoisonedLock
+            | Self::SemaphoreClosed
+            | Self::SystemTimeBeforeEpoch
+            | Self::Task(_)
+            | Self::Tracing(_) => ErrorClass::NONE,
         }
     }
 }

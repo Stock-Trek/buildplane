@@ -1,4 +1,4 @@
-use crate::retryability::Retryability;
+use crate::{class::ErrorClass, retryability::Retryability};
 use std::error::Error as StdError;
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
@@ -28,5 +28,15 @@ impl ConfigError {
 
     pub fn retryability(&self) -> Retryability {
         Retryability::Permanent
+    }
+
+    pub fn class(&self) -> ErrorClass {
+        match self {
+            Self::Build(_)
+            | Self::Empty { .. }
+            | Self::Invalid { .. }
+            | Self::Missing { .. }
+            | Self::NotUnicode { .. } => ErrorClass::NONE,
+        }
     }
 }

@@ -1,4 +1,4 @@
-use crate::{exchange::ExchangeError, retryability::Retryability};
+use crate::{class::ErrorClass, exchange::ExchangeError, retryability::Retryability};
 use buildplane_types::new_types::Seconds;
 use serde::Deserialize;
 
@@ -19,6 +19,10 @@ pub struct BinanceErrorData {
 impl BinanceError {
     pub fn error_type(&self) -> &'static str {
         "binance"
+    }
+
+    pub fn class(&self) -> ErrorClass {
+        ErrorClass::NONE
     }
 
     pub fn retryability(&self) -> Retryability {

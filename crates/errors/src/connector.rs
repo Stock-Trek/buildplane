@@ -1,6 +1,6 @@
 use crate::{
-    bp::BpError, http::HttpError, retryability::Retryability, system::SystemError,
-    timeout::TimeoutError,
+    bp::BpError, class::ErrorClass, http::HttpError, retryability::Retryability,
+    system::SystemError, timeout::TimeoutError,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,6 +122,23 @@ impl ConnectorError {
                 _ => Retryability::Permanent,
             },
             _ => Retryability::Permanent,
+        }
+    }
+
+    pub fn class(&self) -> ErrorClass {
+        match self {
+            Self::AutoResyncClockPanicked
+            | Self::AutoResyncClockStopped
+            | Self::CallbackPanicked(_)
+            | Self::ClockNotSynced
+            | Self::GatewayHttpStatus { .. }
+            | Self::HttpParseError { .. }
+            | Self::InvalidSyncFrequency
+            | Self::MissingServerTime
+            | Self::NotConnected
+            | Self::Send { .. }
+            | Self::WebsocketListenerMissing
+            | Self::WebsocketParseError { .. } => ErrorClass::NONE,
         }
     }
 }

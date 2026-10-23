@@ -1,4 +1,4 @@
-use crate::retryability::Retryability;
+use crate::{class::ErrorClass, retryability::Retryability};
 use std::{error::Error as StdError, path::PathBuf, process::ExitStatus};
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
@@ -39,6 +39,17 @@ impl IoError {
             Self::Io { source, .. } => Retryability::from_io_source(source.as_ref()),
             Self::IoError(error) => Retryability::from_io_error(error),
             Self::Zip(_) => Retryability::Permanent,
+        }
+    }
+
+    pub fn class(&self) -> ErrorClass {
+        match self {
+            Self::Arrow(_)
+            | Self::CommandFailed { .. }
+            | Self::Io { .. }
+            | Self::IoError(_)
+            | Self::Parquet(_)
+            | Self::Zip(_) => ErrorClass::NONE,
         }
     }
 }

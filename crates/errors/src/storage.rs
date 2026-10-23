@@ -1,4 +1,4 @@
-use crate::retryability::Retryability;
+use crate::{class::ErrorClass, retryability::Retryability};
 use aws_credential_types::provider::error::CredentialsError;
 use std::{error::Error as StdError, fmt};
 
@@ -112,6 +112,21 @@ impl StorageError {
             | Self::SourceArchiveTooLarge { .. }
             | Self::ExtractedSourceTooLarge { .. } => Retryability::Permanent,
             Self::Credentials(error) => Retryability::from_credentials(error),
+        }
+    }
+
+    pub fn class(&self) -> ErrorClass {
+        match self {
+            Self::ArtifactTooLarge { .. }
+            | Self::SourceArchiveTooLarge { .. }
+            | Self::ExtractedSourceTooLarge { .. }
+            | Self::Credentials(_)
+            | Self::InvalidEndpoint { .. }
+            | Self::InvalidEndpointHost { .. }
+            | Self::MissingCredentials
+            | Self::ObjectTooLarge { .. }
+            | Self::S3 { .. }
+            | Self::S3DeleteObjects { .. } => ErrorClass::NONE,
         }
     }
 

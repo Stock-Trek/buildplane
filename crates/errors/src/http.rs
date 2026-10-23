@@ -1,4 +1,4 @@
-use crate::retryability::Retryability;
+use crate::{class::ErrorClass, retryability::Retryability};
 use aws_sigv4::{
     http_request::SigningError, sign::v4::signing_params::BuildError as SigningParamsError,
 };
@@ -56,6 +56,21 @@ impl HttpError {
             | Self::Serde(_)
             | Self::SigningParams(_)
             | Self::Signing(_) => Retryability::Permanent,
+        }
+    }
+
+    pub fn class(&self) -> ErrorClass {
+        match self {
+            Self::Http(_)
+            | Self::InvalidHeaderName(_)
+            | Self::InvalidHeaderValue(_)
+            | Self::InvalidHeaderValueStr(_)
+            | Self::Rejected { .. }
+            | Self::Request { .. }
+            | Self::Reqwest(_)
+            | Self::Serde(_)
+            | Self::Signing(_)
+            | Self::SigningParams(_) => ErrorClass::NONE,
         }
     }
 }

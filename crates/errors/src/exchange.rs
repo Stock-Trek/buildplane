@@ -1,4 +1,4 @@
-use crate::{bp::BpError, retryability::Retryability};
+use crate::{bp::BpError, class::ErrorClass, retryability::Retryability};
 use buildplane_types::{new_types::Seconds, protocol::Protocol};
 
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
@@ -54,6 +54,25 @@ pub enum ExchangeError {
 impl ExchangeError {
     pub fn error_type(&self) -> &'static str {
         self.into()
+    }
+
+    pub fn class(&self) -> ErrorClass {
+        match self {
+            Self::MissingSymbol { .. }
+            | Self::UnsupportedExchange { .. }
+            | Self::UnsupportedTradingMode { .. } => ErrorClass::SKIPPABLE,
+            Self::BadProtocol { .. }
+            | Self::BadResponse(_)
+            | Self::BadValue { .. }
+            | Self::CryptoKey(_)
+            | Self::DeserializeResponse(_)
+            | Self::Exchange { .. }
+            | Self::ParseError(_)
+            | Self::Response { .. }
+            | Self::SerializeRequest(_)
+            | Self::UnknownSubmissionOutcome { .. }
+            | Self::UnknownValue(_) => ErrorClass::NONE,
+        }
     }
 
     pub fn retryability(&self) -> Retryability {
