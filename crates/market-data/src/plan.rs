@@ -25,6 +25,15 @@ impl Window {
     }
 }
 
+/// Windows selected by the planner, including periods it intentionally skipped.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct WindowPlan {
+    /// Windows that still need to be ingested.
+    pub windows: Vec<Window>,
+    /// Windows covered by an already compacted period.
+    pub windows_skipped: usize,
+}
+
 /// A complete set of source files that can be rolled up into one compacted file.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CompactionTarget {
@@ -47,6 +56,15 @@ impl Planner {
         end_time: DateTime<Utc>,
         backfill_start: Option<DateTime<Utc>>,
     ) -> BpResult<Vec<Window>> {
+        Ok(Self::plan_windows_with_skipped(existing, end_time, backfill_start)?.windows)
+    }
+
+    /// Plan the missing windows and report windows covered by compacted periods.
+    pub fn plan_windows_with_skipped(
+        existing: &HashSet<String>,
+        end_time: DateTime<Utc>,
+        backfill_start: Option<DateTime<Utc>>,
+    ) -> BpResult<WindowPlan> {
         let backfill_start = backfill_start
             .map(|start| QuantizedTime::timestamp(start, UPDATE_QUANTIZATION))
             .transpose()?;
@@ -65,12 +83,15 @@ impl Planner {
             (None, None) => None,
         };
         let Some(start) = start.filter(|start| *start < end_time) else {
-            return Ok(vec![Window::new(
-                QuantizedTime::previous_top(end_time, UPDATE_QUANTIZATION)?,
-                end_time,
-            )]);
+            return Ok(WindowPlan {
+                windows: vec![Window::new(
+                    QuantizedTime::previous_top(end_time, UPDATE_QUANTIZATION)?,
+                    end_time,
+                )],
+                windows_skipped: 0,
+            });
         };
-        Self::plan_windows_between(existing, start, end_time)
+        Self::plan_windows_between_with_skipped(existing, start, end_time)
     }
 
     /// Plan missing windows in an explicit range, skipping compacted periods.
@@ -79,6 +100,15 @@ impl Planner {
         start: DateTime<Utc>,
         end_time: DateTime<Utc>,
     ) -> BpResult<Vec<Window>> {
+        Ok(Self::plan_windows_between_with_skipped(existing, start, end_time)?.windows)
+    }
+
+    /// Plan missing windows and report windows covered by compacted periods.
+    pub fn plan_windows_between_with_skipped(
+        existing: &HashSet<String>,
+        start: DateTime<Utc>,
+        end_time: DateTime<Utc>,
+    ) -> BpResult<WindowPlan> {
         Self::plan_windows_between_with_overwrite(existing, start, end_time, false)
     }
 
@@ -94,6 +124,16 @@ impl Planner {
         end_time: DateTime<Utc>,
         force: bool,
     ) -> BpResult<Vec<Window>> {
+        Ok(Self::plan_backfill_windows_with_skipped(existing, start, end_time, force)?.windows)
+    }
+
+    /// Plan a targeted backfill and report windows covered by compacted periods.
+    pub fn plan_backfill_windows_with_skipped(
+        existing: &HashSet<String>,
+        start: DateTime<Utc>,
+        end_time: DateTime<Utc>,
+        force: bool,
+    ) -> BpResult<WindowPlan> {
         let start = QuantizedTime::timestamp(start, UPDATE_QUANTIZATION)?;
         Self::plan_windows_between_with_overwrite(existing, start, end_time, force)
     }
@@ -103,11 +143,13 @@ impl Planner {
         start: DateTime<Utc>,
         end_time: DateTime<Utc>,
         overwrite_existing: bool,
-    ) -> BpResult<Vec<Window>> {
+    ) -> BpResult<WindowPlan> {
         let mut start = start;
         let mut windows = Vec::new();
+        let mut windows_skipped = 0;
         while start < end_time {
             if let Some(boundary) = Self::compacted_boundary(existing, start)? {
+                windows_skipped += Self::window_count(start, boundary)?;
                 start = boundary;
                 continue;
             }
@@ -120,7 +162,24 @@ impl Planner {
             }
             start = window_end;
         }
-        Ok(windows)
+        Ok(WindowPlan {
+            windows,
+            windows_skipped,
+        })
+    }
+
+    fn window_count(start: DateTime<Utc>, end: DateTime<Utc>) -> BpResult<usize> {
+        let mut count = 0;
+        let mut start = start;
+        while start < end {
+            let window_end = QuantizedTime::next_top(start, UPDATE_QUANTIZATION)?;
+            if window_end > end {
+                break;
+            }
+            count += 1;
+            start = window_end;
+        }
+        Ok(count)
     }
 
     /// Plan compaction for one prefix using the entries directly below it.
@@ -439,6 +498,45 @@ mod tests {
                 window(utc(2024, 1, 1, 4, 6), utc(2024, 1, 1, 4, 12)),
             ]
         );
+    }
+
+    #[test]
+    fn compacted_windows_are_reported_as_skipped() {
+        let existing = paths(&["2024/01/01/03.parquet"]);
+        let plan = Planner::plan_windows_with_skipped(
+            &existing,
+            utc(2024, 1, 1, 4, 12),
+            Some(utc(2024, 1, 1, 3, 0)),
+        )
+        .unwrap();
+        assert_eq!(
+            plan.windows,
+            vec![
+                window(utc(2024, 1, 1, 4, 0), utc(2024, 1, 1, 4, 6)),
+                window(utc(2024, 1, 1, 4, 6), utc(2024, 1, 1, 4, 12)),
+            ]
+        );
+        assert_eq!(plan.windows_skipped, 10);
+    }
+
+    #[test]
+    fn forced_backfill_reports_compacted_windows_as_skipped() {
+        let existing = paths(&["2024/01/01/00.parquet"]);
+        let plan = Planner::plan_backfill_windows_with_skipped(
+            &existing,
+            utc(2024, 1, 1, 0, 0),
+            utc(2024, 1, 1, 1, 12),
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            plan.windows,
+            vec![
+                window(utc(2024, 1, 1, 1, 0), utc(2024, 1, 1, 1, 6)),
+                window(utc(2024, 1, 1, 1, 6), utc(2024, 1, 1, 1, 12)),
+            ]
+        );
+        assert_eq!(plan.windows_skipped, 10);
     }
 
     #[test]

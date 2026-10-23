@@ -137,6 +137,15 @@ impl Orchestrator {
         if let Err(error) = &update_result {
             error!("update failed: {error}");
         }
+        if deadline.remaining().is_err() {
+            return update_result.map(|update| JobOutcome {
+                windows_ingested: update.windows_ingested,
+                // Compaction did not run, so the scheduled job is incomplete
+                // even if every update window was processed.
+                windows_skipped: update.windows_skipped.max(1),
+                compaction_targets: 0,
+            });
+        }
         let compact_result = Self::compact_all(s3_client, transfer_client, bucket, deadline).await;
         if let Err(error) = &compact_result {
             error!("compaction failed: {error}");
