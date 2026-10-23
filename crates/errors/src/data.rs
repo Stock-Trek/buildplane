@@ -32,6 +32,8 @@ pub enum DataError {
     InvalidYearMonth { path: String },
     #[error("Failed to acquire lock {key}: another invocation is already running")]
     LockContention { key: String },
+    #[error("Lost lock {key}: another invocation took over")]
+    LockLost { key: String },
     #[error("Lock {key} is missing an ETag and cannot be released safely")]
     MissingLockETag { key: String },
     #[error(
@@ -61,7 +63,7 @@ impl DataError {
 
     pub fn retryability(&self) -> Retryability {
         match self {
-            Self::LockContention { .. } => Retryability::Retryable,
+            Self::LockContention { .. } | Self::LockLost { .. } => Retryability::Retryable,
             Self::Multiple { failures }
                 if failures
                     .iter()
