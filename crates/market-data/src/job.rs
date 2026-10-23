@@ -21,17 +21,11 @@ use stock_trek_types::cex::{cex_id::CexId, trading_pair::TradingPair};
 ///   "force": true }
 /// ```
 ///
-/// The payload must explicitly include a `mode`, `job`, or `action` field.
+/// The payload must explicitly include a `mode`, `job`, or `action` field
+/// whose value is one of `update`, `backfill`, or `compact`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "mode", rename_all = "snake_case")]
 pub enum Job {
-    #[serde(
-        alias = "scheduled",
-        alias = "scheduled_update",
-        alias = "scheduled-update",
-        alias = "update_all",
-        alias = "update-all"
-    )]
     Update,
     Backfill(BackfillJob),
     Compact(CompactJob),
@@ -59,7 +53,6 @@ impl Job {
 
     fn parse_value(value: Value) -> BpResult<Self> {
         match value {
-            Value::String(mode) => Self::from_mode(&mode, Map::new()),
             Value::Object(mut object) => {
                 let mut tag_keys = ["mode", "job", "action"]
                     .into_iter()
@@ -128,9 +121,8 @@ impl Job {
     }
 
     fn from_mode(mode: &str, object: Map<String, Value>) -> BpResult<Self> {
-        let mode = mode.trim().to_ascii_lowercase().replace('-', "_");
-        match mode.as_str() {
-            "update" | "scheduled" | "scheduled_update" | "update_all" => {
+        match mode {
+            "update" => {
                 if object.is_empty() {
                     Ok(Self::Update)
                 } else {
@@ -437,6 +429,8 @@ mod tests {
         assert!(Job::from_value(json!({})).is_err());
         assert!(Job::from_value(Value::Null).is_err());
         assert!(Job::from_value(json!({ "mod": "backfill", "strat": "2024-01-01" })).is_err());
+        assert!(Job::from_value(json!("update")).is_err());
+        assert!(serde_json::from_value::<Job>(json!("update")).is_err());
     }
 
     #[test]
@@ -507,11 +501,23 @@ mod tests {
     }
 
     #[test]
-    fn scheduled_aliases_are_accepted() {
-        for mode in ["update", "scheduled", "scheduled-update", "update_all"] {
-            assert_eq!(
-                Job::from_value(json!({ "mode": mode })).unwrap(),
-                Job::Update
+    fn only_the_canonical_update_mode_is_accepted() {
+        assert_eq!(
+            Job::from_value(json!({ "mode": "update" })).unwrap(),
+            Job::Update
+        );
+        for mode in [
+            "scheduled",
+            "scheduled_update",
+            "scheduled-update",
+            "update_all",
+            "update-all",
+            "Update",
+            "UPDATE",
+        ] {
+            assert!(
+                Job::from_value(json!({ "mode": mode })).is_err(),
+                "expected update alias {mode} to be rejected"
             );
         }
     }
