@@ -36,7 +36,9 @@ pub trait Urls {
                 BpError::Config(ConfigError::Missing { .. }) => Ok(default.to_owned()),
                 error => Err(BpError::Exchange(ExchangeError::BadValue {
                     name: env_var_name.clone(),
-                    value: default.to_owned(),
+                    value: config
+                        .required_lossy(&env_var_name)
+                        .unwrap_or_else(|_| default.to_owned()),
                     reason: error.to_string(),
                 })),
             })?;
