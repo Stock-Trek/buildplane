@@ -168,6 +168,55 @@ impl Sqs {
         }
     }
 
+    /// Sends each message with an individual `SendMessage` call.
+    ///
+    /// This is used to drain the unsent remainder of a partially failed batch.
+    /// Every message is attempted even when an earlier one fails, so a single
+    /// failure does not leave later messages unsent. If any message could not
+    /// be sent, the returned error names each message and the reason it failed.
+    pub async fn send_individually(
+        &self,
+        messages: &[SqsMessage],
+        deadline: Deadline,
+    ) -> BpResult<()> {
+        let bodies = messages
+            .iter()
+            .map(serde_json::to_string)
+            .collect::<Result<Vec<_>, _>>()
+            .inspect_err(|_| SqsMetrics::record_messages_failed(messages.len()))?;
+        let mut failures = Vec::new();
+        for (index, (message, body)) in messages.iter().zip(&bodies).enumerate() {
+            let timeout = match self.timeouts.operation_timeout(deadline) {
+                Ok(timeout) => timeout,
+                Err(error) => {
+                    failures.extend(messages[index..].iter().map(|message| SqsBatchFailure {
+                        source: Some(message.clone()),
+                        code: "DeadlineExceeded".to_owned(),
+                        detail: Some(error.to_string()),
+                    }));
+                    break;
+                }
+            };
+            if let Some(failure) = self.send_one(index, message, body, timeout).await {
+                failures.push(failure);
+            }
+        }
+        if failures.is_empty() {
+            SqsMetrics::record_messages_sent(messages.len());
+            Ok(())
+        } else {
+            let unsent = failures.len();
+            let sent = messages.len() - unsent;
+            SqsMetrics::record_messages_sent(sent);
+            SqsMetrics::record_messages_failed(unsent);
+            Err(BpError::Sqs(SqsError::PartialBatch {
+                sent,
+                unsent,
+                failures,
+            }))
+        }
+    }
+
     async fn retry_failed_individually(
         &self,
         messages: &[SqsMessage],
@@ -197,7 +246,7 @@ impl Sqs {
                 }
             };
             if let Some(failure) = self
-                .send_individually(index, &messages[index], &bodies[index], timeout)
+                .send_one(index, &messages[index], &bodies[index], timeout)
                 .await
             {
                 remaining.push(failure);
@@ -206,7 +255,7 @@ impl Sqs {
         remaining
     }
 
-    async fn send_individually(
+    async fn send_one(
         &self,
         index: usize,
         message: &SqsMessage,
