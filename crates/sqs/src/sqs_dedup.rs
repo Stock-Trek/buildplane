@@ -24,8 +24,8 @@ pub struct SqsDedup {
 
 impl SqsDedup {
     pub fn from_env(config: &EnvVarConfig) -> BpResult<Self> {
-        let capacity = config.sqs_dedup_max_messages()?;
-        let ttl = config.sqs_dedup_ttl()?;
+        let capacity = config.sqs_dedup_max_messages();
+        let ttl = config.sqs_dedup_ttl();
         Ok(Self::new(capacity, ttl))
     }
 

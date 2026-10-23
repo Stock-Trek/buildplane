@@ -21,7 +21,7 @@ pub struct SqsConfig {
 impl SqsConfig {
     pub fn from_env(config: &EnvVarConfig) -> BpResult<Self> {
         Ok(Self {
-            queue_url: config.sqs_queue_url()?,
+            queue_url: config.sqs_queue_url(),
         })
     }
 }

@@ -9,8 +9,8 @@ pub struct GitHubAppConfig {
 impl GitHubAppConfig {
     pub fn from_env(config: &EnvVarConfig) -> BpResult<Self> {
         Ok(Self {
-            app_id: config.github_app_id()?,
-            private_key: config.github_app_private_key()?,
+            app_id: config.github_app_id(),
+            private_key: config.github_app_private_key(),
         })
     }
 }

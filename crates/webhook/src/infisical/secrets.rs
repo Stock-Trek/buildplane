@@ -64,10 +64,10 @@ struct InfisicalConfig {
 impl InfisicalConfig {
     fn from_env(config: &EnvVarConfig) -> BpResult<Self> {
         Ok(Self {
-            identity_id: config.infisical_identity_id()?,
-            project_id: config.infisical_project_id()?,
-            environment: config.infisical_environment()?,
-            base_url: config.infisical_base_url()?,
+            identity_id: config.infisical_identity_id(),
+            project_id: config.infisical_project_id(),
+            environment: config.infisical_environment(),
+            base_url: config.infisical_base_url(),
         })
     }
 }

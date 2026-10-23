@@ -6,6 +6,7 @@ use std::time::Duration;
 
 const DEFAULT_LAMBDA_FUNCTION_NAME: &str = "buildplane-market-data";
 
+#[derive(Clone)]
 pub struct EnvConfig {
     pub s3_bucket: Bucket,
     pub lambda_function_name: String,
@@ -16,10 +17,10 @@ pub struct EnvConfig {
 impl EnvConfig {
     pub fn from_shared(config: &EnvVarConfig) -> BpResult<Self> {
         Ok(Self {
-            s3_bucket: Bucket::new(config.s3_bucket()?),
-            lambda_function_name: config.lambda_function_name(DEFAULT_LAMBDA_FUNCTION_NAME)?,
-            backfill_start: config.backfill_start()?,
-            deadline_buffer: config.deadline_buffer()?,
+            s3_bucket: Bucket::new(config.s3_bucket()),
+            lambda_function_name: config.lambda_function_name(DEFAULT_LAMBDA_FUNCTION_NAME),
+            backfill_start: config.backfill_start(),
+            deadline_buffer: config.deadline_buffer(),
         })
     }
 }

@@ -10,21 +10,21 @@ use tracing::info;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {
-    let shared_config = SharedEnvVarConfig::from_env();
+    let shared_config = SharedEnvVarConfig::from_env()?;
     TracingSetup::setup(&shared_config)?;
+    let env_config = EnvConfig::from_shared(&shared_config)?;
     info!("set up tracing");
     run(service_fn(move |event| {
-        let shared_config = shared_config.clone();
-        async move { function_handler(event, shared_config).await }
+        let env_config = env_config.clone();
+        async move { function_handler(event, env_config).await }
     }))
     .await
 }
 
 async fn function_handler(
     event: LambdaEvent<Value>,
-    shared_config: SharedEnvVarConfig,
+    env_config: EnvConfig,
 ) -> Result<Value, Error> {
-    let env_config = EnvConfig::from_shared(&shared_config)?;
     let deadline = Deadline::new(event.context.deadline(), env_config.deadline_buffer);
     let job = Job::from_value(event.payload)?;
     info!(
