@@ -1,4 +1,5 @@
 use crate::handler::Handler;
+use crate::source::SourceLimits;
 use buildplane_config::env_vars::EnvVarConfig;
 use buildplane_config::tracing_setup::TracingSetup;
 use buildplane_errors::{BpError, BpResult};
@@ -29,10 +30,16 @@ async fn main() -> BpResult<()> {
         .lambda_cold_start_metric(buildplane_metrics::descriptions::COLD_STARTS_TOTAL)
         .init()?;
     DescriptionsMetrics::describe();
-    let handler = Handler::new(
+    let source_limits = SourceLimits::new(
+        config.build_agent_source_download_timeout()?,
+        config.s3_max_source_archive_size_bytes()?,
+        config.build_agent_max_extracted_source_size_bytes()?.get(),
+    );
+    let handler = Handler::with_source_limits(
         config.build_agent_timeout()?,
         config.build_agent_source_dir()?,
         config.build_agent_build_cache_dir()?,
+        source_limits,
     );
     run(
         recorder,

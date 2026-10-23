@@ -1,4 +1,7 @@
-use crate::{s3::SignedPost, source::Source};
+use crate::{
+    s3::SignedPost,
+    source::{Source, SourceLimits},
+};
 use buildplane_errors::{BpError, BpResult};
 use buildplane_errors::{ConfigError, IoError, ValidationError};
 use std::{
@@ -30,14 +33,32 @@ pub struct Artifacts {
     source_dir: PathBuf,
     build_cache_dir: PathBuf,
     build_dir: Arc<TempDir>,
+    source_limits: SourceLimits,
 }
 
 impl Artifacts {
+    #[allow(dead_code)]
     pub fn new(
         signed_post: SignedPost,
         source_get_url: String,
         source_dir: PathBuf,
         build_cache_dir: PathBuf,
+    ) -> BpResult<Self> {
+        Self::with_source_limits(
+            signed_post,
+            source_get_url,
+            source_dir,
+            build_cache_dir,
+            SourceLimits::default(),
+        )
+    }
+
+    pub fn with_source_limits(
+        signed_post: SignedPost,
+        source_get_url: String,
+        source_dir: PathBuf,
+        build_cache_dir: PathBuf,
+        source_limits: SourceLimits,
     ) -> BpResult<Self> {
         let build_dir = tempfile::tempdir().map_err(|source| {
             BpError::io(
@@ -52,6 +73,7 @@ impl Artifacts {
             source_dir,
             build_cache_dir,
             build_dir: Arc::new(build_dir),
+            source_limits,
         })
     }
 
@@ -98,8 +120,11 @@ impl Artifacts {
     }
 
     async fn unpack_source(&self) -> BpResult<Vec<PathBuf>> {
-        let source = Source::download(&self.source_get_url).await?;
-        source.extract(self.build_dir.path())
+        let source = Source::download_with_limits(&self.source_get_url, self.source_limits).await?;
+        source.extract_with_limit(
+            self.build_dir.path(),
+            self.source_limits.max_extracted_bytes,
+        )
     }
 
     fn validate_user_generated(sources: &[PathBuf]) -> BpResult<()> {
