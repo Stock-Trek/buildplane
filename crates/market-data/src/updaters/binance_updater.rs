@@ -1,4 +1,5 @@
 use crate::{constants::KLINE_LIMIT, updaters::exchange_updater::ExchangeUpdater};
+use buildplane_config::env_vars::EnvVarConfig;
 use buildplane_errors::ExchangeError;
 use buildplane_errors::{BpError, BpResult};
 use buildplane_exchange_gateway::{
@@ -12,10 +13,11 @@ use buildplane_exchange_types::{
         klines_limit::BinanceKlinesLimit,
     },
     encode::ByteEncoder,
+    exchange::ETExchange,
     klines::{Kline, KlinesResponse},
     new_types::Milliseconds,
     signer::Signer,
-    urls::TradingMode,
+    urls::{Protocol, TradingMode, Urls},
 };
 use buildplane_type_bridge::{BinanceConverter, Converter};
 use chrono::{DateTime, Utc};
@@ -80,11 +82,15 @@ impl BinanceUpdater {
         )
     }
 
-    pub fn try_new(trading_mode: TradingMode) -> BpResult<Self> {
+    pub fn try_new(config: &EnvVarConfig, trading_mode: TradingMode) -> BpResult<Self> {
         let converter = BinanceConverter::default();
         let signer = Signer::new_unencrypted(ByteEncoder::HexLower);
+        let url = BinanceExchange
+            .urls()
+            .env_var_or_default_with(config, BinanceExchange.name(), Protocol::Http, trading_mode)
+            .map_err(|error| BpError::exchange("resolve Binance HTTP URL", error))?;
         let connector = Connector::try_new_http_reqwest(
-            trading_mode,
+            url,
             BinanceExchange,
             signer,
             REQUEST_TIMEOUT,

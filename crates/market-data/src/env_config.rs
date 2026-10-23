@@ -2,7 +2,7 @@ use crate::s3::Bucket;
 use buildplane_config::env_vars::EnvVarConfig;
 use buildplane_errors::BpResult;
 use chrono::{DateTime, Utc};
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 const DEFAULT_LAMBDA_FUNCTION_NAME: &str = "buildplane-market-data";
 
@@ -12,6 +12,7 @@ pub struct EnvConfig {
     pub lambda_function_name: String,
     pub backfill_start: Option<DateTime<Utc>>,
     pub deadline_buffer: Duration,
+    shared: Arc<EnvVarConfig>,
 }
 
 impl EnvConfig {
@@ -21,6 +22,11 @@ impl EnvConfig {
             lambda_function_name: config.lambda_function_name(DEFAULT_LAMBDA_FUNCTION_NAME),
             backfill_start: config.backfill_start(),
             deadline_buffer: config.deadline_buffer(),
+            shared: Arc::new(config.clone()),
         })
+    }
+
+    pub fn shared(&self) -> &EnvVarConfig {
+        &self.shared
     }
 }

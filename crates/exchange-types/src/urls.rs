@@ -7,15 +7,6 @@ use strum::Display;
 
 pub trait Urls {
     fn default(&self, protocol: Protocol, trading_mode: TradingMode) -> &str;
-    fn env_var_or_default(
-        &self,
-        prefix: &'static str,
-        protocol: Protocol,
-        trading_mode: TradingMode,
-    ) -> BpResult<String> {
-        self.env_var_or_default_with(&EnvVarConfig::from_env()?, prefix, protocol, trading_mode)
-    }
-
     fn env_var_or_default_with(
         &self,
         config: &EnvVarConfig,

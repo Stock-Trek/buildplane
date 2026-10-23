@@ -10,6 +10,7 @@ use crate::{
 use arrow_schema::SchemaRef;
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
+use buildplane_config::env_vars::EnvVarConfig;
 use buildplane_errors::{BpError, BpResult};
 use buildplane_errors::{ExchangeError, SystemError};
 use buildplane_exchange_types::urls::TradingMode;
@@ -78,12 +79,12 @@ struct TradingPairUpdate {
 }
 
 impl KlinesUpdater {
-    pub fn try_new() -> BpResult<Self> {
+    pub fn try_new(config: &EnvVarConfig) -> BpResult<Self> {
         let mut binance: HashMap<TradingMode, Arc<dyn ExchangeUpdater>> = HashMap::new();
         for trading_mode in [TradingMode::Paper, TradingMode::Real] {
             binance.insert(
                 trading_mode,
-                Arc::new(BinanceUpdater::try_new(trading_mode)?),
+                Arc::new(BinanceUpdater::try_new(config, trading_mode)?),
             );
         }
         Ok(Self { binance })
