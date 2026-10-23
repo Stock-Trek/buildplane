@@ -1,10 +1,10 @@
 use crate::rate_limit::rate_limiter::RateLimiter;
+use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_errors::errors::{RateLimitError, SystemError};
 use buildplane_exchange_types::{
     new_types::{Nanoseconds, UsageCount},
     rate_limited::{RateLimit, RateLimitRestriction, RateUsage},
 };
-use buildplane_shared::errors::{BpError, BpResult};
-use buildplane_shared::errors::{RateLimitError, SystemError};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},

@@ -1,4 +1,6 @@
 use crate::{constants::KLINE_LIMIT, updaters::exchange_updater::ExchangeUpdater};
+use buildplane_errors::errors::ExchangeError;
+use buildplane_errors::errors::{BpError, BpResult};
 use buildplane_exchange_gateway::{
     async_trait, clients::reqwest::ReqwestHttpClient, connector::Connector,
     submission::SubmissionOutcome,
@@ -15,8 +17,6 @@ use buildplane_exchange_types::{
     signer::Signer,
     urls::TradingMode,
 };
-use buildplane_shared::errors::ExchangeError;
-use buildplane_shared::errors::{BpError, BpResult};
 use buildplane_type_bridge::{BinanceConverter, Converter};
 use chrono::{DateTime, Utc};
 use std::time::Duration;

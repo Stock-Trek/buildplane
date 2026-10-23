@@ -1,5 +1,5 @@
-use buildplane_shared::errors::HttpError;
-use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_errors::errors::HttpError;
+use buildplane_errors::errors::{BpError, BpResult};
 use http::{Response, StatusCode};
 use lambda_http::Body;
 use std::time::Duration;

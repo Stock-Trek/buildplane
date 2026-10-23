@@ -1,0 +1,7 @@
+[package]
+name = "buildplane-metrics"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+metrics.workspace = true

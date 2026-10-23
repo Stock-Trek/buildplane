@@ -1,7 +1,7 @@
-use buildplane_shared::env_vars::EnvVarConfig;
-use buildplane_shared::errors::{BpError, BpResult};
-use buildplane_shared::errors::{ConfigError, ExchangeError};
-pub use buildplane_shared::protocol::Protocol;
+use buildplane_config::env_vars::EnvVarConfig;
+use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_errors::errors::{ConfigError, ExchangeError};
+pub use buildplane_types::protocol::Protocol;
 use serde::{Deserialize, Serialize};
 use strum::Display;
 

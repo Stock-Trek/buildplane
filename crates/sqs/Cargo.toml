@@ -1,0 +1,17 @@
+[package]
+name = "buildplane-sqs"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+aws-config.workspace = true
+aws-sdk-sqs.workspace = true
+buildplane-config = { path = "../config" }
+buildplane-errors = { path = "../errors" }
+buildplane-messages = { path = "../messages" }
+buildplane-metrics = { path = "../metrics" }
+buildplane-time = { path = "../time" }
+lru.workspace = true
+parking_lot.workspace = true
+serde_json.workspace = true
+tokio.workspace = true

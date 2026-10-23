@@ -1,0 +1,11 @@
+[package]
+name = "buildplane-config"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+buildplane-errors = { path = "../errors" }
+chrono.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+url.workspace = true

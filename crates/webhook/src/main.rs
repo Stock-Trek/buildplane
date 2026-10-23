@@ -1,8 +1,8 @@
 use crate::{context::RsWebhookContext, webhook_handler::WebhookHandler};
-use buildplane_shared::errors::{BpError, BpResult};
-use buildplane_shared::{
-    env_vars::EnvVarConfig, metrics::descriptions::DescriptionsMetrics, tracing_setup::TracingSetup,
-};
+use buildplane_config::env_vars::EnvVarConfig;
+use buildplane_config::tracing_setup::TracingSetup;
+use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_metrics::metrics::descriptions::DescriptionsMetrics;
 use lambda_http::{Request, service_fn};
 use metrics_cloudwatch_embedded::lambda::service::run_http;
 use std::sync::Arc;
@@ -28,7 +28,7 @@ async fn main() -> BpResult<()> {
             "function",
             config.lambda_function_name(DEFAULT_FUNCTION_NAME)?,
         )
-        .lambda_cold_start_metric(buildplane_shared::metrics::descriptions::COLD_STARTS_TOTAL)
+        .lambda_cold_start_metric(buildplane_metrics::metrics::descriptions::COLD_STARTS_TOTAL)
         .init()?;
     DescriptionsMetrics::describe();
     let context = Arc::new(RsWebhookContext::new(&config).await?);

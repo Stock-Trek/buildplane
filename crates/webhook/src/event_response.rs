@@ -1,4 +1,4 @@
-use buildplane_shared::sqs_message::SqsMessage;
+use buildplane_messages::sqs_message::SqsMessage;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum EventResponse {

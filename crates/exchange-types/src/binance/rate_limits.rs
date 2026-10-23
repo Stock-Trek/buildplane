@@ -1,6 +1,6 @@
 use crate::{new_types::Nanoseconds, rate_limited::RateLimitRestriction};
-use buildplane_shared::errors::BpError;
-use buildplane_shared::errors::ExchangeError;
+use buildplane_errors::errors::BpError;
+use buildplane_errors::errors::ExchangeError;
 use serde::Deserialize;
 use strum::Display;
 

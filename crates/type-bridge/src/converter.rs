@@ -3,13 +3,13 @@ use crate::{
     floats_to_decimals::FloatsToDecimals, semantic_checker::SemanticChecker,
     ticker_mapping::TickerMapping, trading_precision::TradingPrecision,
 };
+use buildplane_errors::errors::{BpError, BpResult, ValidationError};
 use buildplane_exchange_types::{
     exchange::ETExchange,
     request::{ETHttpRequest, ETWebsocketRequest},
     response::{ETHttpResponse, ETWebsocketResponse},
     ticker::Ticker,
 };
-use buildplane_shared::errors::{BpError, BpResult, ValidationError};
 use rust_decimal::Decimal;
 use stock_trek_types::cex::{
     asset_id::AssetId, capability::CexCapability, order_request::OrderRequest,

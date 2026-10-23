@@ -1,1 +1,1 @@
-pub use buildplane_shared::new_types::*;
+pub use buildplane_types::new_types::*;

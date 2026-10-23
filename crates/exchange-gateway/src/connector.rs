@@ -13,6 +13,8 @@ use crate::{
     submission::{Submission, SubmissionOutcome},
     websocket_listener::WebsocketListener,
 };
+use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_errors::errors::{ConnectorError, RateLimitError, TimeoutError};
 use buildplane_exchange_types::{
     exchange::ETExchange,
     http::HttpResponse,
@@ -25,8 +27,6 @@ use buildplane_exchange_types::{
     urls::{Protocol, TradingMode, Urls},
     websocket_id::ETWebsocketId,
 };
-use buildplane_shared::errors::{BpError, BpResult};
-use buildplane_shared::errors::{ConnectorError, RateLimitError, TimeoutError};
 use futures_timer::Delay;
 use iris::{Config as IrisConfig, DisconnectedBehavior, ServerCloseBehavior};
 use std::{

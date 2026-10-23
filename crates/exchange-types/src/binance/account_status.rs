@@ -10,7 +10,7 @@ use crate::{
     signer::Signer,
     websocket_id::ETWebsocketId,
 };
-use buildplane_shared::errors::BpResult;
+use buildplane_errors::errors::BpResult;
 use query_params::QueryParams;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};

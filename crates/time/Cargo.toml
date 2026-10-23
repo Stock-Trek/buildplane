@@ -1,0 +1,8 @@
+[package]
+name = "buildplane-time"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+buildplane-config = { path = "../config" }
+buildplane-errors = { path = "../errors" }

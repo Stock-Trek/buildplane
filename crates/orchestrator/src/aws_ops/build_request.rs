@@ -1,9 +1,9 @@
 use crate::aws_ops::s3::PresignedPost;
-use buildplane_shared::build_request::{
+use buildplane_errors::errors::BpResult;
+use buildplane_messages::build_request::{
     BuildRequest as BuildRequestPayload, BuildRequestSignedPost,
 };
-use buildplane_shared::errors::BpResult;
-use buildplane_shared::sqs_message::{GitSource, SqsRefType};
+use buildplane_messages::sqs_message::{GitSource, SqsRefType};
 
 pub struct BuildRequest {
     pub source: GitSource,
@@ -38,7 +38,7 @@ impl BuildRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use buildplane_shared::build_request::BuildRequest as BuildRequestPayload;
+    use buildplane_messages::build_request::BuildRequest as BuildRequestPayload;
     use std::collections::BTreeMap;
 
     fn request(commit_hash: Option<&str>, max_artifact_size_bytes: Option<u64>) -> BuildRequest {

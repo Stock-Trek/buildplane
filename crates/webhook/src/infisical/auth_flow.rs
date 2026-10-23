@@ -10,9 +10,10 @@ use aws_sigv4::http_request::{
 };
 use aws_smithy_runtime_api::client::identity::Identity;
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use buildplane_shared::errors::{BpError, BpResult};
-use buildplane_shared::errors::{HttpError, StorageError, TimeoutError};
-use buildplane_shared::{deadline::Deadline, timeouts::Timeouts};
+use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_errors::errors::{HttpError, StorageError, TimeoutError};
+use buildplane_time::deadline::Deadline;
+use buildplane_time::timeouts::Timeouts;
 use http::{HeaderMap, HeaderName, HeaderValue, Method};
 use std::{
     collections::{BTreeMap, HashMap},

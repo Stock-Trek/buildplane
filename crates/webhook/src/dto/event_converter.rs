@@ -2,8 +2,8 @@ use crate::{
     dto::github::github_event_converter::GitHubEventConverter, event_response::EventResponse,
     infisical::secrets::Secrets,
 };
-use buildplane_shared::env_vars::EnvVarConfig;
-use buildplane_shared::errors::BpResult;
+use buildplane_config::env_vars::EnvVarConfig;
+use buildplane_errors::errors::BpResult;
 use lambda_http::Request;
 
 pub trait EventConverter: Send + Sync {

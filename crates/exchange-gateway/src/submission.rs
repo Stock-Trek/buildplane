@@ -1,4 +1,4 @@
-use buildplane_shared::errors::BpResult;
+use buildplane_errors::errors::BpResult;
 use std::{fmt, future::Future, pin::Pin};
 
 #[derive(Debug)]

@@ -4,14 +4,14 @@ use crate::{
     panic_guard::PanicUtils,
     submission::Submission,
 };
+use buildplane_errors::errors::{BpError, BpResult};
+use buildplane_errors::errors::{ConnectorError, SystemError};
 use buildplane_exchange_types::{
     exchange::ETExchange,
     new_types::{Milliseconds, UsageCount},
     rate_limited::RateLimit,
     request::{ETHttpRequest, ETWebsocketRequest},
 };
-use buildplane_shared::errors::{BpError, BpResult};
-use buildplane_shared::errors::{ConnectorError, SystemError};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},

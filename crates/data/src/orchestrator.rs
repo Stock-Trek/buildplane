@@ -9,7 +9,7 @@ use crate::{
 };
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
-use buildplane_shared::errors::{BpError, BpResult};
+use buildplane_errors::errors::{BpError, BpResult};
 use chrono::{DateTime, Utc};
 use tracing::{error, info, warn};
 

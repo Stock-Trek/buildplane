@@ -1,8 +1,8 @@
 use crate::aws_ops::aws::Aws;
-use buildplane_shared::errors::BpResult;
-use buildplane_shared::{
-    env_vars::EnvVarConfig, git_ops::github::github_auth::GitHubAuth, sqs_dedup::SqsDedup,
-};
+use buildplane_config::env_vars::EnvVarConfig;
+use buildplane_errors::errors::BpResult;
+use buildplane_github::git_ops::github::github_auth::GitHubAuth;
+use buildplane_sqs::sqs_dedup::SqsDedup;
 use std::time::Duration;
 
 pub struct RsOrchestratorContext {

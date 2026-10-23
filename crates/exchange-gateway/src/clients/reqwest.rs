@@ -1,7 +1,7 @@
 use crate::clients::client::HttpClient;
 use async_trait::async_trait;
+use buildplane_errors::errors::{BpError, BpResult};
 use buildplane_exchange_types::http::{HttpMethod, HttpRequest, HttpResponse};
-use buildplane_shared::errors::{BpError, BpResult};
 use std::time::Duration;
 
 #[derive(Clone)]

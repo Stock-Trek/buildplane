@@ -986,7 +986,10 @@ name = "buildplane-agent"
 version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
- "buildplane-shared",
+ "buildplane-config",
+ "buildplane-errors",
+ "buildplane-messages",
+ "buildplane-metrics",
  "lambda_runtime",
  "metrics",
  "metrics_cloudwatch_embedded",
@@ -1001,6 +1004,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "buildplane-config"
+version = "0.2.0"
+dependencies = [
+ "buildplane-errors",
+ "chrono",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "buildplane-data"
 version = "0.2.0"
 dependencies = [
@@ -1009,9 +1023,10 @@ dependencies = [
  "aws-config",
  "aws-sdk-s3",
  "aws-sdk-s3-transfer-manager",
+ "buildplane-config",
+ "buildplane-errors",
  "buildplane-exchange-gateway",
  "buildplane-exchange-types",
- "buildplane-shared",
  "buildplane-type-bridge",
  "bytes",
  "chrono",
@@ -1028,12 +1043,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "buildplane-errors"
+version = "0.2.0"
+dependencies = [
+ "arrow-schema",
+ "aws-credential-types",
+ "aws-sdk-lambda",
+ "aws-sigv4",
+ "base64 0.23.1",
+ "buildplane-messages",
+ "buildplane-types",
+ "chrono",
+ "http 1.5.0",
+ "lambda_runtime",
+ "octocrab",
+ "parquet",
+ "reqwest 0.12.28",
+ "rust_decimal",
+ "serde",
+ "serde_json",
+ "strum",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "url",
+ "zip",
+]
+
+[[package]]
 name = "buildplane-exchange-gateway"
 version = "0.2.0"
 dependencies = [
  "async-trait",
+ "buildplane-errors",
  "buildplane-exchange-types",
- "buildplane-shared",
  "futures-timer",
  "httpdate",
  "iris",
@@ -1051,7 +1094,9 @@ name = "buildplane-exchange-types"
 version = "0.2.0"
 dependencies = [
  "bs58",
- "buildplane-shared",
+ "buildplane-config",
+ "buildplane-errors",
+ "buildplane-types",
  "data-encoding",
  "ed25519-compact",
  "hmac 0.13.0",
@@ -1076,6 +1121,41 @@ name = "buildplane-exit-codes"
 version = "0.2.0"
 
 [[package]]
+name = "buildplane-github"
+version = "0.2.0"
+dependencies = [
+ "base64 0.23.1",
+ "buildplane-config",
+ "buildplane-errors",
+ "buildplane-messages",
+ "buildplane-time",
+ "jsonwebtoken",
+ "lru",
+ "octocrab",
+ "parking_lot",
+ "serde",
+ "tokio",
+ "url",
+]
+
+[[package]]
+name = "buildplane-messages"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "strum",
+ "thiserror",
+]
+
+[[package]]
+name = "buildplane-metrics"
+version = "0.2.0"
+dependencies = [
+ "metrics",
+]
+
+[[package]]
 name = "buildplane-orchestrator"
 version = "0.2.0"
 dependencies = [
@@ -1085,7 +1165,13 @@ dependencies = [
  "aws-sdk-s3",
  "aws_lambda_events",
  "base64 0.23.1",
- "buildplane-shared",
+ "buildplane-config",
+ "buildplane-errors",
+ "buildplane-github",
+ "buildplane-messages",
+ "buildplane-metrics",
+ "buildplane-sqs",
+ "buildplane-time",
  "futures",
  "hex",
  "hmac 0.13.0",
@@ -1124,37 +1210,28 @@ dependencies = [
 ]
 
 [[package]]
-name = "buildplane-shared"
+name = "buildplane-sqs"
 version = "0.2.0"
 dependencies = [
- "arrow-schema",
  "aws-config",
- "aws-credential-types",
- "aws-sdk-lambda",
  "aws-sdk-sqs",
- "aws-sigv4",
- "base64 0.23.1",
- "chrono",
- "http 1.5.0",
- "jsonwebtoken",
- "lambda_http",
- "lambda_runtime",
+ "buildplane-config",
+ "buildplane-errors",
+ "buildplane-messages",
+ "buildplane-metrics",
+ "buildplane-time",
  "lru",
- "metrics",
- "octocrab",
  "parking_lot",
- "parquet",
- "reqwest 0.12.28",
- "rust_decimal",
- "serde",
  "serde_json",
- "strum",
- "thiserror",
  "tokio",
- "tracing",
- "tracing-subscriber",
- "url",
- "zip",
+]
+
+[[package]]
+name = "buildplane-time"
+version = "0.2.0"
+dependencies = [
+ "buildplane-config",
+ "buildplane-errors",
 ]
 
 [[package]]
@@ -1162,13 +1239,23 @@ name = "buildplane-type-bridge"
 version = "0.2.0"
 dependencies = [
  "bimap",
+ "buildplane-errors",
  "buildplane-exchange-types",
- "buildplane-shared",
  "rust_decimal",
  "serde",
  "stock-trek-types",
  "thiserror",
  "uuid",
+]
+
+[[package]]
+name = "buildplane-types"
+version = "0.2.0"
+dependencies = [
+ "serde",
+ "strum",
+ "thiserror",
+ "url",
 ]
 
 [[package]]
@@ -1180,7 +1267,13 @@ dependencies = [
  "aws-sigv4",
  "aws-smithy-runtime-api",
  "base64 0.23.1",
- "buildplane-shared",
+ "buildplane-config",
+ "buildplane-errors",
+ "buildplane-github",
+ "buildplane-messages",
+ "buildplane-metrics",
+ "buildplane-sqs",
+ "buildplane-time",
  "hex",
  "hmac 0.13.0",
  "http 1.5.0",
