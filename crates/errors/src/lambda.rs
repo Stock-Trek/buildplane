@@ -13,6 +13,19 @@ pub enum LambdaError {
     SdkInvoke(#[from] SdkInvokeError),
     #[error("Lambda invoke returned unexpected status code {status_code}")]
     Status { status_code: i32 },
+    #[error("build failed with {error_type}: {message}")]
+    BuildFailed {
+        error_type: String,
+        message: String,
+        retryable: bool,
+    },
+    #[error("Lambda response did not contain a build outcome")]
+    MissingPayload,
+    #[error("Lambda response contained an invalid build outcome: {source}")]
+    InvalidPayload {
+        #[source]
+        source: serde_json::Error,
+    },
 }
 
 impl LambdaError {
@@ -23,7 +36,17 @@ impl LambdaError {
     pub fn retryability(&self) -> Retryability {
         match self {
             Self::SdkInvoke(error) => Retryability::from_lambda_invoke(error),
-            Self::Function { .. } | Self::Status { .. } => Retryability::Permanent,
+            Self::Function { .. } => Retryability::Retryable,
+            Self::BuildFailed { retryable, .. } => {
+                if *retryable {
+                    Retryability::Retryable
+                } else {
+                    Retryability::Permanent
+                }
+            }
+            Self::Status { .. } | Self::MissingPayload | Self::InvalidPayload { .. } => {
+                Retryability::Permanent
+            }
         }
     }
 }

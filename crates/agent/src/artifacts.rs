@@ -8,7 +8,7 @@ use std::{
     fs as std_fs,
     io::{self, Cursor, Write},
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
 use tempfile::TempDir;
 use tokio::{fs, process::Command};
@@ -22,6 +22,7 @@ const CWASM_ARTIFACT_FILE: &str = "runner.cwasm";
 const SOURCE_TARGET_DIR: &str = "target";
 const USER_GENERATED_DIR: &str = "crates/runner/src/user_generated";
 const USER_GENERATED_ARCHIVE: &str = "sources.zip";
+pub const COMPILE_OUTPUT_FILE: &str = "compile-output.txt";
 const WORKSPACE_ENTRIES: &[&str] = &["Cargo.toml", "Cargo.lock", "crates", ".cargo"];
 const CARGO: &str = "cargo";
 const WASMTIME: &str = "wasmtime";
@@ -34,6 +35,7 @@ pub struct Artifacts {
     build_cache_dir: PathBuf,
     build_dir: Arc<TempDir>,
     source_limits: SourceLimits,
+    compile_output: Arc<Mutex<Option<Vec<u8>>>>,
 }
 
 impl Artifacts {
@@ -74,6 +76,7 @@ impl Artifacts {
             build_cache_dir,
             build_dir: Arc::new(build_dir),
             source_limits,
+            compile_output: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -147,7 +150,7 @@ impl Artifacts {
             .join(WASM_TARGET)
             .join("release")
             .join(WASM_ARTIFACT_FILE);
-        let status = Command::new(CARGO)
+        let output = Command::new(CARGO)
             .arg("build")
             .arg("--manifest-path")
             .arg(&manifest)
@@ -161,14 +164,19 @@ impl Artifacts {
             .arg("--offline")
             .current_dir(workspace)
             .kill_on_drop(true)
-            .status()
+            .output()
             .await
             .map_err(|source| {
                 BpError::io("compile artifact", module.display().to_string(), source)
             })?;
+        self.set_compile_output(Self::command_output("cargo build", &output));
 
-        if !status.success() {
-            return Err(BpError::command_failed("compile artifact", module, status));
+        if !output.status.success() {
+            return Err(BpError::command_failed(
+                "compile artifact",
+                module,
+                output.status,
+            ));
         }
         info!(
             manifest = %manifest.display(),
@@ -229,7 +237,7 @@ impl Artifacts {
 
     async fn compile_wasm(&self, module: &Path) -> BpResult<PathBuf> {
         let output = self.build_dir.path().join(CWASM_ARTIFACT_FILE);
-        let status = Command::new(WASMTIME)
+        let command_output = Command::new(WASMTIME)
             .arg("compile")
             .arg("-C")
             .arg("cache=no")
@@ -237,17 +245,18 @@ impl Artifacts {
             .arg("-o")
             .arg(&output)
             .kill_on_drop(true)
-            .status()
+            .output()
             .await
             .map_err(|source| {
                 BpError::io("compile artifact", module.display().to_string(), source)
             })?;
+        self.set_compile_output(Self::command_output("wasmtime compile", &command_output));
 
-        if !status.success() {
+        if !command_output.status.success() {
             return Err(BpError::command_failed(
                 "compile artifact",
                 module.to_path_buf(),
-                status,
+                command_output.status,
             ));
         }
         info!(module = %module.display(), output = %output.display(), "compiled wasm artifact");
@@ -255,6 +264,20 @@ impl Artifacts {
     }
 
     pub async fn publish(&self, cwasm: &Path) -> BpResult<()> {
+        self.publish_source().await?;
+        self.publish_cwasm(cwasm).await?;
+        info!("published build artifacts");
+        Ok(())
+    }
+
+    pub async fn publish_failure(&self, error: &BpError) -> BpResult<()> {
+        let source_result = self.publish_source().await;
+        let output_result = self.publish_compile_output(error).await;
+        output_result?;
+        source_result
+    }
+
+    async fn publish_source(&self) -> BpResult<()> {
         let root = self.build_dir.path().join(USER_GENERATED_DIR);
         let files = Self::user_generated_files(&root).await?;
         let archive = Self::source_archive(&root, &files)?;
@@ -269,9 +292,71 @@ impl Artifacts {
         self.signed_post
             .upload_named(&archive_path, Path::new(USER_GENERATED_ARCHIVE))
             .await?;
-        self.signed_post.upload(cwasm).await?;
-        info!(files = files.len(), "published build artifacts");
+        info!(files = files.len(), "published source archive");
         Ok(())
+    }
+
+    async fn publish_cwasm(&self, cwasm: &Path) -> BpResult<()> {
+        self.signed_post.upload(cwasm).await?;
+        info!(artifact = %cwasm.display(), "published compiled artifact");
+        Ok(())
+    }
+
+    async fn publish_compile_output(&self, error: &BpError) -> BpResult<()> {
+        let mut output = self.take_compile_output().unwrap_or_default();
+        if output.is_empty() {
+            output = format!("build failed: {error}\n").into_bytes();
+        } else {
+            if !output.ends_with(b"\n") {
+                output.push(b'\n');
+            }
+            output.extend_from_slice(format!("build failed: {error}\n").as_bytes());
+        }
+        let output_path = self.build_dir.path().join(COMPILE_OUTPUT_FILE);
+        fs::write(&output_path, &output).await.map_err(|source| {
+            BpError::io(
+                "write compile output",
+                output_path.display().to_string(),
+                source,
+            )
+        })?;
+        self.signed_post
+            .upload_named(&output_path, Path::new(COMPILE_OUTPUT_FILE))
+            .await?;
+        info!(bytes = output.len(), "published compile output");
+        Ok(())
+    }
+
+    fn command_output(command: &str, output: &std::process::Output) -> Vec<u8> {
+        let mut captured = Vec::new();
+        let _ = write!(
+            captured,
+            "command: {command}\nstatus: {}\n\nstdout:\n",
+            output.status
+        );
+        captured.extend_from_slice(&output.stdout);
+        if !output.stdout.ends_with(b"\n") {
+            captured.push(b'\n');
+        }
+        captured.extend_from_slice(b"\nstderr:\n");
+        captured.extend_from_slice(&output.stderr);
+        if !output.stderr.ends_with(b"\n") {
+            captured.push(b'\n');
+        }
+        captured
+    }
+
+    fn set_compile_output(&self, output: Vec<u8>) {
+        if let Ok(mut current) = self.compile_output.lock() {
+            *current = Some(output);
+        }
+    }
+
+    fn take_compile_output(&self) -> Option<Vec<u8>> {
+        self.compile_output
+            .lock()
+            .ok()
+            .and_then(|mut output| output.take())
     }
 
     fn source_archive(root: &Path, files: &[PathBuf]) -> BpResult<Vec<u8>> {
@@ -417,6 +502,78 @@ fn copy_path(from: &Path, to: &Path) -> io::Result<()> {
 mod tests {
     use super::*;
     use std::{collections::BTreeMap, time::Duration};
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
+
+    async fn upload_server(
+        expected_uploads: usize,
+    ) -> (String, tokio::task::JoinHandle<Vec<String>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/upload", listener.local_addr().unwrap());
+        let handle = tokio::spawn(async move {
+            let mut bodies = Vec::new();
+            for _ in 0..expected_uploads {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut request = Vec::new();
+                loop {
+                    let mut chunk = [0_u8; 4096];
+                    let read = socket.read(&mut chunk).await.unwrap();
+                    if read == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&chunk[..read]);
+                    if let Some(header_end) = request
+                        .windows(4)
+                        .position(|window| window == b"\r\n\r\n")
+                        .map(|position| position + 4)
+                    {
+                        let headers = String::from_utf8_lossy(&request[..header_end]);
+                        let content_length = headers
+                            .lines()
+                            .find_map(|line| {
+                                let (name, value) = line.split_once(':')?;
+                                name.eq_ignore_ascii_case("content-length")
+                                    .then(|| value.trim().parse::<usize>().ok())
+                                    .flatten()
+                            })
+                            .unwrap();
+                        if request.len() >= header_end + content_length {
+                            break;
+                        }
+                    }
+                }
+                bodies.push(String::from_utf8_lossy(&request).into_owned());
+                socket
+                    .write_all(
+                        b"HTTP/1.1 204 No Content\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    )
+                    .await
+                    .unwrap();
+            }
+            bodies
+        });
+        (url, handle)
+    }
+
+    fn upload_artifacts(url: String) -> Artifacts {
+        let fields = BTreeMap::from([("key".to_string(), "artifacts/${filename}".to_string())]);
+        let signed_post = SignedPost::new(url, fields, Duration::from_secs(5)).unwrap();
+        Artifacts::new(
+            signed_post,
+            "https://example.com/source.zip".to_string(),
+            PathBuf::from("/unused-source"),
+            PathBuf::from("/unused-cache"),
+        )
+        .unwrap()
+    }
+
+    fn create_user_generated_source(artifacts: &Artifacts) {
+        let root = artifacts.build_dir.path().join(USER_GENERATED_DIR);
+        std_fs::create_dir_all(&root).unwrap();
+        std_fs::write(root.join("algorithm.rs"), b"pub struct Example;\n").unwrap();
+    }
 
     fn artifacts(source_dir: &Path, build_cache_dir: &Path) -> Artifacts {
         let fields = BTreeMap::from([("key".to_string(), "artifacts/${filename}".to_string())]);
@@ -434,6 +591,41 @@ mod tests {
             build_cache_dir.to_path_buf(),
         )
         .unwrap()
+    }
+
+    #[tokio::test]
+    async fn publishes_source_before_compile_output_on_failure() {
+        let (url, server) = upload_server(2).await;
+        let artifacts = upload_artifacts(url);
+        create_user_generated_source(&artifacts);
+        artifacts.set_compile_output(b"error[E0425]: cannot find value `foo`\n".to_vec());
+        let error = BpError::Config(ConfigError::Build("compile failed".to_string()));
+
+        artifacts.publish_failure(&error).await.unwrap();
+
+        let bodies = server.await.unwrap();
+        assert_eq!(bodies.len(), 2);
+        assert!(bodies[0].contains(USER_GENERATED_ARCHIVE));
+        assert!(bodies[1].contains(COMPILE_OUTPUT_FILE));
+        assert!(bodies[1].contains("cannot find value `foo`"));
+        assert!(bodies[1].contains("compile failed"));
+    }
+
+    #[tokio::test]
+    async fn publishes_source_before_cwasm_on_success() {
+        let (url, server) = upload_server(2).await;
+        let artifacts = upload_artifacts(url);
+        create_user_generated_source(&artifacts);
+        let cwasm = artifacts.build_dir.path().join(CWASM_ARTIFACT_FILE);
+        std_fs::write(&cwasm, b"compiled").unwrap();
+
+        artifacts.publish(&cwasm).await.unwrap();
+
+        let bodies = server.await.unwrap();
+        assert_eq!(bodies.len(), 2);
+        assert!(bodies[0].contains(USER_GENERATED_ARCHIVE));
+        assert!(bodies[1].contains(CWASM_ARTIFACT_FILE));
+        assert!(!bodies.iter().any(|body| body.contains(COMPILE_OUTPUT_FILE)));
     }
 
     #[tokio::test]
