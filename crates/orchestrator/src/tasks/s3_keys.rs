@@ -144,6 +144,24 @@ impl S3Keys {
             Self::artifact_prefix(git_remote, repo_id, ref_name, ref_type, commit_hash)?
         ))
     }
+
+    pub fn compile_output_key<InstallationId, RepoId, Remote>(
+        git_remote: &Remote,
+        repo_id: RepoId,
+        ref_name: &str,
+        ref_type: SqsRefType,
+        commit_hash: &str,
+    ) -> BpResult<String>
+    where
+        InstallationId: Display,
+        RepoId: Display,
+        Remote: GitHost<InstallationId, RepoId>,
+    {
+        Ok(format!(
+            "{}compile-output.txt",
+            Self::artifact_prefix(git_remote, repo_id, ref_name, ref_type, commit_hash)?
+        ))
+    }
 }
 
 impl S3Keys {

@@ -32,9 +32,9 @@ pub struct BuildRequestSignedPost {
 ///
 /// The agent returns this payload for both successful and permanently failed
 /// builds. A permanent failure (for example a user compile error) is returned
-/// as `Ok`, which stops the Lambda asynchronous invocation from retrying a
-/// build that cannot succeed. Transient failures are returned as `Err` so the
-/// invocation is retried.
+/// as `Ok` so the orchestrator can surface it instead of retrying a build that
+/// cannot succeed. Transient failures are returned as `Err` so the build is
+/// retried.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BuildOutcome {
     pub status: BuildStatus,

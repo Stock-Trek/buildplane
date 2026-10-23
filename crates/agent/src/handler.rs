@@ -56,13 +56,24 @@ impl Handler {
             self.build_cache_dir.clone(),
             self.source_limits,
         )?;
-        timeout(self.build_timeout, async {
+        let result = timeout(self.build_timeout, async {
             let cwasm = artifacts.compile().await?;
             artifacts.publish(&cwasm).await
         })
         .await
         .unwrap_or(Err(BpError::Timeout(TimeoutError::BuildTimeout(
             self.build_timeout,
-        ))))
+        ))));
+
+        if let Err(error) = &result
+            && let Err(publish_error) = artifacts.publish_failure(error).await
+        {
+            tracing::error!(
+                error = %publish_error,
+                "failed to publish compile output"
+            );
+        }
+
+        result
     }
 }
