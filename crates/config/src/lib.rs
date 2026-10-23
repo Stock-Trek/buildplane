@@ -1,3 +1,3 @@
 pub mod env_vars;
-pub mod github;
+pub mod git;
 pub mod tracing_setup;

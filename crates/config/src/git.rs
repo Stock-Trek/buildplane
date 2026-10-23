@@ -1,8 +1,8 @@
-/// The default maximum depth of a directory tree collected from GitHub.
+/// The default maximum depth of a collected directory tree.
 pub const DEFAULT_MAX_DIRECTORY_DEPTH: usize = 8;
-/// The default maximum number of files collected from a GitHub directory.
+/// The default maximum number of files collected from a directory.
 pub const DEFAULT_MAX_DIRECTORY_FILES: usize = 100;
-/// The default maximum number of bytes collected from a GitHub directory.
+/// The default maximum number of bytes collected from a directory.
 pub const DEFAULT_MAX_DIRECTORY_BYTES: u64 = 1024 * 1024;
 
 /// Limits applied while collecting a directory tree.

@@ -1,11 +1,5 @@
-use crate::git_ops::github::{github_auth::GitHubAuth, installation::GitHubInstallation};
 use buildplane_errors::BpResult;
-use buildplane_messages::sqs_message::GitSource;
 use buildplane_time::deadline::Deadline;
-
-pub enum GitRemote {
-    GitHub(GitHubInstallation),
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitFile {
@@ -34,18 +28,4 @@ pub trait GitHost<InstallationId, RepoId>: Send + Sync {
         directory: &str,
         deadline: Deadline,
     ) -> BpResult<Vec<GitFile>>;
-}
-
-impl GitRemote {
-    pub fn from_source(github_auth: &GitHubAuth, source: &GitSource) -> BpResult<Self> {
-        match source {
-            GitSource::GitHub {
-                host,
-                installation_id,
-                ..
-            } => Ok(GitRemote::GitHub(
-                github_auth.installation(host, *installation_id)?,
-            )),
-        }
-    }
 }

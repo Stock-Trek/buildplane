@@ -7,6 +7,7 @@ edition.workspace = true
 buildplane-config = { path = "../config" }
 buildplane-errors = { path = "../errors" }
 buildplane-github = { path = "../github" }
+buildplane-git = { path = "../git" }
 buildplane-messages = { path = "../messages" }
 buildplane-metrics = { path = "../metrics" }
 buildplane-sqs = { path = "../sqs" }

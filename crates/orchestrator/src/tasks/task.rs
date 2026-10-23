@@ -1,10 +1,10 @@
 use crate::{
     aws_ops::build_request::BuildRequest,
     context::RsOrchestratorContext,
-    tasks::{s3_keys::S3Keys, source_archive::SourceArchive},
+    tasks::{git_remote::GitRemote, s3_keys::S3Keys, source_archive::SourceArchive},
 };
 use buildplane_errors::BpResult;
-use buildplane_github::git_ops::git_remote::{GitHost, GitRemote};
+use buildplane_git::git_remote::GitHost;
 use buildplane_messages::sqs_message::{GitSource, SqsDetail, SqsMessage, SqsRefType};
 use buildplane_time::request_context::RequestContext;
 use std::fmt::Display;

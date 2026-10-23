@@ -1,9 +1,10 @@
-use crate::git_ops::github::{
+use crate::{
     app_config::GitHubAppConfig,
     host_allow_list::{DEFAULT_HOST, HostAllowlist},
-    installation::{DirectoryLimits, GitHubInstallation},
+    installation::GitHubInstallation,
 };
 use buildplane_config::env_vars::EnvVarConfig;
+use buildplane_config::git::DirectoryLimits;
 use buildplane_errors::GitHubError;
 use buildplane_errors::{BpError, BpResult};
 use buildplane_time::timeouts::Timeouts;
@@ -77,9 +78,9 @@ impl GitHubAuth {
         let allowed_hosts = HostAllowlist::from_env(config)?;
         let max_cached_installations = config.github_max_cached_installations()?;
         let directory_limits = DirectoryLimits {
-            max_depth: config.github_max_directory_depth()?.get(),
-            max_files: config.github_max_directory_files()?.get(),
-            max_total_bytes: config.github_max_directory_bytes()?.get(),
+            max_depth: config.git_max_directory_depth()?.get(),
+            max_files: config.git_max_directory_files()?.get(),
+            max_total_bytes: config.git_max_directory_bytes()?.get(),
         };
         Self::build(
             app,

@@ -1,7 +1,7 @@
 use buildplane_errors::BpError;
 use buildplane_errors::BpResult;
 use buildplane_errors::ValidationError;
-use buildplane_github::git_ops::git_remote::GitHost;
+use buildplane_git::git_remote::GitHost;
 use buildplane_messages::sqs_message::SqsRefType;
 use std::fmt::Display;
 
