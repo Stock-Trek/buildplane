@@ -32,13 +32,7 @@ impl Handler {
         }
     }
 
-    #[cfg(test)]
-    pub async fn handle(&self, request: BuildRequest) -> BpResult<()> {
-        let deadline = Instant::now() + self.build_timeout + FAILURE_PUBLISH_BUDGET;
-        self.handle_until(request, deadline).await
-    }
-
-    pub async fn handle_until(&self, request: BuildRequest, deadline: Instant) -> BpResult<()> {
+    pub async fn handle(&self, request: BuildRequest, deadline: Instant) -> BpResult<()> {
         tracing::info!(
             git_host = %request.git_host,
             git_provider = %request.git_provider,
@@ -132,8 +126,10 @@ mod tests {
             max_artifact_size_bytes: None,
         };
 
-        let error = handler(Duration::from_secs(1))
-            .handle(request(signed_post))
+        let timeout = Duration::from_secs(1);
+        let deadline = Instant::now() + timeout + FAILURE_PUBLISH_BUDGET;
+        let error = handler(timeout)
+            .handle(request(signed_post), deadline)
             .await
             .unwrap_err();
 

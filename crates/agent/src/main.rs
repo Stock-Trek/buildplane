@@ -56,7 +56,7 @@ impl BuildAgent {
                 .deadline()
                 .duration_since(SystemTime::now())
                 .unwrap_or_default();
-        match handler.handle_until(event.payload, deadline).await {
+        match handler.handle(event.payload, deadline).await {
             Ok(()) => {
                 BuildMetrics::record_success(started_at.elapsed());
                 Ok(BuildOutcome::success())
