@@ -18,7 +18,9 @@ pub struct LambdaConfig {
 impl LambdaConfig {
     pub fn from_env(config: &EnvVarConfig) -> BpResult<Self> {
         Ok(Self {
-            function_name: config.build_agent_function_name()?,
+            function_name: config
+                .build_agent_function_name()
+                .ok_or_else(|| BpError::config_missing("BUILD_AGENT_FUNCTION_NAME"))?,
         })
     }
 }

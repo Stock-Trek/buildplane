@@ -347,170 +347,150 @@ impl EnvVarConfig {
             .ok_or_else(|| BpError::config_invalid(name, "must be greater than zero"))
     }
 
-    pub fn lambda_function_name(&self, default: &str) -> BpResult<String> {
-        Ok(self
-            .lambda_function_name
+    pub fn lambda_function_name(&self, default: &str) -> String {
+        self.lambda_function_name
             .clone()
-            .unwrap_or_else(|| default.to_owned()))
+            .unwrap_or_else(|| default.to_owned())
     }
 
-    pub fn log_filter(&self) -> BpResult<Option<String>> {
-        Ok(self.log_filter.clone())
+    pub fn log_filter(&self) -> Option<String> {
+        self.log_filter.clone()
     }
 
-    pub fn backfill_start(&self) -> BpResult<Option<DateTime<Utc>>> {
-        Ok(self.backfill_start)
+    pub fn backfill_start(&self) -> Option<DateTime<Utc>> {
+        self.backfill_start
     }
 
-    pub fn deadline_buffer(&self) -> BpResult<Duration> {
-        Ok(self.deadline_buffer)
+    pub fn deadline_buffer(&self) -> Duration {
+        self.deadline_buffer
     }
 
-    pub fn github_app_id(&self) -> BpResult<u64> {
+    pub fn github_app_id(&self) -> Option<u64> {
         self.github_app_id
-            .ok_or_else(|| BpError::config_missing(GITHUB_APP_ID))
     }
 
-    pub fn github_app_private_key(&self) -> BpResult<String> {
-        self.github_app_private_key
-            .clone()
-            .ok_or_else(|| BpError::config_missing(GITHUB_APP_PRIVATE_KEY))
+    pub fn github_app_private_key(&self) -> Option<String> {
+        self.github_app_private_key.clone()
     }
 
-    pub fn github_enterprise_allowed_hosts(&self) -> BpResult<Vec<String>> {
-        Ok(self.github_enterprise_allowed_hosts.clone())
+    pub fn github_enterprise_allowed_hosts(&self) -> Vec<String> {
+        self.github_enterprise_allowed_hosts.clone()
     }
 
-    pub fn github_max_cached_installations(&self) -> BpResult<NonZeroUsize> {
-        Ok(self.github_max_cached_installations)
+    pub fn github_max_cached_installations(&self) -> NonZeroUsize {
+        self.github_max_cached_installations
     }
 
-    pub fn git_max_directory_depth(&self) -> BpResult<NonZeroUsize> {
-        Ok(self.git_max_directory_depth)
+    pub fn git_max_directory_depth(&self) -> NonZeroUsize {
+        self.git_max_directory_depth
     }
 
-    pub fn git_max_directory_files(&self) -> BpResult<NonZeroUsize> {
-        Ok(self.git_max_directory_files)
+    pub fn git_max_directory_files(&self) -> NonZeroUsize {
+        self.git_max_directory_files
     }
 
-    pub fn git_max_directory_bytes(&self) -> BpResult<NonZeroU64> {
-        Ok(self.git_max_directory_bytes)
+    pub fn git_max_directory_bytes(&self) -> NonZeroU64 {
+        self.git_max_directory_bytes
     }
 
-    pub fn sqs_queue_url(&self) -> BpResult<String> {
-        self.sqs_queue_url
-            .clone()
-            .ok_or_else(|| BpError::config_missing(SQS_QUEUE_URL))
+    pub fn sqs_queue_url(&self) -> Option<String> {
+        self.sqs_queue_url.clone()
     }
 
-    pub fn sqs_dedup_max_messages(&self) -> BpResult<NonZeroUsize> {
-        Ok(self.sqs_dedup_max_messages)
+    pub fn sqs_dedup_max_messages(&self) -> NonZeroUsize {
+        self.sqs_dedup_max_messages
     }
 
-    pub fn sqs_dedup_ttl(&self) -> BpResult<Duration> {
-        Ok(self.sqs_dedup_ttl)
+    pub fn sqs_dedup_ttl(&self) -> Duration {
+        self.sqs_dedup_ttl
     }
 
-    pub fn sqs_process_concurrency(&self) -> BpResult<NonZeroUsize> {
-        Ok(self.sqs_process_concurrency)
+    pub fn sqs_process_concurrency(&self) -> NonZeroUsize {
+        self.sqs_process_concurrency
     }
 
-    pub fn s3_bucket(&self) -> BpResult<String> {
-        self.s3_bucket
-            .clone()
-            .ok_or_else(|| BpError::config_missing(S3_BUCKET))
+    pub fn s3_bucket(&self) -> Option<String> {
+        self.s3_bucket.clone()
     }
 
-    pub fn s3_bucket_user_artifacts(&self) -> BpResult<String> {
-        self.s3_bucket_user_artifacts
-            .clone()
-            .ok_or_else(|| BpError::config_missing(S3_BUCKET_USER_ARTIFACTS))
+    pub fn s3_bucket_user_artifacts(&self) -> Option<String> {
+        self.s3_bucket_user_artifacts.clone()
     }
 
-    pub fn s3_max_source_archive_size_bytes(&self) -> BpResult<u64> {
-        Ok(self.s3_max_source_archive_size_bytes)
+    pub fn s3_max_source_archive_size_bytes(&self) -> u64 {
+        self.s3_max_source_archive_size_bytes
     }
 
-    pub fn s3_max_artifact_size_bytes(&self) -> BpResult<u64> {
-        Ok(self.s3_max_artifact_size_bytes)
+    pub fn s3_max_artifact_size_bytes(&self) -> u64 {
+        self.s3_max_artifact_size_bytes
     }
 
-    pub fn s3_signed_url_expiry(&self) -> BpResult<Duration> {
-        Ok(self.s3_signed_url_expiry)
+    pub fn s3_signed_url_expiry(&self) -> Duration {
+        self.s3_signed_url_expiry
     }
 
-    pub fn aws_endpoint_url_s3(&self) -> BpResult<Option<String>> {
-        Ok(self.aws_endpoint_url_s3.clone())
+    pub fn aws_endpoint_url_s3(&self) -> Option<String> {
+        self.aws_endpoint_url_s3.clone()
     }
 
-    pub fn build_agent_build_cache_dir(&self) -> BpResult<PathBuf> {
-        Ok(self.build_agent_build_cache_dir.clone())
+    pub fn build_agent_build_cache_dir(&self) -> PathBuf {
+        self.build_agent_build_cache_dir.clone()
     }
 
-    pub fn build_agent_function_name(&self) -> BpResult<String> {
-        self.build_agent_function_name
-            .clone()
-            .ok_or_else(|| BpError::config_missing(BUILD_AGENT_FUNCTION_NAME))
+    pub fn build_agent_function_name(&self) -> Option<String> {
+        self.build_agent_function_name.clone()
     }
 
-    pub fn build_agent_source_dir(&self) -> BpResult<PathBuf> {
-        Ok(self.build_agent_source_dir.clone())
+    pub fn build_agent_source_dir(&self) -> PathBuf {
+        self.build_agent_source_dir.clone()
     }
 
-    pub fn build_agent_max_extracted_source_size_bytes(&self) -> BpResult<NonZeroU64> {
-        Ok(self.build_agent_max_extracted_source_size_bytes)
+    pub fn build_agent_max_extracted_source_size_bytes(&self) -> NonZeroU64 {
+        self.build_agent_max_extracted_source_size_bytes
     }
 
-    pub fn build_agent_source_download_timeout(&self) -> BpResult<Duration> {
-        Ok(self.build_agent_source_download_timeout)
+    pub fn build_agent_source_download_timeout(&self) -> Duration {
+        self.build_agent_source_download_timeout
     }
 
-    pub fn build_agent_timeout(&self) -> BpResult<Duration> {
-        Ok(self.build_agent_timeout)
+    pub fn build_agent_timeout(&self) -> Duration {
+        self.build_agent_timeout
     }
 
-    pub fn webhook_dedup_max_deliveries(&self) -> BpResult<NonZeroUsize> {
-        Ok(self.webhook_dedup_max_deliveries)
+    pub fn webhook_dedup_max_deliveries(&self) -> NonZeroUsize {
+        self.webhook_dedup_max_deliveries
     }
 
-    pub fn webhook_dedup_ttl(&self) -> BpResult<Duration> {
-        Ok(self.webhook_dedup_ttl)
+    pub fn webhook_dedup_ttl(&self) -> Duration {
+        self.webhook_dedup_ttl
     }
 
-    pub fn webhook_refresh_cooldown(&self) -> BpResult<Duration> {
-        Ok(self.webhook_refresh_cooldown)
+    pub fn webhook_refresh_cooldown(&self) -> Duration {
+        self.webhook_refresh_cooldown
     }
 
-    pub fn webhook_secret_failure_backoff(&self) -> BpResult<Duration> {
-        Ok(self.webhook_secret_failure_backoff)
+    pub fn webhook_secret_failure_backoff(&self) -> Duration {
+        self.webhook_secret_failure_backoff
     }
 
-    pub fn webhook_cold_start_refresh_timeout(&self) -> BpResult<Duration> {
-        Ok(self.webhook_cold_start_refresh_timeout)
+    pub fn webhook_cold_start_refresh_timeout(&self) -> Duration {
+        self.webhook_cold_start_refresh_timeout
     }
 
-    pub fn infisical_identity_id(&self) -> BpResult<String> {
-        self.infisical_identity_id
-            .clone()
-            .ok_or_else(|| BpError::config_missing(INFISICAL_IDENTITY_ID))
+    pub fn infisical_identity_id(&self) -> Option<String> {
+        self.infisical_identity_id.clone()
     }
 
-    pub fn infisical_project_id(&self) -> BpResult<String> {
-        self.infisical_project_id
-            .clone()
-            .ok_or_else(|| BpError::config_missing(INFISICAL_PROJECT_ID))
+    pub fn infisical_project_id(&self) -> Option<String> {
+        self.infisical_project_id.clone()
     }
 
-    pub fn infisical_environment(&self) -> BpResult<String> {
-        self.infisical_environment
-            .clone()
-            .ok_or_else(|| BpError::config_missing(INFISICAL_ENVIRONMENT))
+    pub fn infisical_environment(&self) -> Option<String> {
+        self.infisical_environment.clone()
     }
 
-    pub fn infisical_base_url(&self) -> BpResult<String> {
-        self.infisical_base_url
-            .clone()
-            .ok_or_else(|| BpError::config_missing(INFISICAL_BASE_URL))
+    pub fn infisical_base_url(&self) -> Option<String> {
+        self.infisical_base_url.clone()
     }
 
     pub fn duration(&self, key: &str, default: Duration) -> BpResult<Duration> {
@@ -725,7 +705,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            config.build_agent_timeout().unwrap(),
+            config.build_agent_timeout(),
             Duration::from_secs(120)
         );
     }
@@ -817,25 +797,24 @@ mod tests {
         let config = EnvVarConfig::from_map(Vec::<(String, String)>::new()).unwrap();
 
         assert_eq!(
-            config.build_agent_timeout().unwrap(),
+            config.build_agent_timeout(),
             Duration::from_secs(300)
         );
         assert_eq!(
-            config.build_agent_source_dir().unwrap(),
+            config.build_agent_source_dir(),
             PathBuf::from("/var/task")
         );
         assert_eq!(
-            config.build_agent_build_cache_dir().unwrap(),
+            config.build_agent_build_cache_dir(),
             PathBuf::from("/tmp/buildplane-build-cache")
         );
         assert_eq!(
-            config.build_agent_source_download_timeout().unwrap(),
+            config.build_agent_source_download_timeout(),
             Duration::from_secs(60)
         );
         assert_eq!(
             config
                 .build_agent_max_extracted_source_size_bytes()
-                .unwrap()
                 .get(),
             64 * 1024 * 1024
         );
@@ -853,25 +832,24 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            config.build_agent_timeout().unwrap(),
+            config.build_agent_timeout(),
             Duration::from_secs(120)
         );
         assert_eq!(
-            config.build_agent_source_dir().unwrap(),
+            config.build_agent_source_dir(),
             PathBuf::from("/srv/agent")
         );
         assert_eq!(
-            config.build_agent_build_cache_dir().unwrap(),
+            config.build_agent_build_cache_dir(),
             PathBuf::from("/var/cache/agent")
         );
         assert_eq!(
-            config.build_agent_source_download_timeout().unwrap(),
+            config.build_agent_source_download_timeout(),
             Duration::from_secs(45)
         );
         assert_eq!(
             config
                 .build_agent_max_extracted_source_size_bytes()
-                .unwrap()
                 .get(),
             2048
         );
@@ -894,9 +872,9 @@ mod tests {
         ])
         .unwrap();
 
-        assert_eq!(config.git_max_directory_depth().unwrap().get(), 4);
-        assert_eq!(config.git_max_directory_files().unwrap().get(), 12);
-        assert_eq!(config.git_max_directory_bytes().unwrap().get(), 2048);
+        assert_eq!(config.git_max_directory_depth().get(), 4);
+        assert_eq!(config.git_max_directory_files().get(), 12);
+        assert_eq!(config.git_max_directory_bytes().get(), 2048);
     }
 
     #[test]
@@ -912,23 +890,20 @@ mod tests {
         ])
         .unwrap();
 
-        assert_eq!(config.deadline_buffer().unwrap(), Duration::from_secs(1));
+        assert_eq!(config.deadline_buffer(), Duration::from_secs(1));
+        assert_eq!(config.s3_signed_url_expiry(), Duration::from_secs(2));
+        assert_eq!(config.sqs_dedup_ttl(), Duration::from_secs(3));
         assert_eq!(
-            config.s3_signed_url_expiry().unwrap(),
-            Duration::from_secs(2)
-        );
-        assert_eq!(config.sqs_dedup_ttl().unwrap(), Duration::from_secs(3));
-        assert_eq!(
-            config.webhook_cold_start_refresh_timeout().unwrap(),
+            config.webhook_cold_start_refresh_timeout(),
             Duration::from_secs(4)
         );
-        assert_eq!(config.webhook_dedup_ttl().unwrap(), Duration::from_secs(5));
+        assert_eq!(config.webhook_dedup_ttl(), Duration::from_secs(5));
         assert_eq!(
-            config.webhook_refresh_cooldown().unwrap(),
+            config.webhook_refresh_cooldown(),
             Duration::from_secs(6)
         );
         assert_eq!(
-            config.webhook_secret_failure_backoff().unwrap(),
+            config.webhook_secret_failure_backoff(),
             Duration::from_secs(7)
         );
     }
@@ -963,7 +938,7 @@ mod tests {
         ])
         .unwrap();
 
-        assert_eq!(config.s3_max_source_archive_size_bytes().unwrap(), 1024);
-        assert_eq!(config.s3_max_artifact_size_bytes().unwrap(), 2048);
+        assert_eq!(config.s3_max_source_archive_size_bytes(), 1024);
+        assert_eq!(config.s3_max_artifact_size_bytes(), 2048);
     }
 }
