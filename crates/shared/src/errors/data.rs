@@ -5,7 +5,7 @@ use std::error::Error as StdError;
 #[derive(Debug, thiserror::Error, strum::IntoStaticStr)]
 #[strum(serialize_all = "snake_case")]
 pub enum DataError {
-    #[error("Failed to convert candle {field} to f64: {source}")]
+    #[error("Failed to convert candle {field} to decimal: {source}")]
     CandleConversion {
         field: &'static str,
         #[source]

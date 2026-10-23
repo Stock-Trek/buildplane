@@ -4,7 +4,7 @@ use crate::{
     s3::{Bucket, ObjectKey, S3},
     updaters::exchange_updater::ExchangeUpdater,
 };
-use arrow_array::{ArrayRef, Float64Array, Int64Array, RecordBatch};
+use arrow_array::{ArrayRef, Decimal128Array, Int64Array, RecordBatch};
 use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
 use buildplane_exchange_types::klines::Kline;
@@ -12,11 +12,39 @@ use buildplane_shared::errors::{BpError, BpResult};
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use parquet::arrow::ArrowWriter;
-use std::sync::Arc;
+use rust_decimal::Decimal;
+use std::{fmt, sync::Arc};
 use stock_trek_types::cex::trading_pair::TradingPair;
 use tracing::warn;
 
+/// Decimal precision and scale used for market values in Parquet files.
+///
+/// Prices and volumes are supplied as `Decimal`, so storing them as `f64` would
+/// lose precision. `Decimal128(38, 18)` keeps enough fractional digits for
+/// exchange tick sizes while leaving ample room for integer magnitudes.
+const DECIMAL_PRECISION: u8 = 38;
+const DECIMAL_SCALE: i8 = 18;
+const DECIMAL_SCALE_U32: u32 = DECIMAL_SCALE as u32;
+
 pub struct Ingest;
+
+#[derive(Debug)]
+struct DecimalScaleError {
+    value: Decimal,
+    scale: u32,
+}
+
+impl fmt::Display for DecimalScaleError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "value {} cannot be represented with scale {}",
+            self.value, self.scale
+        )
+    }
+}
+
+impl std::error::Error for DecimalScaleError {}
 
 /// The result of trying to ingest one window.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -73,13 +101,14 @@ impl Ingest {
     }
 
     pub fn schema() -> SchemaRef {
+        let decimal = || DataType::Decimal128(DECIMAL_PRECISION, DECIMAL_SCALE);
         Arc::new(Schema::new(vec![
             Field::new("open_time", DataType::Int64, false),
-            Field::new("open", DataType::Float64, false),
-            Field::new("high", DataType::Float64, false),
-            Field::new("low", DataType::Float64, false),
-            Field::new("close", DataType::Float64, false),
-            Field::new("volume", DataType::Float64, false),
+            Field::new("open", decimal(), false),
+            Field::new("high", decimal(), false),
+            Field::new("low", decimal(), false),
+            Field::new("close", decimal(), false),
+            Field::new("volume", decimal(), false),
         ]))
     }
 
@@ -101,44 +130,52 @@ impl Ingest {
         })
     }
 
-    fn candle_field_to_f64<T>(field: &'static str, value: T) -> BpResult<f64>
-    where
-        T: TryInto<f64>,
-        T::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
-    {
-        value
-            .try_into()
-            .map_err(|source| BpError::candle_conversion(field, source))
+    fn candle_field_to_decimal(field: &'static str, mut value: Decimal) -> BpResult<i128> {
+        let scale_error = |value: Decimal| {
+            BpError::candle_conversion(
+                field,
+                DecimalScaleError {
+                    value,
+                    scale: DECIMAL_SCALE_U32,
+                },
+            )
+        };
+        let source_scale = value.scale();
+        if source_scale > DECIMAL_SCALE_U32 {
+            value.rescale(DECIMAL_SCALE_U32);
+            if value.scale() != DECIMAL_SCALE_U32 {
+                return Err(scale_error(value));
+            }
+            Ok(value.mantissa())
+        } else {
+            let factor = 10_i128.pow(DECIMAL_SCALE_U32 - source_scale);
+            value
+                .mantissa()
+                .checked_mul(factor)
+                .ok_or_else(|| scale_error(value))
+        }
+    }
+
+    fn decimal_array(
+        field: &'static str,
+        values: impl Iterator<Item = Decimal>,
+    ) -> BpResult<ArrayRef> {
+        let values = values
+            .map(|value| Self::candle_field_to_decimal(field, value))
+            .collect::<BpResult<Vec<_>>>()?;
+        let array = Decimal128Array::from_iter_values(values)
+            .with_precision_and_scale(DECIMAL_PRECISION, DECIMAL_SCALE)?;
+        Ok(Arc::new(array))
     }
 
     fn candles_to_bytes(candles: &[Kline], schema: &SchemaRef) -> BpResult<Bytes> {
-        let open = candles
-            .iter()
-            .map(|k| Self::candle_field_to_f64("open", k.open))
-            .collect::<BpResult<Vec<_>>>()?;
-        let high = candles
-            .iter()
-            .map(|k| Self::candle_field_to_f64("high", k.high))
-            .collect::<BpResult<Vec<_>>>()?;
-        let low = candles
-            .iter()
-            .map(|k| Self::candle_field_to_f64("low", k.low))
-            .collect::<BpResult<Vec<_>>>()?;
-        let close = candles
-            .iter()
-            .map(|k| Self::candle_field_to_f64("close", k.close))
-            .collect::<BpResult<Vec<_>>>()?;
-        let volume = candles
-            .iter()
-            .map(|k| Self::candle_field_to_f64("volume", k.volume))
-            .collect::<BpResult<Vec<_>>>()?;
         let columns: Vec<ArrayRef> = vec![
             Arc::new(Int64Array::from_iter(candles.iter().map(|k| k.open_time.0))),
-            Arc::new(Float64Array::from(open)),
-            Arc::new(Float64Array::from(high)),
-            Arc::new(Float64Array::from(low)),
-            Arc::new(Float64Array::from(close)),
-            Arc::new(Float64Array::from(volume)),
+            Self::decimal_array("open", candles.iter().map(|k| k.open))?,
+            Self::decimal_array("high", candles.iter().map(|k| k.high))?,
+            Self::decimal_array("low", candles.iter().map(|k| k.low))?,
+            Self::decimal_array("close", candles.iter().map(|k| k.close))?,
+            Self::decimal_array("volume", candles.iter().map(|k| k.volume))?,
         ];
         let batch = RecordBatch::try_new(schema.clone(), columns)?;
         let mut buffer = Vec::new();
@@ -153,12 +190,32 @@ impl Ingest {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use arrow_array::Array;
+    use buildplane_exchange_types::new_types::Milliseconds;
     use chrono::TimeZone;
+    use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
 
     fn utc(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> DateTime<Utc> {
         Utc.with_ymd_and_hms(year, month, day, hour, minute, 0)
             .single()
             .unwrap()
+    }
+
+    fn decimal(value: &str) -> Decimal {
+        Decimal::from_str_exact(value).unwrap()
+    }
+
+    fn candle() -> Kline {
+        Kline {
+            open_time: Milliseconds(utc(2024, 1, 1, 0, 0).timestamp_millis()),
+            close_time: Milliseconds(utc(2024, 1, 1, 0, 1).timestamp_millis()),
+            open: decimal("123.456789012345678"),
+            high: decimal("124.000000000000001"),
+            low: decimal("122.999999999999999"),
+            close: decimal("123.5"),
+            volume: decimal("9876543210.12345678"),
+            trades: 42,
+        }
     }
 
     #[test]
@@ -175,5 +232,52 @@ mod tests {
             Ingest::expected_candles(utc(2024, 1, 1, 0, 6), utc(2024, 1, 1, 0, 0)),
             0
         );
+    }
+
+    #[test]
+    fn schema_stores_market_values_as_decimals() {
+        let schema = Ingest::schema();
+        for field in ["open", "high", "low", "close", "volume"] {
+            assert_eq!(
+                schema.field_with_name(field).unwrap().data_type(),
+                &DataType::Decimal128(DECIMAL_PRECISION, DECIMAL_SCALE)
+            );
+        }
+    }
+
+    #[test]
+    fn decimal_conversion_scales_values_without_losing_precision() {
+        let scaled = Ingest::candle_field_to_decimal("open", decimal("100000000000")).unwrap();
+        assert_eq!(
+            scaled,
+            100_000_000_000_i128 * 10_i128.pow(DECIMAL_SCALE_U32)
+        );
+    }
+
+    #[test]
+    fn candles_are_written_as_exact_decimals() {
+        let candle = candle();
+        let bytes =
+            Ingest::candles_to_bytes(std::slice::from_ref(&candle), &Ingest::schema()).unwrap();
+        let reader = ParquetRecordBatchReaderBuilder::try_new(bytes)
+            .unwrap()
+            .build()
+            .unwrap();
+        let batch = reader.into_iter().next().unwrap().unwrap();
+
+        let decimals = |column: usize| {
+            let array = batch
+                .column(column)
+                .as_any()
+                .downcast_ref::<Decimal128Array>()
+                .unwrap();
+            Decimal::from_i128_with_scale(array.value(0), DECIMAL_SCALE_U32)
+        };
+
+        assert_eq!(decimals(1), candle.open);
+        assert_eq!(decimals(2), candle.high);
+        assert_eq!(decimals(3), candle.low);
+        assert_eq!(decimals(4), candle.close);
+        assert_eq!(decimals(5), candle.volume);
     }
 }
