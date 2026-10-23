@@ -1,9 +1,10 @@
 use crate::infisical::auth_flow::InfisicalAwsAuth;
 use aws_config::SdkConfig;
-use buildplane_errors::HttpError;
-use buildplane_errors::{BpError, BpResult};
-use buildplane_time::deadline::Deadline;
-use buildplane_time::timeouts::{Timeout, Timeouts};
+use buildplane_errors::{BpError, BpResult, HttpError};
+use buildplane_time::{
+    deadline::Deadline,
+    timeouts::{Timeout, Timeouts},
+};
 use serde::Deserialize;
 use std::collections::HashMap;
 

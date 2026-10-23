@@ -1,9 +1,9 @@
 use crate::aws_ops::s3::PresignedPost;
 use buildplane_errors::BpResult;
-use buildplane_messages::build_request::{
-    BuildRequest as BuildRequestPayload, BuildRequestSignedPost,
+use buildplane_messages::{
+    build_request::{BuildRequest as BuildRequestPayload, BuildRequestSignedPost},
+    sqs_message::{GitSource, SqsRefType},
 };
-use buildplane_messages::sqs_message::{GitSource, SqsRefType};
 
 pub struct BuildRequest {
     pub source: GitSource,

@@ -1,5 +1,4 @@
-use buildplane_errors::RateLimitError;
-use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{BpError, BpResult, RateLimitError};
 use buildplane_exchange_types::new_types::{Nanoseconds, NonZero, UsageCount};
 use std::{
     sync::Arc,

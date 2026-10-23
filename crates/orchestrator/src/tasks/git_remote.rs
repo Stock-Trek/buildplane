@@ -1,6 +1,5 @@
 use buildplane_errors::BpResult;
-use buildplane_github::github_auth::GitHubAuth;
-use buildplane_github::installation::GitHubInstallation;
+use buildplane_github::{github_auth::GitHubAuth, installation::GitHubInstallation};
 use buildplane_messages::sqs_message::GitSource;
 
 pub enum GitRemote {

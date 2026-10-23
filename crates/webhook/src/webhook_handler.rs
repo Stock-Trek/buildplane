@@ -3,13 +3,10 @@ use crate::{
     event_response::EventResponse,
     responses::Responses,
 };
-use buildplane_errors::{BpError, BpResult};
-use buildplane_errors::{GitHubError, HttpError, SecretsError, SqsError};
+use buildplane_errors::{BpError, BpResult, GitHubError, HttpError, SecretsError, SqsError};
 use buildplane_messages::sqs_message::SqsMessage;
-use buildplane_metrics::event::EventMetrics;
-use buildplane_metrics::route::RouteMetrics;
-use buildplane_time::deadline::Deadline;
-use buildplane_time::request_context::RequestContext;
+use buildplane_metrics::{event::EventMetrics, route::RouteMetrics};
+use buildplane_time::{deadline::Deadline, request_context::RequestContext};
 use http::{Response, StatusCode};
 use lambda_http::{Body, Request, RequestExt};
 

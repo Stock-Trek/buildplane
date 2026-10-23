@@ -1,9 +1,11 @@
-use crate::convert::{
-    decimal::ToDecimal, market_aligned_window::MarketCandlesMap,
-    market_rolling_window::MarketCandleMap, market_tick::MarketTickVec, required::IsRequired,
-    string::from_string,
+use crate::{
+    convert::{
+        decimal::ToDecimal, market_aligned_window::MarketCandlesMap,
+        market_rolling_window::MarketCandleMap, market_tick::MarketTickVec, required::IsRequired,
+        string::from_string,
+    },
+    generated::dto::*,
 };
-use crate::generated::dto::*;
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 use stock_trek::{

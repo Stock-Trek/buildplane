@@ -5,8 +5,7 @@ use aws_sdk_s3::{
     types::{Delete, ObjectIdentifier},
 };
 use aws_sdk_s3_transfer_manager::{Client as TransferClient, io::InputStream};
-use buildplane_errors::StorageError;
-use buildplane_errors::{BpError, BpResult, S3DeleteObjectFailure};
+use buildplane_errors::{BpError, BpResult, S3DeleteObjectFailure, StorageError};
 use bytes::Bytes;
 use std::{fmt, io, path::Path};
 use tracing::info;

@@ -4,8 +4,7 @@ use crate::{
     installation::GitHubInstallation,
 };
 use buildplane_config::git::DirectoryLimits;
-use buildplane_errors::GitHubError;
-use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{BpError, BpResult, GitHubError};
 use buildplane_time::timeouts::Timeouts;
 use jsonwebtoken::EncodingKey;
 use lru::LruCache;

@@ -1,6 +1,5 @@
 use crate::{constants::UPDATE_QUANTIZATION, quantized_time::Quantization};
-use buildplane_errors::DataError;
-use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{BpError, BpResult, DataError};
 use chrono::{Datelike, NaiveDate};
 
 pub struct SubFolders;

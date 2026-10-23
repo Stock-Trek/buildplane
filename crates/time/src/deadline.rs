@@ -1,5 +1,4 @@
-use buildplane_errors::TimeoutError;
-use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{BpError, BpResult, TimeoutError};
 use std::time::{Duration, Instant, SystemTime};
 
 #[derive(Debug, Clone, Copy)]

@@ -2,8 +2,7 @@
 
 use buildplane_config::tracing_setup::TracingSetup;
 use buildplane_market_data::{env_config::EnvConfig, job::Job, orchestrator::Orchestrator};
-use buildplane_metrics::descriptions::DescriptionsMetrics;
-use buildplane_metrics::market_data::MarketDataMetrics;
+use buildplane_metrics::{descriptions::DescriptionsMetrics, market_data::MarketDataMetrics};
 use buildplane_time::deadline::Deadline;
 use lambda_runtime::{Error, LambdaEvent, service_fn};
 use metrics_cloudwatch_embedded::lambda::service::run;

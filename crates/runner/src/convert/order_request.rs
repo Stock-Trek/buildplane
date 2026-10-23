@@ -1,13 +1,10 @@
-use crate::generated::dto::{
-    activation_dto::Activation as ActivationVariant,
-    order_request_dto::OrderRequest as OrderRequestVariant,
-    quantity_dto::Quantity as QuantityVariant,
-};
 use crate::{
     convert::{required::IsRequired, string::JsonString},
     generated::dto::{
         ActivationDto, LimitOrderRequestDto, MarketBuyOrderRequestDto, MarketSellOrderRequestDto,
-        OrderRequestDto, QuantityDto,
+        OrderRequestDto, QuantityDto, activation_dto::Activation as ActivationVariant,
+        order_request_dto::OrderRequest as OrderRequestVariant,
+        quantity_dto::Quantity as QuantityVariant,
     },
 };
 use rust_decimal::Decimal;

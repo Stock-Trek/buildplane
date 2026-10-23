@@ -1,10 +1,7 @@
 use crate::aws_ops::build_request::BuildRequest;
 use aws_sdk_lambda::{Client as LambdaClient, primitives::Blob, types::InvocationType};
-use buildplane_errors::BpError;
-use buildplane_errors::BpResult;
-use buildplane_errors::TimeoutError;
-use buildplane_time::deadline::Deadline;
-use buildplane_time::timeouts::Timeouts;
+use buildplane_errors::{BpError, BpResult, TimeoutError};
+use buildplane_time::{deadline::Deadline, timeouts::Timeouts};
 
 pub struct LambdaConfig {
     pub function_name: String,

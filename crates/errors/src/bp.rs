@@ -6,8 +6,7 @@ use crate::{
     timeout::TimeoutError, validation::ValidationError,
 };
 use buildplane_messages::sqs_message::SqsMessageError;
-use buildplane_types::new_types::ArithmeticError;
-use buildplane_types::protocol::ProtocolError;
+use buildplane_types::{new_types::ArithmeticError, protocol::ProtocolError};
 use lambda_runtime::Diagnostic;
 use std::{path::PathBuf, process::ExitStatus, time::Duration};
 

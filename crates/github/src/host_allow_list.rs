@@ -1,5 +1,4 @@
-use buildplane_errors::GitHubError;
-use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{BpError, BpResult, GitHubError};
 use std::{
     collections::HashMap,
     net::{Ipv4Addr, Ipv6Addr},

@@ -1,8 +1,7 @@
-use crate::auto_resync_connector::AutoResyncConnector;
-use crate::clients::iris::IrisWebsocketClient;
-use crate::clients::reqwest::ReqwestHttpClient;
 use crate::{
+    auto_resync_connector::AutoResyncConnector,
     clients::client::{HttpClient, WebsocketClient},
+    clients::{iris::IrisWebsocketClient, reqwest::ReqwestHttpClient},
     clock::Clock,
     rate_limit::{
         rate_limiter::RateLimiter,
@@ -13,8 +12,9 @@ use crate::{
     submission::{Submission, SubmissionOutcome},
     websocket_listener::WebsocketListener,
 };
-use buildplane_errors::{BpError, BpResult};
-use buildplane_errors::{ConnectorError, RateLimitError, SendFailure, TimeoutError};
+use buildplane_errors::{
+    BpError, BpResult, ConnectorError, RateLimitError, SendFailure, TimeoutError,
+};
 use buildplane_exchange_types::{
     exchange::ETExchange,
     http::HttpResponse,

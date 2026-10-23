@@ -7,13 +7,11 @@ use crate::{
 };
 use aws_config::SdkConfig;
 use aws_sdk_sqs::Client as SqsClient;
-use buildplane_errors::SecretsError;
-use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{BpError, BpResult, SecretsError};
 use buildplane_github::host_allow_list::HostAllowlist;
 use buildplane_metrics::secret::SecretMetrics;
 use buildplane_sqs::sqs::{Sqs, SqsConfig};
-use buildplane_time::deadline::Deadline;
-use buildplane_time::timeouts::Timeouts;
+use buildplane_time::{deadline::Deadline, timeouts::Timeouts};
 use std::{
     sync::{
         Arc,

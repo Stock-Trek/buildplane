@@ -1,12 +1,10 @@
 use aws_sdk_sqs::{
     Client as SqsClient, error::ProvideErrorMetadata, types::SendMessageBatchRequestEntry,
 };
-use buildplane_errors::SqsError;
-use buildplane_errors::{BpError, BpResult, SqsBatchFailure};
+use buildplane_errors::{BpError, BpResult, SqsBatchFailure, SqsError};
 use buildplane_messages::sqs_message::{SQS_MAX_BATCH_BYTES, SqsMessage};
 use buildplane_metrics::sqs::SqsMetrics;
-use buildplane_time::deadline::Deadline;
-use buildplane_time::timeouts::Timeouts;
+use buildplane_time::{deadline::Deadline, timeouts::Timeouts};
 use std::time::Duration;
 
 /// The most entries SQS accepts in a single `SendMessageBatch` request.

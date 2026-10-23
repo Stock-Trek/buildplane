@@ -4,8 +4,7 @@ use aws_sdk_s3::{
     operation::delete_object::DeleteObjectError,
     primitives::ByteStream,
 };
-use buildplane_errors::DataError;
-use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{BpError, BpResult, DataError};
 use buildplane_metrics::market_data::MarketDataMetrics;
 use buildplane_time::deadline::Deadline;
 use chrono::{DateTime, Utc};

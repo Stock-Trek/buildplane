@@ -1,6 +1,5 @@
 use crate::ticker_mapping::TickerMapping;
-use buildplane_errors::ValidationError;
-use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{BpError, BpResult, ValidationError};
 use buildplane_exchange_types::ticker::Ticker;
 use stock_trek_types::cex::{asset_id::AssetId, order_request::OrderRequest};
 

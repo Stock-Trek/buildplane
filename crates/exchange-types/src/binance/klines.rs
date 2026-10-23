@@ -13,8 +13,7 @@ use crate::{
     signer::Signer,
     websocket_id::ETWebsocketId,
 };
-use buildplane_errors::ExchangeError;
-use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{BpError, BpResult, ExchangeError};
 use query_params::QueryParams;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};

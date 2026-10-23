@@ -1,11 +1,8 @@
-use crate::config::AgentConfig;
-use crate::handler::Handler;
-use crate::source::SourceLimits;
+use crate::{config::AgentConfig, handler::Handler, source::SourceLimits};
 use buildplane_config::tracing_setup::TracingSetup;
 use buildplane_errors::{BpError, BpResult};
 use buildplane_messages::build_request::{BuildOutcome, BuildRequest};
-use buildplane_metrics::build::BuildMetrics;
-use buildplane_metrics::descriptions::DescriptionsMetrics;
+use buildplane_metrics::{build::BuildMetrics, descriptions::DescriptionsMetrics};
 use lambda_runtime::{LambdaEvent, service_fn};
 use metrics_cloudwatch_embedded::lambda::service::run;
 use std::time::Instant;

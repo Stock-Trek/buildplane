@@ -3,8 +3,7 @@ use crate::{
     s3::ObjectKey,
     subfolders::SubFolders,
 };
-use buildplane_errors::DataError;
-use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{BpError, BpResult, DataError};
 use buildplane_exchange_types::urls::TradingMode;
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Deserializer, Serialize, de};

@@ -5,8 +5,7 @@ use crate::{
     signer::Signer,
     websocket_id::ETWebsocketId,
 };
-use buildplane_errors::ExchangeError;
-use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{BpError, BpResult, ExchangeError};
 use serde::Serialize;
 use serde_with::skip_serializing_none;
 use std::sync::Arc;
