@@ -9,6 +9,7 @@ const BUILD_AGENT_MAX_EXTRACTED_SOURCE_SIZE_BYTES: &str =
 const BUILD_AGENT_SOURCE_DIR: &str = "BUILD_AGENT_SOURCE_DIR";
 const BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS: &str = "BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS";
 const BUILD_AGENT_TIMEOUT_SECS: &str = "BUILD_AGENT_TIMEOUT_SECS";
+const FAILURE_PUBLISH_BUDGET: &str = "FAILURE_PUBLISH_BUDGET";
 const RUST_LOG: &str = "RUST_LOG";
 const S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES: &str = "S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES";
 
@@ -22,6 +23,7 @@ pub struct AgentConfig {
     pub log_filter: String,
     pub lambda_function_name: String,
     pub build_timeout: Duration,
+    pub failure_publish_budget: Duration,
     pub source_dir: PathBuf,
     pub build_cache_dir: PathBuf,
     pub source_download_timeout: Duration,
@@ -50,11 +52,19 @@ impl AgentConfig {
                 "must be greater than zero",
             ));
         }
+        let failure_publish_budget = vars.required_duration_secs(FAILURE_PUBLISH_BUDGET)?;
+        if failure_publish_budget.is_zero() {
+            return Err(BpError::config_invalid(
+                FAILURE_PUBLISH_BUDGET,
+                "must be greater than zero",
+            ));
+        }
 
         Ok(Self {
             log_filter: vars.required_log_filter(RUST_LOG)?,
             lambda_function_name: vars.required(AWS_LAMBDA_FUNCTION_NAME)?,
             build_timeout,
+            failure_publish_budget,
             source_dir: vars.required_path(BUILD_AGENT_SOURCE_DIR)?,
             build_cache_dir: vars.required_path(BUILD_AGENT_BUILD_CACHE_DIR)?,
             source_download_timeout,
@@ -70,10 +80,11 @@ impl AgentConfig {
 mod tests {
     use super::*;
 
-    const REQUIRED: [(&str, &str); 8] = [
+    const REQUIRED: [(&str, &str); 9] = [
         (RUST_LOG, "info"),
         (AWS_LAMBDA_FUNCTION_NAME, "buildplane-agent"),
         (BUILD_AGENT_TIMEOUT_SECS, "300"),
+        (FAILURE_PUBLISH_BUDGET, "30"),
         (BUILD_AGENT_SOURCE_DIR, "/var/task"),
         (BUILD_AGENT_BUILD_CACHE_DIR, "/tmp/buildplane-build-cache"),
         (BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS, "60"),
@@ -91,6 +102,7 @@ mod tests {
 
         assert_eq!(config.lambda_function_name, "buildplane-agent");
         assert_eq!(config.build_timeout, Duration::from_secs(300));
+        assert_eq!(config.failure_publish_budget, Duration::from_secs(30));
         assert_eq!(config.source_dir, PathBuf::from("/var/task"));
         assert_eq!(
             config.max_source_archive_size_bytes,
@@ -122,6 +134,14 @@ mod tests {
 
         let mut values = REQUIRED.to_vec();
         values[2] = (BUILD_AGENT_TIMEOUT_SECS, "0");
+        assert!(AgentConfig::from_vars(&vars(&values)).is_err());
+
+        let mut values = REQUIRED.to_vec();
+        let budget_index = values
+            .iter()
+            .position(|(name, _)| *name == FAILURE_PUBLISH_BUDGET)
+            .unwrap();
+        values[budget_index] = (FAILURE_PUBLISH_BUDGET, "0");
         assert!(AgentConfig::from_vars(&vars(&values)).is_err());
 
         let mut values = REQUIRED.to_vec();

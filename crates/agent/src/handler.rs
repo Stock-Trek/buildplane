@@ -7,11 +7,10 @@ use std::{
 };
 use tokio::time::timeout;
 
-const FAILURE_PUBLISH_BUDGET: Duration = Duration::from_secs(30);
-
 #[derive(Clone)]
 pub struct Handler {
     build_timeout: Duration,
+    failure_publish_budget: Duration,
     source_dir: PathBuf,
     build_cache_dir: PathBuf,
     source_limits: SourceLimits,
@@ -20,12 +19,14 @@ pub struct Handler {
 impl Handler {
     pub fn with_source_limits(
         build_timeout: Duration,
+        failure_publish_budget: Duration,
         source_dir: PathBuf,
         build_cache_dir: PathBuf,
         source_limits: SourceLimits,
     ) -> Self {
         Self {
             build_timeout,
+            failure_publish_budget,
             source_dir,
             build_cache_dir,
             source_limits,
@@ -51,7 +52,7 @@ impl Handler {
             self.source_limits,
         )?;
         let remaining = deadline.saturating_duration_since(Instant::now());
-        let failure_budget = FAILURE_PUBLISH_BUDGET.min(remaining / 4);
+        let failure_budget = self.failure_publish_budget.min(remaining / 4);
         let build_budget = self
             .build_timeout
             .min(remaining.saturating_sub(failure_budget));
@@ -109,9 +110,10 @@ mod tests {
         }
     }
 
-    fn handler(timeout: Duration) -> Handler {
+    fn handler(timeout: Duration, failure_publish_budget: Duration) -> Handler {
         Handler::with_source_limits(
             timeout,
+            failure_publish_budget,
             PathBuf::from("/unused-source"),
             PathBuf::from("/unused-cache"),
             SourceLimits::default(),
@@ -127,8 +129,9 @@ mod tests {
         };
 
         let timeout = Duration::from_secs(1);
-        let deadline = Instant::now() + timeout + FAILURE_PUBLISH_BUDGET;
-        let error = handler(timeout)
+        let failure_publish_budget = Duration::from_secs(30);
+        let deadline = Instant::now() + timeout + failure_publish_budget;
+        let error = handler(timeout, failure_publish_budget)
             .handle(request(signed_post), deadline)
             .await
             .unwrap_err();
@@ -139,7 +142,8 @@ mod tests {
     #[test]
     fn failure_publication_budget_is_reserved_from_the_build_budget() {
         let remaining = Duration::from_secs(40);
-        let failure_budget = FAILURE_PUBLISH_BUDGET.min(remaining / 4);
+        let failure_publish_budget = Duration::from_secs(30);
+        let failure_budget = failure_publish_budget.min(remaining / 4);
         let build_budget = Duration::from_secs(300).min(remaining.saturating_sub(failure_budget));
 
         assert_eq!(failure_budget, Duration::from_secs(10));

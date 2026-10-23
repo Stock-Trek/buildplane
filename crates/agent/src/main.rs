@@ -30,6 +30,7 @@ async fn main() -> BpResult<()> {
     );
     let handler = Handler::with_source_limits(
         config.build_timeout,
+        config.failure_publish_budget,
         config.source_dir,
         config.build_cache_dir,
         source_limits,
