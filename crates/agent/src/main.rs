@@ -68,8 +68,9 @@ impl BuildAgent {
                 %error,
                 "build failed with a retryable error"
             );
-            // Returning Err reports that the orchestrator should retry the
-            // build, which is only appropriate for transient failures.
+            // Returning Err marks the asynchronous invocation as failed, so
+            // Lambda's retry policy retries the build. Only transient failures
+            // should do this.
             return Err(error);
         }
 
@@ -80,8 +81,9 @@ impl BuildAgent {
             "build failed permanently"
         );
         // A permanent failure, such as a user compile error, cannot be fixed by
-        // retrying. Return Ok with a structured failure payload so the
-        // orchestrator can surface the outcome instead of retrying the build.
+        // retrying. Return Ok with a structured failure payload so Lambda does
+        // not retry the invocation. The payload is captured by the
+        // asynchronous invocation destination and logs, not the orchestrator.
         Ok(BuildOutcome::failure(
             error.error_type(),
             error.to_string(),
@@ -111,7 +113,7 @@ mod tests {
     }
 
     #[test]
-    fn retryable_build_errors_are_returned_so_the_orchestrator_retries() {
+    fn retryable_build_errors_are_returned_so_lambda_retries_the_invocation() {
         let error = BpError::Timeout(TimeoutError::BuildTimeout(Duration::from_secs(300)));
 
         let error =
