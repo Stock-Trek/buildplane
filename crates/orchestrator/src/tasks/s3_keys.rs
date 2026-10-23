@@ -9,37 +9,7 @@ const ARTIFACT_PREFIX: &str = "artifact/";
 pub struct S3Keys;
 
 impl S3Keys {
-    pub fn host_prefix(provider: &str, host: &str) -> String {
-        format!("{provider}/{host}/")
-    }
-
-    /// Rewrites a repository object key so it points at `destination_installation_id`.
-    ///
-    /// Keys are laid out as
-    /// `{provider}/{host}/{installation_id}/{repo_id}/...`, so a repository
-    /// transfer only changes the installation segment. Returns `None` when the
-    /// key belongs to a different provider, host, or repository.
-    pub fn transfer_key(
-        key: &str,
-        provider: &str,
-        host: &str,
-        repo_id: &str,
-        destination_installation_id: &str,
-    ) -> Option<String> {
-        let mut segments = key.splitn(5, '/');
-        let key_provider = segments.next()?;
-        let key_host = segments.next()?;
-        let _key_installation_id = segments.next()?;
-        let key_repo_id = segments.next()?;
-        let remainder = segments.next()?;
-        if key_provider != provider || key_host != host || key_repo_id != repo_id {
-            return None;
-        }
-        Some(format!(
-            "{provider}/{host}/{destination_installation_id}/{repo_id}/{remainder}"
-        ))
-    }
-    pub fn ref_key<InstallationId, RepoId, Remote>(
+    pub fn ref_key<RepoId, Remote>(
         git_remote: &Remote,
         repo_id: RepoId,
         ref_name: &str,
@@ -47,9 +17,8 @@ impl S3Keys {
         commit_hash: &str,
     ) -> BpResult<String>
     where
-        InstallationId: Display,
         RepoId: Display,
-        Remote: GitHost<InstallationId, RepoId>,
+        Remote: GitHost<RepoId>,
     {
         let repo = Self::sanitize_path(&repo_id.to_string())?;
         let ref_name = Self::sanitize_path(ref_name)?;
@@ -59,10 +28,9 @@ impl S3Keys {
             SqsRefType::Tag => "tags",
         };
         Ok(format!(
-            "{}/{}/{}/{}/{}/{}/{}/",
+            "{}/{}/{}/{}/{}/{}/",
             git_remote.provider(),
             git_remote.host(),
-            git_remote.installation_id(),
             repo,
             ref_type_name,
             ref_name,
@@ -70,7 +38,7 @@ impl S3Keys {
         ))
     }
 
-    pub fn source_prefix<InstallationId, RepoId, Remote>(
+    pub fn source_prefix<RepoId, Remote>(
         git_remote: &Remote,
         repo_id: RepoId,
         ref_name: &str,
@@ -78,9 +46,8 @@ impl S3Keys {
         commit_hash: &str,
     ) -> BpResult<String>
     where
-        InstallationId: Display,
         RepoId: Display,
-        Remote: GitHost<InstallationId, RepoId>,
+        Remote: GitHost<RepoId>,
     {
         Ok(format!(
             "{}{SOURCE_PREFIX}",
@@ -88,7 +55,7 @@ impl S3Keys {
         ))
     }
 
-    pub fn source_key<InstallationId, RepoId, Remote>(
+    pub fn source_key<RepoId, Remote>(
         git_remote: &Remote,
         repo_id: RepoId,
         ref_name: &str,
@@ -96,9 +63,8 @@ impl S3Keys {
         commit_hash: &str,
     ) -> BpResult<String>
     where
-        InstallationId: Display,
         RepoId: Display,
-        Remote: GitHost<InstallationId, RepoId>,
+        Remote: GitHost<RepoId>,
     {
         Ok(format!(
             "{}algorithms.zip",
@@ -106,7 +72,7 @@ impl S3Keys {
         ))
     }
 
-    pub fn artifact_prefix<InstallationId, RepoId, Remote>(
+    pub fn artifact_prefix<RepoId, Remote>(
         git_remote: &Remote,
         repo_id: RepoId,
         ref_name: &str,
@@ -114,9 +80,8 @@ impl S3Keys {
         commit_hash: &str,
     ) -> BpResult<String>
     where
-        InstallationId: Display,
         RepoId: Display,
-        Remote: GitHost<InstallationId, RepoId>,
+        Remote: GitHost<RepoId>,
     {
         Ok(format!(
             "{}{ARTIFACT_PREFIX}",
@@ -124,7 +89,7 @@ impl S3Keys {
         ))
     }
 
-    pub fn artifact_key<InstallationId, RepoId, Remote>(
+    pub fn artifact_key<RepoId, Remote>(
         git_remote: &Remote,
         repo_id: RepoId,
         ref_name: &str,
@@ -132,9 +97,8 @@ impl S3Keys {
         commit_hash: &str,
     ) -> BpResult<String>
     where
-        InstallationId: Display,
         RepoId: Display,
-        Remote: GitHost<InstallationId, RepoId>,
+        Remote: GitHost<RepoId>,
     {
         Ok(format!(
             "{}runner.cwasm",
@@ -142,7 +106,7 @@ impl S3Keys {
         ))
     }
 
-    pub fn compile_output_key<InstallationId, RepoId, Remote>(
+    pub fn compile_output_key<RepoId, Remote>(
         git_remote: &Remote,
         repo_id: RepoId,
         ref_name: &str,
@@ -150,9 +114,8 @@ impl S3Keys {
         commit_hash: &str,
     ) -> BpResult<String>
     where
-        InstallationId: Display,
         RepoId: Display,
-        Remote: GitHost<InstallationId, RepoId>,
+        Remote: GitHost<RepoId>,
     {
         Ok(format!(
             "{}compile-output.txt",
@@ -189,52 +152,5 @@ impl S3Keys {
                     && character != ' '
                     && !matches!(character, '~' | '^' | ':' | '?' | '*' | '[' | '\\')
             })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn transfer_key_rewrites_installation_segment() {
-        let key = "github/github.com/42/7/heads/main/abc123/source/algorithms.zip";
-
-        assert_eq!(
-            S3Keys::transfer_key(key, "github", "github.com", "7", "99"),
-            Some("github/github.com/99/7/heads/main/abc123/source/algorithms.zip".to_string())
-        );
-    }
-
-    #[test]
-    fn transfer_key_rejects_other_repositories() {
-        let key = "github/github.com/42/7/heads/main/abc123/source/algorithms.zip";
-
-        assert_eq!(
-            S3Keys::transfer_key(key, "github", "github.com", "8", "99"),
-            None
-        );
-    }
-
-    #[test]
-    fn transfer_key_rejects_other_hosts_and_providers() {
-        let key = "github/github.com/42/7/heads/main/abc123/source/algorithms.zip";
-
-        assert_eq!(
-            S3Keys::transfer_key(key, "github", "ghe.example.com", "7", "99"),
-            None
-        );
-        assert_eq!(
-            S3Keys::transfer_key(key, "gitlab", "github.com", "7", "99"),
-            None
-        );
-    }
-
-    #[test]
-    fn transfer_key_rejects_malformed_keys() {
-        assert_eq!(
-            S3Keys::transfer_key("github/github.com/42", "github", "github.com", "42", "99"),
-            None
-        );
     }
 }

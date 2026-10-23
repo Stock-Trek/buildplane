@@ -175,15 +175,6 @@ impl GitHubEventConverter {
                     SqsDetail::RepoAdd { repo_id },
                 )
             }
-            GitHubEventRepositoryAction::Transferred => {
-                let host = self.host(&event.installation)?;
-                Self::accept(
-                    host,
-                    delivery_id,
-                    installation_id,
-                    SqsDetail::RepoTransfer { repo_id },
-                )
-            }
             _ => {
                 EventMetrics::record_ignored_event("repository", &action.to_string());
                 Ok(EventResponse::Ignore)

@@ -21,9 +21,6 @@ pub enum SqsDetail {
     RepoAdd {
         repo_id: String,
     },
-    RepoTransfer {
-        repo_id: String,
-    },
     RefCreate {
         repo_id: String,
         ref_name: String,
