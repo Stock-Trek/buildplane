@@ -6,6 +6,7 @@ use buildplane_time::timeouts::Timeouts;
 use std::{num::NonZeroUsize, time::Duration};
 
 const AWS_CONNECT_TIMEOUT_SECS: &str = "AWS_CONNECT_TIMEOUT_SECS";
+const AWS_ENDPOINT_URL_S3: &str = "AWS_ENDPOINT_URL_S3";
 const AWS_LAMBDA_FUNCTION_NAME: &str = "AWS_LAMBDA_FUNCTION_NAME";
 const AWS_OPERATION_TIMEOUT_SECS: &str = "AWS_OPERATION_TIMEOUT_SECS";
 const BUILD_AGENT_FUNCTION_NAME: &str = "BUILD_AGENT_FUNCTION_NAME";
@@ -81,6 +82,7 @@ impl OrchestratorConfig {
         let allowed_hosts =
             HostAllowlist::from_hosts(vars.required_csv(GITHUB_ENTERPRISE_ALLOWED_HOSTS)?)?;
 
+        let endpoint_url = vars.required_url(AWS_ENDPOINT_URL_S3, &["http", "https"])?;
         let signed_url_expiry = vars.required_duration_secs(S3_SIGNED_URL_EXPIRY_SECS)?;
         if signed_url_expiry.is_zero() || signed_url_expiry > MAX_SIGNED_URL_EXPIRY {
             return Err(BpError::config_invalid(
@@ -114,7 +116,7 @@ impl OrchestratorConfig {
                     .required_parsed(S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES)?,
                 max_artifact_size_bytes: vars.required_parsed(S3_MAX_ARTIFACT_SIZE_BYTES)?,
                 signed_url_expiry,
-                endpoint_url: None,
+                endpoint_url: Some(endpoint_url),
             },
             build_agent_function_name: vars.required(BUILD_AGENT_FUNCTION_NAME)?,
         })
@@ -129,7 +131,7 @@ impl OrchestratorConfig {
 mod tests {
     use super::*;
 
-    const REQUIRED: [(&str, &str); 23] = [
+    const REQUIRED: [(&str, &str); 24] = [
         (RUST_LOG, "info"),
         (AWS_LAMBDA_FUNCTION_NAME, "buildplane-orchestrator"),
         (DEADLINE_BUFFER_SECS, "5"),
@@ -149,6 +151,7 @@ mod tests {
         (SQS_DEDUP_TTL_SECS, "3600"),
         (SQS_PROCESS_CONCURRENCY, "10"),
         (S3_BUCKET_USER_ARTIFACTS, "user-artifacts"),
+        (AWS_ENDPOINT_URL_S3, "http://localhost:9000"),
         (S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES, "16777216"),
         (S3_MAX_ARTIFACT_SIZE_BYTES, "16777216"),
         (S3_SIGNED_URL_EXPIRY_SECS, "3600"),
@@ -167,6 +170,15 @@ mod tests {
         assert_eq!(config.s3.user_artifacts_bucket, "user-artifacts");
         assert_eq!(config.sqs_process_concurrency.get(), 10);
         assert_eq!(config.deadline_buffer, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn reads_s3_endpoint_url() {
+        let config = OrchestratorConfig::from_vars(&vars(&REQUIRED)).unwrap();
+        assert_eq!(
+            config.s3.endpoint_url.as_deref(),
+            Some("http://localhost:9000")
+        );
     }
 
     #[test]
@@ -191,6 +203,7 @@ mod tests {
             (GITHUB_APP_ID, "not a number"),
             (SQS_PROCESS_CONCURRENCY, "0"),
             (S3_SIGNED_URL_EXPIRY_SECS, "0"),
+            (AWS_ENDPOINT_URL_S3, "ftp://minio.example.test"),
             (GITHUB_ENTERPRISE_ALLOWED_HOSTS, "not a host!"),
             (RUST_LOG, "not a valid [directive"),
         ] {
