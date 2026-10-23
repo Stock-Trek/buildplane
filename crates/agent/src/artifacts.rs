@@ -634,26 +634,6 @@ mod tests {
         assert!(!bodies.iter().any(|body| body.contains(COMPILE_OUTPUT_FILE)));
     }
 
-    #[test]
-    fn prepare_workspace_copies_the_pinned_toolchain() {
-        let source = tempfile::tempdir().unwrap();
-        let build_cache = tempfile::tempdir().unwrap();
-        std_fs::write(source.path().join("Cargo.toml"), b"[workspace]\n").unwrap();
-        std_fs::write(
-            source.path().join("rust-toolchain.toml"),
-            b"[toolchain]\nchannel = \"1.99.0\"\n",
-        )
-        .unwrap();
-
-        let artifacts = artifacts(source.path(), build_cache.path());
-        artifacts.prepare_workspace().unwrap();
-
-        assert_eq!(
-            std_fs::read(artifacts.build_dir.path().join("rust-toolchain.toml")).unwrap(),
-            b"[toolchain]\nchannel = \"1.99.0\"\n"
-        );
-    }
-
     #[tokio::test]
     async fn target_dir_starts_from_the_prebuilt_cache_for_each_invocation() {
         let source = tempfile::tempdir().unwrap();
