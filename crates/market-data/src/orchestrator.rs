@@ -11,7 +11,6 @@ use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
 use buildplane_errors::{BpError, BpResult, DataError, TimeoutError};
 use buildplane_time::deadline::Deadline;
-use chrono::{DateTime, Utc};
 use tracing::{error, info, warn};
 
 pub struct Orchestrator;
@@ -52,9 +51,8 @@ impl Orchestrator {
                         Self::process_job(
                             &s3_client,
                             &transfer_client,
-                            bucket,
+                            env_config,
                             job,
-                            env_config.backfill_start,
                             deadline,
                         ),
                     ) => match result {
@@ -74,25 +72,18 @@ impl Orchestrator {
     async fn process_job(
         s3_client: &S3Client,
         transfer_client: &TransferClient,
-        bucket: &Bucket,
+        env_config: &EnvConfig,
         job: &Job,
-        scheduled_backfill_start: Option<DateTime<Utc>>,
         deadline: Deadline,
     ) -> BpResult<JobOutcome> {
+        let bucket = &env_config.s3_bucket;
         match job {
             Job::Update => {
-                Self::process_scheduled(
-                    s3_client,
-                    transfer_client,
-                    bucket,
-                    scheduled_backfill_start,
-                    deadline,
-                )
-                .await
+                Self::process_scheduled(s3_client, transfer_client, env_config, deadline).await
             }
             Job::Backfill(backfill) => {
                 info!("running targeted backfill for {:?}", backfill.pair);
-                let updater = KlinesUpdater::try_new()?;
+                let updater = KlinesUpdater::try_new(env_config)?;
                 let windows_ingested = updater
                     .backfill(s3_client, transfer_client, bucket, backfill, deadline)
                     .await?;
@@ -118,13 +109,19 @@ impl Orchestrator {
     async fn process_scheduled(
         s3_client: &S3Client,
         transfer_client: &TransferClient,
-        bucket: &Bucket,
-        backfill_start: Option<DateTime<Utc>>,
+        env_config: &EnvConfig,
         deadline: Deadline,
     ) -> BpResult<JobOutcome> {
-        let updater = KlinesUpdater::try_new()?;
+        let bucket = &env_config.s3_bucket;
+        let updater = KlinesUpdater::try_new(env_config)?;
         let update_result = updater
-            .update(s3_client, transfer_client, bucket, backfill_start, deadline)
+            .update(
+                s3_client,
+                transfer_client,
+                bucket,
+                Some(env_config.backfill_start),
+                deadline,
+            )
             .await;
         if let Err(error) = &update_result {
             error!("update failed: {error}");

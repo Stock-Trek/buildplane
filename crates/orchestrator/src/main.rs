@@ -1,6 +1,5 @@
-use crate::{context::RsOrchestratorContext, sqs_handler::SqsHandler};
+use crate::{config::OrchestratorConfig, context::RsOrchestratorContext, sqs_handler::SqsHandler};
 use aws_lambda_events::event::sqs::SqsEvent;
-use buildplane_config::env_vars::EnvVarConfig;
 use buildplane_config::tracing_setup::TracingSetup;
 use buildplane_errors::{BpError, BpResult};
 use buildplane_metrics::descriptions::DescriptionsMetrics;
@@ -9,22 +8,18 @@ use metrics_cloudwatch_embedded::lambda::service::run;
 use std::sync::Arc;
 
 mod aws_ops;
+mod config;
 mod context;
 mod sqs_handler;
 mod tasks;
 
-const DEFAULT_FUNCTION_NAME: &str = "buildplane-orchestrator";
-
 #[tokio::main]
 async fn main() -> BpResult<()> {
-    let config = EnvVarConfig::from_env()?;
-    TracingSetup::setup(&config)?;
+    let config = OrchestratorConfig::from_env()?;
+    TracingSetup::setup(&config.log_filter)?;
     let recorder = metrics_cloudwatch_embedded::Builder::new()
         .cloudwatch_namespace("buildplane/orchestrator")
-        .with_dimension(
-            "function",
-            config.lambda_function_name(DEFAULT_FUNCTION_NAME),
-        )
+        .with_dimension("function", config.lambda_function_name.clone())
         .lambda_cold_start_metric(buildplane_metrics::descriptions::COLD_STARTS_TOTAL)
         .init()?;
     DescriptionsMetrics::describe();

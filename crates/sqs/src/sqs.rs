@@ -1,8 +1,6 @@
-use aws_config::SdkConfig;
 use aws_sdk_sqs::{
     Client as SqsClient, error::ProvideErrorMetadata, types::SendMessageBatchRequestEntry,
 };
-use buildplane_config::env_vars::EnvVarConfig;
 use buildplane_errors::SqsError;
 use buildplane_errors::{BpError, BpResult, SqsBatchFailure};
 use buildplane_messages::sqs_message::{SQS_MAX_BATCH_BYTES, SqsMessage};
@@ -19,10 +17,8 @@ pub struct SqsConfig {
 }
 
 impl SqsConfig {
-    pub fn from_env(config: &EnvVarConfig) -> BpResult<Self> {
-        Ok(Self {
-            queue_url: config.sqs_queue_url(),
-        })
+    pub fn new(queue_url: String) -> Self {
+        Self { queue_url }
     }
 }
 
@@ -40,18 +36,6 @@ impl Sqs {
             config,
             timeouts,
         }
-    }
-
-    pub fn from_env(
-        sdk_config: &SdkConfig,
-        timeouts: Timeouts,
-        config: &EnvVarConfig,
-    ) -> BpResult<Self> {
-        Ok(Self::new(
-            SqsClient::new(sdk_config),
-            timeouts,
-            SqsConfig::from_env(config)?,
-        ))
     }
 
     /// Sends every message, splitting them into as many service batches as the

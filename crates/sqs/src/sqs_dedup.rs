@@ -1,5 +1,3 @@
-use buildplane_config::env_vars::EnvVarConfig;
-use buildplane_errors::BpResult;
 use buildplane_messages::sqs_message::SqsMessage;
 use lru::LruCache;
 use parking_lot::Mutex;
@@ -23,12 +21,6 @@ pub struct SqsDedup {
 }
 
 impl SqsDedup {
-    pub fn from_env(config: &EnvVarConfig) -> BpResult<Self> {
-        let capacity = config.sqs_dedup_max_messages();
-        let ttl = config.sqs_dedup_ttl();
-        Ok(Self::new(capacity, ttl))
-    }
-
     pub fn new(capacity: NonZeroUsize, ttl: Duration) -> Self {
         Self {
             seen: Arc::new(Mutex::new(LruCache::new(capacity))),

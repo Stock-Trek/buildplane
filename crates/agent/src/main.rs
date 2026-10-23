@@ -1,6 +1,6 @@
+use crate::config::AgentConfig;
 use crate::handler::Handler;
 use crate::source::SourceLimits;
-use buildplane_config::env_vars::EnvVarConfig;
 use buildplane_config::tracing_setup::TracingSetup;
 use buildplane_errors::{BpError, BpResult};
 use buildplane_messages::build_request::{BuildOutcome, BuildRequest};
@@ -11,34 +11,30 @@ use metrics_cloudwatch_embedded::lambda::service::run;
 use std::time::Instant;
 
 mod artifacts;
+mod config;
 mod handler;
 mod s3;
 mod source;
 
-const DEFAULT_FUNCTION_NAME: &str = "buildplane-agent";
-
 #[tokio::main]
 async fn main() -> BpResult<()> {
-    let config = EnvVarConfig::from_env()?;
-    TracingSetup::setup(&config)?;
+    let config = AgentConfig::from_env()?;
+    TracingSetup::setup(&config.log_filter)?;
     let recorder = metrics_cloudwatch_embedded::Builder::new()
         .cloudwatch_namespace("buildplane/agent")
-        .with_dimension(
-            "function",
-            config.lambda_function_name(DEFAULT_FUNCTION_NAME),
-        )
+        .with_dimension("function", config.lambda_function_name.clone())
         .lambda_cold_start_metric(buildplane_metrics::descriptions::COLD_STARTS_TOTAL)
         .init()?;
     DescriptionsMetrics::describe();
     let source_limits = SourceLimits::new(
-        config.build_agent_source_download_timeout(),
-        config.s3_max_source_archive_size_bytes(),
-        config.build_agent_max_extracted_source_size_bytes().get(),
+        config.source_download_timeout,
+        config.max_source_archive_size_bytes,
+        config.max_extracted_source_size_bytes.get(),
     );
     let handler = Handler::with_source_limits(
-        config.build_agent_timeout(),
-        config.build_agent_source_dir(),
-        config.build_agent_build_cache_dir(),
+        config.build_timeout,
+        config.source_dir,
+        config.build_cache_dir,
         source_limits,
     );
     run(

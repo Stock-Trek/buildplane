@@ -18,7 +18,6 @@ use crate::{
     event_response::EventResponse,
     infisical::secrets::Secrets,
 };
-use buildplane_config::env_vars::EnvVarConfig;
 use buildplane_errors::{BpError, BpResult};
 use buildplane_errors::{GitHubError, HttpError};
 use buildplane_github::host_allow_list::HostAllowlist;
@@ -37,18 +36,20 @@ pub struct GitHubEventConverter {
     allowed_hosts: HostAllowlist,
 }
 
-impl EventConverter for GitHubEventConverter {
-    fn new(secrets: &Secrets, config: &EnvVarConfig) -> BpResult<Self> {
+impl GitHubEventConverter {
+    pub fn new(secrets: &Secrets, allowed_hosts: HostAllowlist) -> BpResult<Self> {
         let secret = secrets.get(GITHUB_WEBHOOK_SECRET)?;
         if secret.is_empty() {
             Err(BpError::config_empty(GITHUB_WEBHOOK_SECRET))?;
         }
         Ok(Self {
             secret,
-            allowed_hosts: HostAllowlist::from_env(config)?,
+            allowed_hosts,
         })
     }
+}
 
+impl EventConverter for GitHubEventConverter {
     fn event_response(&self, request: &lambda_http::Request) -> BpResult<EventResponse> {
         let Some(event_type_str) = request
             .headers()

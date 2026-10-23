@@ -1,5 +1,6 @@
 use crate::{
     constants::{UPDATE_QUANTIZATION, common_trading_pairs},
+    env_config::EnvConfig,
     ingest::{Ingest, IngestOutcome, WindowIngest},
     job::BackfillJob,
     plan,
@@ -78,13 +79,13 @@ struct TradingPairUpdate {
 }
 
 impl KlinesUpdater {
-    pub fn try_new() -> BpResult<Self> {
+    pub fn try_new(config: &EnvConfig) -> BpResult<Self> {
         let mut binance: HashMap<TradingMode, Arc<dyn ExchangeUpdater>> = HashMap::new();
-        for trading_mode in [TradingMode::Paper, TradingMode::Real] {
-            binance.insert(
-                trading_mode,
-                Arc::new(BinanceUpdater::try_new(trading_mode)?),
-            );
+        for (trading_mode, url) in [
+            (TradingMode::Paper, config.binance_http_paper.clone()),
+            (TradingMode::Real, config.binance_http_real.clone()),
+        ] {
+            binance.insert(trading_mode, Arc::new(BinanceUpdater::try_new(url)?));
         }
         Ok(Self { binance })
     }

@@ -1,14 +1,17 @@
 use crate::{
     aws::Aws,
+    config::WebhookConfig,
     dedup::DeliveryDedup,
     dto::event_converter::{EventConverter, EventConverters},
-    infisical::secrets::Secrets,
+    infisical::secrets::{InfisicalConfig, Secrets},
 };
 use aws_config::SdkConfig;
-use buildplane_config::env_vars::EnvVarConfig;
+use aws_sdk_sqs::Client as SqsClient;
 use buildplane_errors::SecretsError;
 use buildplane_errors::{BpError, BpResult};
+use buildplane_github::host_allow_list::HostAllowlist;
 use buildplane_metrics::secret::SecretMetrics;
+use buildplane_sqs::sqs::{Sqs, SqsConfig};
 use buildplane_time::deadline::Deadline;
 use buildplane_time::timeouts::Timeouts;
 use std::{
@@ -43,18 +46,20 @@ pub struct RsWebhookContext {
     refresh_cooldown: Duration,
     failure_backoff: Duration,
     deadline_buffer: Duration,
-    env: EnvVarConfig,
+    infisical: InfisicalConfig,
+    allowed_hosts: HostAllowlist,
 }
 
 impl RsWebhookContext {
-    pub async fn new(config: &EnvVarConfig) -> BpResult<Self> {
-        let aws_timeouts = Aws::load_timeouts(config)?;
+    pub async fn new(config: &WebhookConfig) -> BpResult<Self> {
+        let aws_timeouts = config.aws_timeouts;
         let sdk_config = Aws::load_sdk_config(aws_timeouts).await;
-        let aws = Aws::from_env(&sdk_config, aws_timeouts, config)?;
-        let dedup = DeliveryDedup::from_env(config)?;
-        let refresh_cooldown = config.webhook_refresh_cooldown();
-        let failure_backoff = config.webhook_secret_failure_backoff();
-        let deadline_buffer = config.deadline_buffer();
+        let aws = Aws::new(Sqs::new(
+            SqsClient::new(&sdk_config),
+            aws_timeouts,
+            SqsConfig::new(config.sqs_queue_url.clone()),
+        ));
+        let dedup = DeliveryDedup::new(config.dedup_max_deliveries, config.dedup_ttl);
         let context = Self {
             aws,
             sdk_config,
@@ -64,15 +69,16 @@ impl RsWebhookContext {
             load: Mutex::new(()),
             refreshed_at: Mutex::new(None),
             backoff_until: Mutex::new(None),
-            refresh_cooldown,
-            failure_backoff,
-            deadline_buffer,
-            env: config.clone(),
+            refresh_cooldown: config.refresh_cooldown,
+            failure_backoff: config.secret_failure_backoff,
+            deadline_buffer: config.deadline_buffer,
+            infisical: config.infisical.clone(),
+            allowed_hosts: config.github_allowed_hosts.clone(),
         };
         // Warm the cache eagerly, but tolerate a transient Infisical outage:
         // startup must not fail, and the first request will retry once the
         // failure backoff expires.
-        let cold_start_refresh_timeout = config.webhook_cold_start_refresh_timeout();
+        let cold_start_refresh_timeout = config.cold_start_refresh_timeout;
         let deadline = Deadline::new(
             SystemTime::now() + cold_start_refresh_timeout,
             context.deadline_buffer,
@@ -164,8 +170,12 @@ impl RsWebhookContext {
     }
 
     async fn try_load(&self, deadline: Deadline) -> BpResult<Converters> {
-        let secrets = Secrets::load(&self.sdk_config, self.timeouts, deadline, &self.env).await?;
-        Ok(Arc::new(EventConverters::all(&secrets, &self.env)?))
+        let secrets =
+            Secrets::load(&self.sdk_config, self.timeouts, deadline, &self.infisical).await?;
+        Ok(Arc::new(EventConverters::all(
+            &secrets,
+            self.allowed_hosts.clone(),
+        )?))
     }
 
     async fn acquire_load_lock(&self) -> MutexGuard<'_, ()> {

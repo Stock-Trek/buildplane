@@ -1,5 +1,3 @@
-use buildplane_config::env_vars::EnvVarConfig;
-use buildplane_errors::BpResult;
 use lru::LruCache;
 use parking_lot::Mutex;
 use std::{
@@ -22,12 +20,6 @@ pub struct DeliveryDedup {
 }
 
 impl DeliveryDedup {
-    pub fn from_env(config: &EnvVarConfig) -> BpResult<Self> {
-        let capacity = config.webhook_dedup_max_deliveries();
-        let ttl = config.webhook_dedup_ttl();
-        Ok(Self::new(capacity, ttl))
-    }
-
     pub fn new(capacity: NonZeroUsize, ttl: Duration) -> Self {
         Self {
             seen: Arc::new(Mutex::new(LruCache::new(capacity))),

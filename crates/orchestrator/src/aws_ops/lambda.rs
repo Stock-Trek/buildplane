@@ -1,7 +1,5 @@
 use crate::aws_ops::build_request::BuildRequest;
-use aws_config::SdkConfig;
 use aws_sdk_lambda::{Client as LambdaClient, primitives::Blob, types::InvocationType};
-use buildplane_config::env_vars::EnvVarConfig;
 use buildplane_errors::BpError;
 use buildplane_errors::BpResult;
 use buildplane_errors::TimeoutError;
@@ -13,10 +11,8 @@ pub struct LambdaConfig {
 }
 
 impl LambdaConfig {
-    pub fn from_env(config: &EnvVarConfig) -> BpResult<Self> {
-        Ok(Self {
-            function_name: config.build_agent_function_name(),
-        })
+    pub fn new(function_name: String) -> Self {
+        Self { function_name }
     }
 }
 
@@ -33,18 +29,6 @@ impl Lambda {
             config,
             timeouts,
         }
-    }
-
-    pub fn from_env(
-        sdk_config: &SdkConfig,
-        timeouts: Timeouts,
-        config: &EnvVarConfig,
-    ) -> BpResult<Self> {
-        Ok(Self::new(
-            LambdaClient::new(sdk_config),
-            timeouts,
-            LambdaConfig::from_env(config)?,
-        ))
     }
 
     pub async fn run_build(&self, request: BuildRequest, deadline: Deadline) -> BpResult<()> {

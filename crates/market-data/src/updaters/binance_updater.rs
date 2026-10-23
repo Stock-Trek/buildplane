@@ -15,7 +15,6 @@ use buildplane_exchange_types::{
     klines::{Kline, KlinesResponse},
     new_types::Milliseconds,
     signer::Signer,
-    urls::TradingMode,
 };
 use buildplane_type_bridge::{BinanceConverter, Converter};
 use chrono::{DateTime, Utc};
@@ -80,11 +79,11 @@ impl BinanceUpdater {
         )
     }
 
-    pub fn try_new(trading_mode: TradingMode) -> BpResult<Self> {
+    pub fn try_new(url: String) -> BpResult<Self> {
         let converter = BinanceConverter::default();
         let signer = Signer::new_unencrypted(ByteEncoder::HexLower);
         let connector = Connector::try_new_http_reqwest(
-            trading_mode,
+            url,
             BinanceExchange,
             signer,
             REQUEST_TIMEOUT,

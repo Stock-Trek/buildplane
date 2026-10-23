@@ -1,6 +1,5 @@
 use crate::infisical::auth_flow::InfisicalAwsAuth;
 use aws_config::SdkConfig;
-use buildplane_config::env_vars::EnvVarConfig;
 use buildplane_errors::HttpError;
 use buildplane_errors::{BpError, BpResult};
 use buildplane_time::deadline::Deadline;
@@ -16,11 +15,10 @@ impl Secrets {
         sdk_config: &SdkConfig,
         timeouts: Timeouts,
         deadline: Deadline,
-        config: &EnvVarConfig,
+        config: &InfisicalConfig,
     ) -> BpResult<Self> {
-        let config = InfisicalConfig::from_env(config)?;
         let http_client = Self::http_client(timeouts)?;
-        let auth = InfisicalAwsAuth::new(http_client, config.base_url, timeouts);
+        let auth = InfisicalAwsAuth::new(http_client, config.base_url.clone(), timeouts);
         let secrets = auth
             .try_load_secrets(
                 sdk_config,
@@ -54,21 +52,27 @@ impl Secrets {
     }
 }
 
-struct InfisicalConfig {
-    identity_id: String,
-    project_id: String,
-    environment: String,
-    base_url: String,
+#[derive(Debug, Clone)]
+pub struct InfisicalConfig {
+    pub identity_id: String,
+    pub project_id: String,
+    pub environment: String,
+    pub base_url: String,
 }
 
 impl InfisicalConfig {
-    fn from_env(config: &EnvVarConfig) -> BpResult<Self> {
-        Ok(Self {
-            identity_id: config.infisical_identity_id(),
-            project_id: config.infisical_project_id(),
-            environment: config.infisical_environment(),
-            base_url: config.infisical_base_url(),
-        })
+    pub fn new(
+        identity_id: String,
+        project_id: String,
+        environment: String,
+        base_url: String,
+    ) -> Self {
+        Self {
+            identity_id,
+            project_id,
+            environment,
+            base_url,
+        }
     }
 }
 

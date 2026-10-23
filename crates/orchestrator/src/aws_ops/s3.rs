@@ -9,7 +9,6 @@ use aws_sdk_s3::{
     error::{ProvideErrorMetadata, SdkError},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
-use buildplane_config::env_vars::{EnvVarConfig, S3_SIGNED_URL_EXPIRY_SECS};
 use buildplane_errors::{BpError, BpResult, Retryability};
 use buildplane_errors::{StorageError, TimeoutError};
 use buildplane_time::deadline::Deadline;
@@ -28,25 +27,15 @@ use url::Url;
 const ALGORITHM: &str = "AWS4-HMAC-SHA256";
 const MIN_OBJECT_SIZE_BYTES: u64 = 0;
 const SERVICE: &str = "s3";
+const S3_SIGNED_URL_EXPIRY_SECS: &str = "S3_SIGNED_URL_EXPIRY_SECS";
 
+#[derive(Debug, Clone)]
 pub struct S3Config {
     pub user_artifacts_bucket: String,
     pub max_source_archive_size_bytes: u64,
     pub max_artifact_size_bytes: u64,
     pub signed_url_expiry: Duration,
     pub endpoint_url: Option<String>,
-}
-
-impl S3Config {
-    pub fn from_env(config: &EnvVarConfig) -> BpResult<Self> {
-        Ok(Self {
-            user_artifacts_bucket: config.s3_bucket_user_artifacts(),
-            max_source_archive_size_bytes: config.s3_max_source_archive_size_bytes(),
-            max_artifact_size_bytes: config.s3_max_artifact_size_bytes(),
-            signed_url_expiry: config.s3_signed_url_expiry(),
-            endpoint_url: config.aws_endpoint_url_s3(),
-        })
-    }
 }
 
 pub struct PresignedPost {
@@ -124,10 +113,10 @@ impl S3 {
         }
     }
 
-    pub fn from_env(
+    pub fn from_sdk_config(
         sdk_config: &SdkConfig,
         timeouts: Timeouts,
-        config: &EnvVarConfig,
+        config: S3Config,
     ) -> BpResult<Self> {
         let credentials_provider = sdk_config
             .credentials_provider()
@@ -136,7 +125,6 @@ impl S3 {
             .region()
             .map(|region| region.as_ref().to_string())
             .unwrap_or_else(|| "us-east-1".to_string());
-        let config = S3Config::from_env(config)?;
         let endpoint_url = config
             .endpoint_url
             .clone()

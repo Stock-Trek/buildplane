@@ -1,5 +1,4 @@
-use crate::{context::RsWebhookContext, webhook_handler::WebhookHandler};
-use buildplane_config::env_vars::EnvVarConfig;
+use crate::{config::WebhookConfig, context::RsWebhookContext, webhook_handler::WebhookHandler};
 use buildplane_config::tracing_setup::TracingSetup;
 use buildplane_errors::{BpError, BpResult};
 use buildplane_metrics::descriptions::DescriptionsMetrics;
@@ -8,6 +7,7 @@ use metrics_cloudwatch_embedded::lambda::service::run_http;
 use std::sync::Arc;
 
 mod aws;
+mod config;
 mod context;
 mod dedup;
 mod dto;
@@ -16,18 +16,13 @@ mod infisical;
 mod responses;
 mod webhook_handler;
 
-const DEFAULT_FUNCTION_NAME: &str = "buildplane-webhook";
-
 #[tokio::main]
 async fn main() -> BpResult<()> {
-    let config = EnvVarConfig::from_env()?;
-    TracingSetup::setup(&config)?;
+    let config = WebhookConfig::from_env()?;
+    TracingSetup::setup(&config.log_filter)?;
     let recorder = metrics_cloudwatch_embedded::Builder::new()
         .cloudwatch_namespace("buildplane/webhook")
-        .with_dimension(
-            "function",
-            config.lambda_function_name(DEFAULT_FUNCTION_NAME),
-        )
+        .with_dimension("function", config.lambda_function_name.clone())
         .lambda_cold_start_metric(buildplane_metrics::descriptions::COLD_STARTS_TOTAL)
         .init()?;
     DescriptionsMetrics::describe();
