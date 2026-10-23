@@ -1,6 +1,6 @@
 use crate::{
-    binance::BinanceError, config::ConfigError, connector::ConnectorError, data::DataError,
-    exchange::ExchangeError, github::GitHubError, http::HttpError, io::IoError,
+    binance::BinanceError, config::ConfigError, connector::ConnectorError, connector::SendFailure,
+    data::DataError, exchange::ExchangeError, github::GitHubError, http::HttpError, io::IoError,
     lambda::LambdaError, rate_limit::RateLimitError, retryability::Retryability,
     secrets::SecretsError, sqs::SqsError, storage::StorageError, system::SystemError,
     timeout::TimeoutError, validation::ValidationError,
@@ -229,12 +229,11 @@ impl BpError {
         )
     }
 
-    pub fn was_not_sent(&self) -> bool {
-        matches!(self, Self::Connector(error) if error.was_not_sent())
-    }
-
-    pub fn has_unknown_response(&self) -> bool {
-        matches!(self, Self::Connector(error) if error.has_unknown_response())
+    pub fn send_failure(&self) -> Option<SendFailure> {
+        match self {
+            Self::Connector(error) => error.send_failure(),
+            _ => None,
+        }
     }
 
     pub fn error_type(&self) -> &'static str {
@@ -256,10 +255,6 @@ impl BpError {
             Self::Timeout(error) => error.error_type(),
             Self::Validation(error) => error.error_type(),
         }
-    }
-
-    pub fn is_retryable(&self) -> bool {
-        self.retryability() == Retryability::Retryable
     }
 
     pub fn retryability(&self) -> Retryability {

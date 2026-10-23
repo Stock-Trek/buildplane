@@ -16,6 +16,14 @@ pub enum Retryability {
 }
 
 impl Retryability {
+    pub fn is_retryable(self) -> bool {
+        matches!(self, Self::Retryable)
+    }
+
+    pub fn is_permanent(self) -> bool {
+        matches!(self, Self::Permanent)
+    }
+
     pub fn sqs_batch_failure_retryability(code: &str) -> Retryability {
         if Self::is_permanent_sqs_error_code(code) {
             Retryability::Permanent
@@ -226,4 +234,17 @@ fn is_permanent_os_error(error: &std::io::Error) -> bool {
 #[cfg(not(unix))]
 fn is_permanent_os_error(_error: &std::io::Error) -> bool {
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn predicates_match_the_retryability_variant() {
+        assert!(Retryability::Retryable.is_retryable());
+        assert!(!Retryability::Retryable.is_permanent());
+        assert!(Retryability::Permanent.is_permanent());
+        assert!(!Retryability::Permanent.is_retryable());
+    }
 }

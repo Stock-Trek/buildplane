@@ -313,7 +313,7 @@ mod tests {
             BpError::Storage(StorageError::ExtractedSourceTooLarge { .. })
         ));
         assert_eq!(error.error_type(), "extracted_source_too_large");
-        assert!(!error.is_retryable());
+        assert!(!error.retryability().is_retryable());
         assert!(
             !directory
                 .path()
@@ -354,6 +354,6 @@ mod tests {
             BpError::Storage(StorageError::SourceArchiveTooLarge { .. })
         ));
         assert_eq!(error.error_type(), "source_archive_too_large");
-        assert!(!error.is_retryable());
+        assert!(!error.retryability().is_retryable());
     }
 }

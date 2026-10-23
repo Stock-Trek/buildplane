@@ -62,7 +62,11 @@ impl DataError {
     pub fn retryability(&self) -> Retryability {
         match self {
             Self::LockContention { .. } => Retryability::Retryable,
-            Self::Multiple { failures } if failures.iter().any(BpError::is_retryable) => {
+            Self::Multiple { failures }
+                if failures
+                    .iter()
+                    .any(|error| error.retryability().is_retryable()) =>
+            {
                 Retryability::Retryable
             }
             _ => Retryability::Permanent,
@@ -100,7 +104,7 @@ mod tests {
             BpError::Timeout(TimeoutError::TimedOut),
         ]);
 
-        assert!(error.is_retryable());
+        assert!(error.retryability().is_retryable());
     }
 
     #[test]
@@ -114,7 +118,7 @@ mod tests {
             }),
         ]);
 
-        assert!(!error.is_retryable());
+        assert!(!error.retryability().is_retryable());
     }
 
     #[test]
@@ -130,7 +134,7 @@ mod tests {
             panic!("expected aggregated error");
         };
         assert_eq!(failures.len(), 2);
-        assert!(error.is_retryable());
+        assert!(error.retryability().is_retryable());
     }
 
     #[test]

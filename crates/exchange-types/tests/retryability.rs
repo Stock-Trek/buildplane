@@ -36,7 +36,10 @@ fn error(code: i64, data: Option<BinanceErrorData>) -> BinanceError {
 fn binance_transient_codes_are_retryable() {
     for code in [-1003, -1001, -1007] {
         let error = response(400, None, error(code, None)).klines().unwrap_err();
-        assert!(error.is_retryable(), "code {code} should be retryable");
+        assert!(
+            error.retryability().is_retryable(),
+            "code {code} should be retryable"
+        );
         assert_eq!(error.retryability(), Retryability::Retryable);
     }
 }
@@ -46,7 +49,7 @@ fn binance_permanent_codes_are_permanent() {
     let error = response(400, None, error(-2015, None))
         .klines()
         .unwrap_err();
-    assert!(!error.is_retryable());
+    assert!(!error.retryability().is_retryable());
     assert_eq!(error.retryability(), Retryability::Permanent);
 }
 
@@ -75,7 +78,7 @@ fn exchange_failure_preserves_code_message_status_and_retry_after() {
 #[test]
 fn exchange_failure_uses_http_status_for_unknown_codes() {
     let error = response(503, None, error(-1, None)).klines().unwrap_err();
-    assert!(error.is_retryable());
+    assert!(error.retryability().is_retryable());
 }
 
 #[test]

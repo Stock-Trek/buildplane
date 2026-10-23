@@ -37,7 +37,7 @@ impl SqsHandler {
         let mut response = SqsBatchResponse::default();
         for (record, result) in results {
             if let Err(error) = result {
-                if !error.is_retryable() {
+                if !error.retryability().is_retryable() {
                     tracing::error!(
                         message_id = record.message_id.as_deref().unwrap_or("unknown"),
                         %error,

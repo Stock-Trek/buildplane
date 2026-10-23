@@ -78,7 +78,7 @@ impl RsWebhookContext {
             context.deadline_buffer,
         );
         if let Err(error) = context.converters(deadline).await {
-            if !error.is_retryable() {
+            if !error.retryability().is_retryable() {
                 return Err(error);
             }
             tracing::warn!("failed to load secrets during initialisation: {error}");
@@ -153,7 +153,7 @@ impl RsWebhookContext {
             Err(error) => {
                 SecretMetrics::record_secret_load_failure(error.error_type());
                 tracing::warn!("failed to load secrets: {error}");
-                if !error.is_retryable() {
+                if !error.retryability().is_retryable() {
                     return Err(error);
                 }
                 let retry_after = self.jittered_backoff();

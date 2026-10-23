@@ -14,7 +14,7 @@ use crate::{
     websocket_listener::WebsocketListener,
 };
 use buildplane_errors::{BpError, BpResult};
-use buildplane_errors::{ConnectorError, RateLimitError, TimeoutError};
+use buildplane_errors::{ConnectorError, RateLimitError, SendFailure, TimeoutError};
 use buildplane_exchange_types::{
     exchange::ETExchange,
     http::HttpResponse,
@@ -222,7 +222,7 @@ where
         error: &BpError,
         costs: &mut Vec<(RateLimitRestriction, UsageCount)>,
     ) -> BpResult<()> {
-        if error.was_not_sent() {
+        if error.send_failure().is_some_and(SendFailure::is_not_sent) {
             self.refund(std::mem::take(costs))?;
         }
         Ok(())
@@ -238,7 +238,7 @@ where
         error: BpError,
         costs: Vec<(RateLimitRestriction, UsageCount)>,
     ) -> BpResult<T> {
-        if error.was_not_sent() {
+        if error.send_failure().is_some_and(SendFailure::is_not_sent) {
             self.refund(costs)?;
         }
         Err(error)
@@ -356,7 +356,7 @@ where
                 },
                 Err(error) => error,
             };
-            if retries_remaining == 0 || !error.is_retryable() {
+            if retries_remaining == 0 || !error.retryability().is_retryable() {
                 return self.submission_error_http(request, error, costs);
             }
             retries_remaining -= 1;
@@ -442,7 +442,7 @@ where
     where
         Request: ETHttpRequest,
     {
-        if error.has_unknown_response() {
+        if error.send_failure().is_some_and(SendFailure::is_unknown) {
             warn!(
                 exchange = self.exchange.name(),
                 error = %error,
@@ -579,7 +579,7 @@ where
                 Ok(response) => return Ok(SubmissionOutcome::Submitted(response)),
                 Err(error) => error,
             };
-            if retries_remaining == 0 || !error.is_retryable() {
+            if retries_remaining == 0 || !error.retryability().is_retryable() {
                 return self.submission_error_websocket(request, error, costs);
             }
             retries_remaining -= 1;
@@ -656,7 +656,7 @@ where
     where
         Request: ETWebsocketRequest,
     {
-        if error.has_unknown_response() {
+        if error.send_failure().is_some_and(SendFailure::is_unknown) {
             warn!(
                 exchange = self.exchange.name(),
                 error = %error,
