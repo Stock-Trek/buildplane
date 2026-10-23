@@ -41,21 +41,67 @@ impl SqsDedup {
     ///
     /// Call [`Self::forget`] if processing fails so the message can be retried.
     pub fn is_duplicate(&self, message: &SqsMessage) -> bool {
+        match self.claim(message) {
+            Some(guard) => {
+                guard.complete();
+                false
+            }
+            None => true,
+        }
+    }
+
+    /// Marks `message` as in progress and returns a guard that forgets it again
+    /// unless processing completes successfully.
+    ///
+    /// Returns `None` when an identical message was already seen within the TTL
+    /// window, in which case it is a duplicate. Call
+    /// [`SqsDedupGuard::complete`] once processing succeeds so the message stays
+    /// deduplicated.
+    pub fn claim(&self, message: &SqsMessage) -> Option<SqsDedupGuard> {
         let mut seen = self.seen.lock();
         if seen
             .get(message)
             .is_some_and(|inserted| inserted.elapsed() < self.ttl)
         {
-            return true;
+            return None;
         }
         seen.put(message.clone(), Instant::now());
-        false
+        Some(SqsDedupGuard {
+            dedup: self.clone(),
+            message: message.clone(),
+            completed: false,
+        })
     }
 
     /// Removes `message` so a later retry can be processed after a failed
     /// attempt.
     pub fn forget(&self, message: &SqsMessage) {
         self.seen.lock().pop(message);
+    }
+}
+
+/// Keeps a claimed message marked as seen until processing completes.
+///
+/// Dropping the guard without calling [`Self::complete`] forgets the message,
+/// including when processing panics, so a redelivery can be retried.
+pub struct SqsDedupGuard {
+    dedup: SqsDedup,
+    message: SqsMessage,
+    completed: bool,
+}
+
+impl SqsDedupGuard {
+    /// Marks processing as successful so the message stays deduplicated.
+    pub fn complete(mut self) {
+        self.completed = true;
+    }
+}
+
+impl Drop for SqsDedupGuard {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.dedup.forget(&self.message);
+        }
     }
 }
 
@@ -94,6 +140,31 @@ mod tests {
 
         dedup.forget(&message);
         assert!(!dedup.is_duplicate(&message));
+    }
+
+    #[test]
+    fn guard_forgets_message_when_processing_panics() {
+        let dedup = SqsDedup::new(capacity(2), Duration::from_secs(60));
+        let message = message("abc");
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = dedup.claim(&message).expect("message should be claimed");
+            panic!("processing failed");
+        }));
+
+        assert!(result.is_err());
+        assert!(dedup.claim(&message).is_some());
+    }
+
+    #[test]
+    fn completed_guard_keeps_message_deduplicated() {
+        let dedup = SqsDedup::new(capacity(2), Duration::from_secs(60));
+        let message = message("abc");
+
+        let guard = dedup.claim(&message).expect("message should be claimed");
+        guard.complete();
+
+        assert!(dedup.claim(&message).is_none());
     }
 
     #[test]
