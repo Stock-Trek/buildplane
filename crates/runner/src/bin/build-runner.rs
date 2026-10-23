@@ -58,7 +58,6 @@ impl BuildRunner {
         }
     }
 
-    /// Deserialise the request body into a `Command`.
     fn parse_request(body: &str) -> Result<Command, String> {
         if body.trim().is_empty() {
             return Err("body is empty".to_string());
@@ -67,7 +66,6 @@ impl BuildRunner {
             .map_err(|error| format!("body is not a valid run request: {error}"))
     }
 
-    /// Invoke the algorithm entry point with the resolved arguments.
     fn invoke(command: &Command) -> Result<i32, NulError> {
         let args = Self::args(command)
             .iter()
@@ -80,7 +78,6 @@ impl BuildRunner {
         Ok(unsafe { Entry::run(argv.len() as i32, argv.as_ptr()) })
     }
 
-    /// Build the argv layout expected by `entry` for `command`.
     fn args(command: &Command) -> Vec<&str> {
         match command {
             Command::Algorithm { strategy_name } => {
@@ -135,7 +132,6 @@ impl BuildRunner {
         }
     }
 
-    /// Print a queued value as a JSON line.
     fn emit(kind: &str, payload: Value) {
         println!("{}", json!({ "type": kind, "payload": payload }));
     }

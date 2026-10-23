@@ -84,7 +84,6 @@ impl EventConverter for GitHubEventConverter {
     }
 }
 
-// responses
 impl GitHubEventConverter {
     fn installation_response(
         &self,
@@ -250,7 +249,6 @@ impl GitHubEventConverter {
     }
 }
 
-// helpers
 impl GitHubEventConverter {
     fn is_zero_sha(sha: &str) -> bool {
         !sha.is_empty() && sha.bytes().all(|byte| byte == b'0')

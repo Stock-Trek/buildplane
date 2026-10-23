@@ -248,7 +248,6 @@ where
                 }),
             }
         } else {
-            // No error and no result, treat as a generic failure
             BinanceResponsePayload::Failure(BinanceError {
                 code: -1,
                 msg: "Websocket response missing both error and result".to_string(),

@@ -233,7 +233,6 @@ impl GitHubInstallation {
     }
 }
 
-// helpers
 impl GitHubInstallation {
     async fn collect_directory_files(
         &self,

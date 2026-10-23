@@ -84,7 +84,6 @@ impl InfisicalAwsAuth {
     }
 }
 
-// private helper functions
 impl InfisicalAwsAuth {
     fn region(config: &SdkConfig) -> Region {
         config
@@ -207,7 +206,6 @@ impl InfisicalAwsAuth {
                 .map_err(|error| BpError::Http(HttpError::InvalidHeaderValue(error)))?;
             header_map.insert(name, value);
         }
-        // Signing container. Never sent, built purely to allow aws-sigv4 to create signed headers
         let mut temp_signing_request = http::Request::builder()
             .method(http::Method::POST)
             .uri(endpoint)
@@ -215,7 +213,6 @@ impl InfisicalAwsAuth {
             .map_err(|error| BpError::Http(HttpError::Http(error)))?;
         *temp_signing_request.headers_mut() = header_map;
         instructions.apply_to_request_http1x(&mut temp_signing_request);
-        // read headers back out
         let mut signed_headers = temp_signing_request
             .headers()
             .iter()
