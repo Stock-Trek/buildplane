@@ -31,13 +31,8 @@ async fn function_handler(
         job.mode()
     );
     let outcome = Orchestrator::run_job(&env_config, &job, deadline).await?;
-    let status = if outcome.windows_skipped == 0 {
-        "ok"
-    } else {
-        "incomplete"
-    };
     Ok(json!({
-        "status": status,
+        "status": outcome.status(),
         "mode": job.mode(),
         "windows_ingested": outcome.windows_ingested,
         "windows_skipped": outcome.windows_skipped,

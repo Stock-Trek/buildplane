@@ -91,6 +91,7 @@ impl Orchestrator {
                     windows_ingested: windows_ingested.windows_ingested,
                     windows_skipped: windows_ingested.windows_skipped,
                     compaction_targets: 0,
+                    incomplete: windows_ingested.windows_skipped > 0,
                 })
             }
             Job::Compact(compact) => {
@@ -101,6 +102,7 @@ impl Orchestrator {
                     windows_ingested: 0,
                     windows_skipped: 0,
                     compaction_targets: 1,
+                    incomplete: false,
                 })
             }
         }
@@ -129,10 +131,9 @@ impl Orchestrator {
         if deadline.remaining().is_err() {
             return update_result.map(|update| JobOutcome {
                 windows_ingested: update.windows_ingested,
-                // Compaction did not run, so the scheduled job is incomplete
-                // even if every update window was processed.
-                windows_skipped: update.windows_skipped.max(1),
+                windows_skipped: update.windows_skipped,
                 compaction_targets: 0,
+                incomplete: true,
             });
         }
         let compact_result = Self::compact_all(s3_client, transfer_client, bucket, deadline).await;
@@ -140,12 +141,13 @@ impl Orchestrator {
             error!("compaction failed: {error}");
         }
         match (update_result, compact_result) {
-            (Ok(update), Ok(())) => Ok(JobOutcome {
+            (Ok(update), Ok(compaction_targets)) => Ok(JobOutcome {
                 windows_ingested: update.windows_ingested,
                 windows_skipped: update.windows_skipped,
-                compaction_targets: 0,
+                compaction_targets,
+                incomplete: update.windows_skipped > 0,
             }),
-            (Err(error), Ok(())) | (Ok(_), Err(error)) => Err(error),
+            (Err(error), Ok(_)) | (Ok(_), Err(error)) => Err(error),
             (Err(update_error), Err(compact_error)) => {
                 Err(BpError::multiple([update_error, compact_error]))
             }
@@ -157,7 +159,7 @@ impl Orchestrator {
         transfer_client: &TransferClient,
         bucket: &Bucket,
         deadline: Deadline,
-    ) -> BpResult<()> {
+    ) -> BpResult<usize> {
         info!("compact all");
         let mut prefixes = common_trading_pairs()
             .into_iter()
@@ -173,21 +175,23 @@ impl Orchestrator {
         prefixes.sort_unstable();
         prefixes.dedup();
         let mut errors = Vec::new();
+        let mut compaction_targets = 0;
         for prefix in prefixes {
             if let Err(error) = deadline.remaining() {
                 warn!("stopping compaction before deadline: {error}");
                 errors.push(error);
                 break;
             }
-            if let Err(error) =
-                Compactor::prefix(s3_client, transfer_client, bucket, &prefix, deadline).await
-            {
-                warn!("failed to compact folder {}: {error}", prefix);
-                errors.push(error);
+            match Compactor::prefix(s3_client, transfer_client, bucket, &prefix, deadline).await {
+                Ok(()) => compaction_targets += 1,
+                Err(error) => {
+                    warn!("failed to compact folder {}: {error}", prefix);
+                    errors.push(error);
+                }
             }
         }
         if errors.is_empty() {
-            Ok(())
+            Ok(compaction_targets)
         } else {
             Err(BpError::multiple(errors))
         }
