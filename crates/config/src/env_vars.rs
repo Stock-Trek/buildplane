@@ -1,4 +1,4 @@
-//! Helpers for reading required environment variables.
+//! Helpers for reading environment variables.
 //!
 //! Environment variables are parsed by each process's own configuration type.
 //! This module only provides the raw, fallible reads; it deliberately has no
@@ -19,7 +19,8 @@ use url::Url;
 /// A snapshot of an environment used while building a process configuration.
 ///
 /// Taking a snapshot up front makes configuration construction deterministic and
-/// testable. Every accessor is required: there are no defaults or fallbacks.
+/// testable. Accessors are required unless explicitly marked optional; there
+/// are no defaults or fallbacks.
 #[derive(Debug, Clone, Default)]
 pub struct EnvVars {
     vars: HashMap<OsString, OsString>,
@@ -60,6 +61,24 @@ impl EnvVars {
             return Err(BpError::config_empty(name));
         }
         Ok(value)
+    }
+
+    /// Reads an optional UTF-8 variable.
+    ///
+    /// Missing and empty values are both treated as absent.
+    pub fn optional(&self, name: &str) -> BpResult<Option<String>> {
+        let Some(value) = self.vars.get(OsStr::new(name)) else {
+            return Ok(None);
+        };
+        let value = value
+            .clone()
+            .into_string()
+            .map_err(|_| BpError::config_not_unicode(name))?;
+        if value.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(value))
+        }
     }
 
     /// Reads a required variable even when its value is not valid UTF-8.
@@ -126,8 +145,28 @@ impl EnvVars {
     /// Reads a required URL and validates its scheme.
     pub fn required_url(&self, name: &str, allowed_schemes: &[&str]) -> BpResult<String> {
         let value = self.required(name)?;
-        let url =
-            Url::parse(&value).map_err(|error| BpError::config_invalid_source(name, error))?;
+        Self::validate_url(name, &value, allowed_schemes)?;
+        Ok(value)
+    }
+
+    /// Reads an optional URL and validates its scheme when present.
+    pub fn optional_url(&self, name: &str, allowed_schemes: &[&str]) -> BpResult<Option<String>> {
+        let Some(value) = self.optional(name)? else {
+            return Ok(None);
+        };
+        Self::validate_url(name, &value, allowed_schemes)?;
+        Ok(Some(value))
+    }
+
+    /// Reads and validates a required tracing filter.
+    pub fn required_log_filter(&self, name: &str) -> BpResult<String> {
+        let value = self.required(name)?;
+        EnvFilter::try_new(&value).map_err(|error| BpError::config_invalid_source(name, error))?;
+        Ok(value)
+    }
+
+    fn validate_url(name: &str, value: &str, allowed_schemes: &[&str]) -> BpResult<()> {
+        let url = Url::parse(value).map_err(|error| BpError::config_invalid_source(name, error))?;
         if !allowed_schemes.contains(&url.scheme()) {
             return Err(BpError::config_invalid(
                 name,
@@ -138,14 +177,7 @@ impl EnvVars {
                 ),
             ));
         }
-        Ok(value)
-    }
-
-    /// Reads and validates a required tracing filter.
-    pub fn required_log_filter(&self, name: &str) -> BpResult<String> {
-        let value = self.required(name)?;
-        EnvFilter::try_new(&value).map_err(|error| BpError::config_invalid_source(name, error))?;
-        Ok(value)
+        Ok(())
     }
 
     fn parse_timestamp(name: &str, value: &str) -> BpResult<DateTime<Utc>> {
@@ -236,6 +268,35 @@ mod tests {
             vars.required_duration_secs("DURATION_SECS").unwrap(),
             Duration::from_secs(42)
         );
+    }
+
+    #[test]
+    fn optional_treats_missing_and_empty_values_as_absent() {
+        let vars = env_vars(Vec::<(String, String)>::new());
+        assert_eq!(vars.optional("MISSING").unwrap(), None);
+
+        let vars = env_vars([("EMPTY", "")]);
+        assert_eq!(vars.optional("EMPTY").unwrap(), None);
+
+        let vars = env_vars([("NAME", "value")]);
+        assert_eq!(vars.optional("NAME").unwrap().as_deref(), Some("value"));
+    }
+
+    #[test]
+    fn optional_url_validates_the_scheme_when_present() {
+        let vars = env_vars(Vec::<(String, String)>::new());
+        assert_eq!(vars.optional_url("URL", &["http", "https"]).unwrap(), None);
+
+        let vars = env_vars([("URL", "http://localhost:9000")]);
+        assert_eq!(
+            vars.optional_url("URL", &["http", "https"])
+                .unwrap()
+                .as_deref(),
+            Some("http://localhost:9000")
+        );
+
+        let vars = env_vars([("URL", "ftp://example.test")]);
+        assert!(vars.optional_url("URL", &["http", "https"]).is_err());
     }
 
     #[test]

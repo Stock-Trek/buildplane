@@ -6,6 +6,7 @@ use buildplane_time::timeouts::Timeouts;
 use std::{num::NonZeroUsize, time::Duration};
 
 const AWS_CONNECT_TIMEOUT_SECS: &str = "AWS_CONNECT_TIMEOUT_SECS";
+const AWS_ENDPOINT_URL_S3: &str = "AWS_ENDPOINT_URL_S3";
 const AWS_LAMBDA_FUNCTION_NAME: &str = "AWS_LAMBDA_FUNCTION_NAME";
 const AWS_OPERATION_TIMEOUT_SECS: &str = "AWS_OPERATION_TIMEOUT_SECS";
 const BUILD_AGENT_FUNCTION_NAME: &str = "BUILD_AGENT_FUNCTION_NAME";
@@ -21,6 +22,7 @@ const GIT_MAX_DIRECTORY_DEPTH: &str = "GIT_MAX_DIRECTORY_DEPTH";
 const GIT_MAX_DIRECTORY_FILES: &str = "GIT_MAX_DIRECTORY_FILES";
 const RUST_LOG: &str = "RUST_LOG";
 const S3_BUCKET_USER_ARTIFACTS: &str = "S3_BUCKET_USER_ARTIFACTS";
+const S3_ENDPOINT_URL: &str = "S3_ENDPOINT_URL";
 const S3_MAX_ARTIFACT_SIZE_BYTES: &str = "S3_MAX_ARTIFACT_SIZE_BYTES";
 const S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES: &str = "S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES";
 const S3_SIGNED_URL_EXPIRY_SECS: &str = "S3_SIGNED_URL_EXPIRY_SECS";
@@ -81,6 +83,9 @@ impl OrchestratorConfig {
         let allowed_hosts =
             HostAllowlist::from_hosts(vars.required_csv(GITHUB_ENTERPRISE_ALLOWED_HOSTS)?)?;
 
+        let endpoint_url = vars
+            .optional_url(AWS_ENDPOINT_URL_S3, &["http", "https"])?
+            .or(vars.optional_url(S3_ENDPOINT_URL, &["http", "https"])?);
         let signed_url_expiry = vars.required_duration_secs(S3_SIGNED_URL_EXPIRY_SECS)?;
         if signed_url_expiry.is_zero() || signed_url_expiry > MAX_SIGNED_URL_EXPIRY {
             return Err(BpError::config_invalid(
@@ -114,7 +119,7 @@ impl OrchestratorConfig {
                     .required_parsed(S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES)?,
                 max_artifact_size_bytes: vars.required_parsed(S3_MAX_ARTIFACT_SIZE_BYTES)?,
                 signed_url_expiry,
-                endpoint_url: None,
+                endpoint_url,
             },
             build_agent_function_name: vars.required(BUILD_AGENT_FUNCTION_NAME)?,
         })
@@ -167,6 +172,38 @@ mod tests {
         assert_eq!(config.s3.user_artifacts_bucket, "user-artifacts");
         assert_eq!(config.sqs_process_concurrency.get(), 10);
         assert_eq!(config.deadline_buffer, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn s3_endpoint_url_is_optional() {
+        let config = OrchestratorConfig::from_vars(&vars(&REQUIRED)).unwrap();
+        assert_eq!(config.s3.endpoint_url, None);
+    }
+
+    #[test]
+    fn reads_s3_endpoint_url_from_aws_or_s3_variables() {
+        let mut values = REQUIRED.to_vec();
+        values.push((AWS_ENDPOINT_URL_S3, "http://localhost:9000"));
+        let config = OrchestratorConfig::from_vars(&vars(&values)).unwrap();
+        assert_eq!(
+            config.s3.endpoint_url.as_deref(),
+            Some("http://localhost:9000")
+        );
+
+        let mut values = REQUIRED.to_vec();
+        values.push((S3_ENDPOINT_URL, "https://minio.example.test"));
+        let config = OrchestratorConfig::from_vars(&vars(&values)).unwrap();
+        assert_eq!(
+            config.s3.endpoint_url.as_deref(),
+            Some("https://minio.example.test")
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_s3_endpoint_url() {
+        let mut values = REQUIRED.to_vec();
+        values.push((AWS_ENDPOINT_URL_S3, "ftp://minio.example.test"));
+        assert!(OrchestratorConfig::from_vars(&vars(&values)).is_err());
     }
 
     #[test]
