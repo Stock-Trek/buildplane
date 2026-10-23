@@ -9,6 +9,7 @@ use arrow_schema::{DataType, Field, Schema, SchemaRef};
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
 use buildplane_errors::{BpError, BpResult, DecimalScaleError};
 use buildplane_exchange_types::klines::Kline;
+use buildplane_metrics::market_data::MarketDataMetrics;
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use parquet::arrow::ArrowWriter;
@@ -63,22 +64,31 @@ impl Ingest {
             candles_base_path,
             schema,
         } = ingest;
-        let candles = updater
-            .klines(trading_pair, window.start, window.end)
-            .await?;
+        let candles = match updater.klines(trading_pair, window.start, window.end).await {
+            Ok(candles) => candles,
+            Err(error) => {
+                MarketDataMetrics::record_ingest_error(error.error_type());
+                return Err(error);
+            }
+        };
         if !Self::candles_are_complete(&candles, window.start, window.end) {
             let expected = Self::expected_candles(window.start, window.end);
             let received = candles.len();
+            MarketDataMetrics::record_ingest_gap(expected, received);
             warn!(
                 "incomplete klines for {:?} between {} and {}: expected {} candles, received {}; skipping upload",
                 trading_pair, window.start, window.end, expected, received
             );
             return Ok(IngestOutcome::SkippedIncomplete { expected, received });
         }
-        let candles_bytes = Self::candles_to_bytes(&candles, schema)?;
+        let candles_bytes = Self::candles_to_bytes(&candles, schema)
+            .inspect_err(|error| MarketDataMetrics::record_ingest_error(error.error_type()))?;
         let candles_file_path =
             ObjectKey::new(format!("{}/{}", candles_base_path, window.file_path()));
-        S3::upload_bytes(transfer_client, bucket, &candles_file_path, candles_bytes).await?;
+        S3::upload_bytes(transfer_client, bucket, &candles_file_path, candles_bytes)
+            .await
+            .inspect_err(|error| MarketDataMetrics::record_ingest_error(error.error_type()))?;
+        MarketDataMetrics::record_ingest_ingested();
         Ok(IngestOutcome::Ingested)
     }
 

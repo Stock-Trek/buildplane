@@ -18,11 +18,31 @@ pub const MESSAGES_FAILED_TOTAL: &str = "messages_failed_total";
 pub const DUPLICATE_MESSAGES_TOTAL: &str = "duplicate_messages_total";
 pub const BUILD_OUTCOMES_TOTAL: &str = "build_outcomes_total";
 pub const BUILD_DURATION_SECONDS: &str = "build_duration_seconds";
+pub const MARKET_DATA_JOB_OUTCOMES_TOTAL: &str = "market_data_job_outcomes_total";
+pub const MARKET_DATA_JOB_DURATION_SECONDS: &str = "market_data_job_duration_seconds";
+pub const MARKET_DATA_LOCK_CONTENTIONS_TOTAL: &str = "market_data_lock_contentions_total";
+pub const MARKET_DATA_LOCK_SKIPS_TOTAL: &str = "market_data_lock_skips_total";
+pub const MARKET_DATA_LOCK_LOST_TOTAL: &str = "market_data_lock_lost_total";
+pub const MARKET_DATA_INGEST_WINDOWS_TOTAL: &str = "market_data_ingest_windows_total";
+pub const MARKET_DATA_INGEST_GAPS_TOTAL: &str = "market_data_ingest_gaps_total";
+pub const MARKET_DATA_INGEST_MISSING_CANDLES_TOTAL: &str =
+    "market_data_ingest_missing_candles_total";
+pub const MARKET_DATA_INGEST_SKIPPED_WINDOWS_TOTAL: &str =
+    "market_data_ingest_skipped_windows_total";
+pub const MARKET_DATA_COMPACTION_OUTCOMES_TOTAL: &str = "market_data_compaction_outcomes_total";
+pub const MARKET_DATA_COMPACTION_DURATION_SECONDS: &str = "market_data_compaction_duration_seconds";
 
 pub const STATUS_SUCCESS: &str = "success";
 pub const STATUS_ERROR: &str = "error";
+pub const STATUS_INCOMPLETE: &str = "incomplete";
 pub const STATUS_PERMANENT_FAILURE: &str = "permanent_failure";
 pub const STATUS_RETRYABLE_FAILURE: &str = "retryable_failure";
+
+pub const INGEST_OUTCOME_INGESTED: &str = "ingested";
+pub const INGEST_OUTCOME_SKIPPED_INCOMPLETE: &str = "skipped_incomplete";
+pub const INGEST_OUTCOME_ERROR: &str = "error";
+pub const INGEST_SKIP_REASON_COMPACTED: &str = "compacted";
+pub const INGEST_SKIP_REASON_DEADLINE: &str = "deadline";
 
 pub struct DescriptionsMetrics;
 
@@ -96,6 +116,50 @@ impl DescriptionsMetrics {
         describe_histogram!(
             BUILD_DURATION_SECONDS,
             "Duration of builds in seconds, labelled by status and error type"
+        );
+        describe_counter!(
+            MARKET_DATA_JOB_OUTCOMES_TOTAL,
+            "Total number of market data jobs, labelled by mode and status"
+        );
+        describe_histogram!(
+            MARKET_DATA_JOB_DURATION_SECONDS,
+            "Duration of market data jobs in seconds, labelled by mode and status"
+        );
+        describe_counter!(
+            MARKET_DATA_LOCK_CONTENTIONS_TOTAL,
+            "Total number of attempts that found the market data lock held by another invocation"
+        );
+        describe_counter!(
+            MARKET_DATA_LOCK_SKIPS_TOTAL,
+            "Total number of market data jobs skipped because another invocation held the lock"
+        );
+        describe_counter!(
+            MARKET_DATA_LOCK_LOST_TOTAL,
+            "Total number of market data locks lost to another invocation"
+        );
+        describe_counter!(
+            MARKET_DATA_INGEST_WINDOWS_TOTAL,
+            "Total number of market data ingest windows, labelled by outcome"
+        );
+        describe_counter!(
+            MARKET_DATA_INGEST_GAPS_TOTAL,
+            "Total number of market data windows with incomplete candle data"
+        );
+        describe_counter!(
+            MARKET_DATA_INGEST_MISSING_CANDLES_TOTAL,
+            "Total number of candles missing from incomplete market data windows"
+        );
+        describe_counter!(
+            MARKET_DATA_INGEST_SKIPPED_WINDOWS_TOTAL,
+            "Total number of market data windows skipped before ingest, labelled by reason"
+        );
+        describe_counter!(
+            MARKET_DATA_COMPACTION_OUTCOMES_TOTAL,
+            "Total number of market data compaction targets, labelled by status"
+        );
+        describe_histogram!(
+            MARKET_DATA_COMPACTION_DURATION_SECONDS,
+            "Duration of market data compaction targets in seconds, labelled by status"
         );
     }
 }
