@@ -20,8 +20,8 @@ impl RsOrchestratorContext {
         let aws = Aws::from_env(&sdk_config, aws_timeouts, config)?;
         let github_auth = GitHubAuth::from_env(config)?;
         let dedup = SqsDedup::from_env(config)?;
-        let sqs_process_concurrency = config.sqs_process_concurrency()?.get();
-        let deadline_buffer = config.deadline_buffer()?;
+        let sqs_process_concurrency = config.sqs_process_concurrency.get();
+        let deadline_buffer = config.deadline_buffer;
         Ok(Self {
             aws,
             github_auth,

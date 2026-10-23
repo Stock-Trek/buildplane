@@ -23,7 +23,10 @@ async fn main() -> BpResult<()> {
         .cloudwatch_namespace("buildplane/orchestrator")
         .with_dimension(
             "function",
-            config.lambda_function_name(DEFAULT_FUNCTION_NAME)?,
+            config
+                .lambda_function_name
+                .clone()
+                .unwrap_or_else(|| DEFAULT_FUNCTION_NAME.to_owned()),
         )
         .lambda_cold_start_metric(buildplane_metrics::descriptions::COLD_STARTS_TOTAL)
         .init()?;

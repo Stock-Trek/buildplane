@@ -55,7 +55,7 @@ pub struct HostAllowlist {
 
 impl HostAllowlist {
     pub fn from_env(config: &EnvVarConfig) -> BpResult<Self> {
-        Self::from_hosts(config.github_enterprise_allowed_hosts()?)
+        Self::from_hosts(&config.github_enterprise_allowed_hosts)
     }
 
     /// Builds an allowlist from an explicit set of hosts. Useful for tests and
