@@ -19,7 +19,7 @@ buildplane-market-data = { path = "crates/apps/market-data" }
 buildplane-messages = { path = "crates/protocols/messages" }
 buildplane-metrics = { path = "crates/observability/metrics" }
 buildplane-orchestrator = { path = "crates/apps/orchestrator" }
-buildplane-proto-gen = { path = "crates/build/proto_gen" }
+buildplane-proto-gen = { path = "crates/protocols/proto_gen" }
 buildplane-runner = { path = "crates/compute/runner" }
 buildplane-sqs = { path = "crates/integrations/sqs" }
 buildplane-time = { path = "crates/platform/time" }
