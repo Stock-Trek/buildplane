@@ -16,7 +16,7 @@ buildplane-exit-codes = { path = "crates/compute/exit_codes" }
 buildplane-git = { path = "crates/integrations/git" }
 buildplane-github = { path = "crates/integrations/github" }
 buildplane-market-data = { path = "crates/apps/market-data" }
-buildplane-messages = { path = "crates/platform/messages" }
+buildplane-messages = { path = "crates/protocols/messages" }
 buildplane-metrics = { path = "crates/observability/metrics" }
 buildplane-orchestrator = { path = "crates/apps/orchestrator" }
 buildplane-proto-gen = { path = "crates/build/proto_gen" }
