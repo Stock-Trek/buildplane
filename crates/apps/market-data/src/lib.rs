@@ -11,5 +11,6 @@ pub mod plan;
 pub mod quantized_time;
 pub mod s3;
 pub mod subfolders;
+pub mod tier;
 pub mod updater;
 pub mod updaters;

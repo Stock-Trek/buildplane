@@ -1,4 +1,4 @@
-use crate::{constants::UPDATE_QUANTIZATION, quantized_time::Quantization};
+use crate::{constants::UPDATE_QUANTIZATION, quantized_time::Quantization, tier::Tier};
 use buildplane_errors::{BpError, BpResult, DataError};
 use chrono::{Datelike, NaiveDate};
 
@@ -19,37 +19,42 @@ impl SubFolders {
         quantization: Quantization,
     ) -> BpResult<Vec<String>> {
         let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-        match segments.len() {
-            0..=4 => Ok(Vec::new()),
-            5 => {
-                Self::parse_year(segments[4], path)?;
+        let time_offset = segments
+            .get(4)
+            .and_then(|segment| Tier::from_segment(segment))
+            .map_or(4, |_| 5);
+        let time_segments = segments.get(time_offset..).unwrap_or_default();
+        match time_segments.len() {
+            0 => Ok(Vec::new()),
+            1 => {
+                Self::parse_year(time_segments[0], path)?;
                 Ok(Self::subfolders(&Self::months_in_year(quantization)))
             }
-            6 => {
-                let year = Self::parse_year(segments[4], path)?;
-                let month = Self::parse_month(segments[5], path)?;
+            2 => {
+                let year = Self::parse_year(time_segments[0], path)?;
+                let month = Self::parse_month(time_segments[1], path)?;
                 Ok(Self::subfolders(&Self::days_in_month_for_quantization(
                     quantization,
                     year,
                     month,
                 )?))
             }
-            7 => {
-                let year = Self::parse_year(segments[4], path)?;
-                let month = Self::parse_month(segments[5], path)?;
+            3 => {
+                let year = Self::parse_year(time_segments[0], path)?;
+                let month = Self::parse_month(time_segments[1], path)?;
                 let days_in_month = Self::days_in_month(year, month)?;
-                Self::parse_day(segments[6], days_in_month, path)?;
+                Self::parse_day(time_segments[2], days_in_month, path)?;
                 Ok(Self::subfolders(&Self::hours_in_day(quantization)))
             }
-            8 => {
-                let year = Self::parse_year(segments[4], path)?;
-                let month = Self::parse_month(segments[5], path)?;
+            4 => {
+                let year = Self::parse_year(time_segments[0], path)?;
+                let month = Self::parse_month(time_segments[1], path)?;
                 let days_in_month = Self::days_in_month(year, month)?;
-                Self::parse_day(segments[6], days_in_month, path)?;
-                Self::parse_hour(segments[7], path)?;
+                Self::parse_day(time_segments[2], days_in_month, path)?;
+                Self::parse_hour(time_segments[3], path)?;
                 Ok(Self::subfolders(&Self::minutes_in_hour(quantization)))
             }
-            9 => Ok(Vec::new()),
+            5 => Ok(Vec::new()),
             _ => Err(BpError::Data(DataError::TooManyPathSegments {
                 path: path.to_string(),
             })),
@@ -201,7 +206,7 @@ mod tests {
 
     #[test]
     fn minutes_follow_quantization() {
-        let path = format!("{PAIR}/2024/01/01/00/");
+        let path = format!("{PAIR}/raw/2024/01/01/00/");
         assert_eq!(
             SubFolders::subfolders_from_path_with_quantization(
                 &path,
@@ -222,7 +227,7 @@ mod tests {
 
     #[test]
     fn hours_follow_quantization() {
-        let path = format!("{PAIR}/2024/01/01/");
+        let path = format!("{PAIR}/hourly/2024/01/01/");
         assert_eq!(
             SubFolders::subfolders_from_path_with_quantization(
                 &path,
@@ -247,7 +252,7 @@ mod tests {
 
     #[test]
     fn days_follow_quantization() {
-        let february = format!("{PAIR}/2024/02/");
+        let february = format!("{PAIR}/daily/2024/02/");
         assert_eq!(
             SubFolders::subfolders_from_path_with_quantization(
                 &february,
@@ -273,7 +278,7 @@ mod tests {
             Vec::<String>::new()
         );
 
-        let january = format!("{PAIR}/2024/01/");
+        let january = format!("{PAIR}/daily/2024/01/");
         assert_eq!(
             SubFolders::subfolders_from_path_with_quantization(
                 &january,
@@ -286,7 +291,7 @@ mod tests {
 
     #[test]
     fn months_follow_quantization() {
-        let path = format!("{PAIR}/2024/");
+        let path = format!("{PAIR}/monthly/2024/");
         assert_eq!(
             SubFolders::subfolders_from_path_with_quantization(
                 &path,

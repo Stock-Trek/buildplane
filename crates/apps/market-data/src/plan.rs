@@ -3,6 +3,7 @@ use crate::{
     quantized_time::{Quantization, QuantizedTime, TopOfHour, TopOfMonth},
     s3::ObjectKey,
     subfolders::SubFolders,
+    tier::Tier,
 };
 use buildplane_errors::BpResult;
 use chrono::{DateTime, Datelike, TimeZone, Timelike, Utc};
@@ -201,11 +202,27 @@ impl Planner {
     }
 
     pub fn compacted_file_path(prefix: &ObjectKey, suffix: &str) -> ObjectKey {
-        ObjectKey::new(format!(
-            "{}{}",
-            prefix.as_str().trim_end_matches('/'),
-            suffix
-        ))
+        let path = prefix.as_str().trim_end_matches('/');
+        let segments = path
+            .split('/')
+            .filter(|segment| !segment.is_empty())
+            .collect::<Vec<_>>();
+        if let Some(tier) = segments
+            .get(4)
+            .and_then(|segment| Tier::from_segment(segment))
+            && let Some(target) = tier.target()
+        {
+            let mut target_path = segments[..4].join("/");
+            target_path.push('/');
+            target_path.push_str(target.as_str());
+            for segment in &segments[5..] {
+                target_path.push('/');
+                target_path.push_str(segment);
+            }
+            target_path.push_str(suffix);
+            return ObjectKey::new(target_path);
+        }
+        ObjectKey::new(format!("{path}{suffix}"))
     }
 
     fn window_file_path(start_time: DateTime<Utc>) -> String {
@@ -214,7 +231,11 @@ impl Planner {
         let day = start_time.day() as i32;
         let hour = start_time.hour() as i32;
         let minute = start_time.minute() as i32;
-        SubFolders::file_path(&[year, month, day, hour, minute], PARQUET_SUFFIX)
+        format!(
+            "{}/{}",
+            Tier::Raw,
+            SubFolders::file_path(&[year, month, day, hour, minute], PARQUET_SUFFIX)
+        )
     }
 
     fn compacted_boundary(
@@ -247,17 +268,37 @@ impl Planner {
         let day = start_time.day() as i32;
         let hour = start_time.hour() as i32;
         [
-            SubFolders::file_path(&[year, month, day, hour], PARQUET_SUFFIX),
-            SubFolders::file_path(&[year, month, day], PARQUET_SUFFIX),
-            SubFolders::file_path(&[year, month], PARQUET_SUFFIX),
-            SubFolders::file_path(&[year], PARQUET_SUFFIX),
+            format!(
+                "{}/{}",
+                Tier::Hourly,
+                SubFolders::file_path(&[year, month, day, hour], PARQUET_SUFFIX)
+            ),
+            format!(
+                "{}/{}",
+                Tier::Daily,
+                SubFolders::file_path(&[year, month, day], PARQUET_SUFFIX)
+            ),
+            format!(
+                "{}/{}",
+                Tier::Monthly,
+                SubFolders::file_path(&[year, month], PARQUET_SUFFIX)
+            ),
+            format!(
+                "{}/{}",
+                Tier::Yearly,
+                SubFolders::file_path(&[year], PARQUET_SUFFIX)
+            ),
         ]
     }
 
     fn file_start_time(path: &str) -> Option<DateTime<Utc>> {
         let path = path.strip_suffix(PARQUET_SUFFIX)?;
-        let mut segments = path.split('/');
-        let year = segments.next()?.parse::<i32>().ok()?;
+        let mut segments = path.split('/').filter(|segment| !segment.is_empty());
+        let first = segments.next()?;
+        let year = match Tier::from_segment(first) {
+            Some(_) => segments.next()?.parse::<i32>().ok()?,
+            None => first.parse::<i32>().ok()?,
+        };
         let month = Self::file_path_segment(segments.next(), 1)?;
         let day = Self::file_path_segment(segments.next(), 1)?;
         let hour = Self::file_path_segment(segments.next(), 0)?;
@@ -345,7 +386,10 @@ mod tests {
 
     #[test]
     fn existing_windows_are_skipped_and_the_earliest_existing_sets_the_start() {
-        let existing = paths(&["2024/01/01/00/00.parquet", "2024/01/01/00/12.parquet"]);
+        let existing = paths(&[
+            "raw/2024/01/01/00/00.parquet",
+            "raw/2024/01/01/00/12.parquet",
+        ]);
         assert_eq!(
             Planner::plan_windows_with_skipped(&existing, utc(2024, 1, 1, 0, 18), None)
                 .unwrap()
@@ -356,7 +400,7 @@ mod tests {
 
     #[test]
     fn backfill_can_start_before_the_earliest_existing_window() {
-        let existing = paths(&["2024/01/01/00/12.parquet"]);
+        let existing = paths(&["raw/2024/01/01/00/12.parquet"]);
         assert_eq!(
             Planner::plan_windows_with_skipped(
                 &existing,
@@ -374,7 +418,7 @@ mod tests {
 
     #[test]
     fn plan_windows_between_quantizes_the_start() {
-        let existing = paths(&["2024/01/01/00/00.parquet"]);
+        let existing = paths(&["raw/2024/01/01/00/00.parquet"]);
         assert_eq!(
             Planner::plan_windows_with_overwrite(
                 &existing,
@@ -390,7 +434,10 @@ mod tests {
 
     #[test]
     fn forced_backfill_replans_existing_windows() {
-        let existing = paths(&["2024/01/01/00/00.parquet", "2024/01/01/00/06.parquet"]);
+        let existing = paths(&[
+            "raw/2024/01/01/00/00.parquet",
+            "raw/2024/01/01/00/06.parquet",
+        ]);
         assert_eq!(
             Planner::plan_windows_with_overwrite(
                 &existing,
@@ -409,7 +456,7 @@ mod tests {
 
     #[test]
     fn non_forced_backfill_skips_existing_windows() {
-        let existing = paths(&["2024/01/01/00/00.parquet"]);
+        let existing = paths(&["raw/2024/01/01/00/00.parquet"]);
         assert_eq!(
             Planner::plan_windows_with_overwrite(
                 &existing,
@@ -425,7 +472,7 @@ mod tests {
 
     #[test]
     fn forced_backfill_still_skips_compacted_periods() {
-        let existing = paths(&["2024/01/01/00.parquet"]);
+        let existing = paths(&["hourly/2024/01/01/00.parquet"]);
         assert_eq!(
             Planner::plan_windows_with_overwrite(
                 &existing,
@@ -444,7 +491,7 @@ mod tests {
 
     #[test]
     fn forced_backfill_reports_compacted_periods() {
-        let existing = paths(&["2024/01/01/00.parquet"]);
+        let existing = paths(&["hourly/2024/01/01/00.parquet"]);
         let plan = Planner::plan_windows_with_overwrite(
             &existing,
             utc(2024, 1, 1, 0, 0),
@@ -465,7 +512,7 @@ mod tests {
             vec![CompactedSkip {
                 start: utc(2024, 1, 1, 0, 0),
                 end: utc(2024, 1, 1, 1, 0),
-                compacted_file: "2024/01/01/00.parquet".to_string(),
+                compacted_file: "hourly/2024/01/01/00.parquet".to_string(),
                 windows: 10,
             }]
         );
@@ -473,7 +520,7 @@ mod tests {
 
     #[test]
     fn compacted_skips_are_clipped_to_the_requested_range() {
-        let existing = paths(&["2024/01/01/00.parquet"]);
+        let existing = paths(&["hourly/2024/01/01/00.parquet"]);
         let plan = Planner::plan_windows_with_overwrite(
             &existing,
             utc(2024, 1, 1, 0, 0),
@@ -488,7 +535,7 @@ mod tests {
 
     #[test]
     fn plain_windows_plan_reports_compacted_periods() {
-        let existing = paths(&["2024/01/01/00.parquet"]);
+        let existing = paths(&["hourly/2024/01/01/00.parquet"]);
         let plan = Planner::plan_windows_with_overwrite(
             &existing,
             utc(2024, 1, 1, 0, 0),
@@ -502,7 +549,7 @@ mod tests {
 
     #[test]
     fn fully_ingested_latest_window_has_no_work() {
-        let existing = paths(&["2024/01/01/00/00.parquet"]);
+        let existing = paths(&["raw/2024/01/01/00/00.parquet"]);
         assert!(
             Planner::plan_windows_with_skipped(&existing, utc(2024, 1, 1, 0, 6), None)
                 .unwrap()
@@ -513,7 +560,7 @@ mod tests {
 
     #[test]
     fn compacted_hours_are_skipped() {
-        let existing = paths(&["2024/01/01/03.parquet"]);
+        let existing = paths(&["hourly/2024/01/01/03.parquet"]);
         assert_eq!(
             Planner::plan_windows_with_skipped(
                 &existing,
@@ -531,7 +578,7 @@ mod tests {
 
     #[test]
     fn compacted_windows_are_reported_as_compacted() {
-        let existing = paths(&["2024/01/01/03.parquet"]);
+        let existing = paths(&["hourly/2024/01/01/03.parquet"]);
         let plan = Planner::plan_windows_with_skipped(
             &existing,
             utc(2024, 1, 1, 4, 12),
@@ -550,7 +597,7 @@ mod tests {
 
     #[test]
     fn forced_backfill_reports_compacted_windows_as_compacted() {
-        let existing = paths(&["2024/01/01/00.parquet"]);
+        let existing = paths(&["hourly/2024/01/01/00.parquet"]);
         let plan = Planner::plan_windows_with_overwrite(
             &existing,
             utc(2024, 1, 1, 0, 0),
@@ -570,7 +617,7 @@ mod tests {
 
     #[test]
     fn compacted_days_are_skipped() {
-        let existing = paths(&["2024/01/01.parquet"]);
+        let existing = paths(&["daily/2024/01/01.parquet"]);
         assert_eq!(
             Planner::plan_windows_with_skipped(
                 &existing,
@@ -588,7 +635,7 @@ mod tests {
 
     #[test]
     fn compacted_months_are_skipped() {
-        let existing = paths(&["2024/01.parquet"]);
+        let existing = paths(&["monthly/2024/01.parquet"]);
         assert_eq!(
             Planner::plan_windows_with_skipped(
                 &existing,
@@ -606,7 +653,7 @@ mod tests {
 
     #[test]
     fn compacted_years_are_skipped() {
-        let existing = paths(&["2024.parquet"]);
+        let existing = paths(&["yearly/2024.parquet"]);
         assert_eq!(
             Planner::plan_windows_with_skipped(
                 &existing,
@@ -624,7 +671,7 @@ mod tests {
 
     #[test]
     fn complete_hour_produces_a_compaction_target() {
-        let prefix = ObjectKey::new("paper/binance/bitcoin/tetherusd/2024/01/01/00/");
+        let prefix = ObjectKey::new("paper/binance/bitcoin/tetherusd/raw/2024/01/01/00/");
         let source_files = (0..60)
             .step_by(6)
             .map(|minute| ObjectKey::new(format!("{prefix}{minute:02}.parquet")))
@@ -638,7 +685,7 @@ mod tests {
                 prefix: prefix.clone(),
                 source_files,
                 compacted_file: ObjectKey::new(
-                    "paper/binance/bitcoin/tetherusd/2024/01/01/00.parquet"
+                    "paper/binance/bitcoin/tetherusd/hourly/2024/01/01/00.parquet"
                 ),
             }
         );
@@ -646,7 +693,7 @@ mod tests {
 
     #[test]
     fn complete_day_produces_a_compaction_target() {
-        let prefix = ObjectKey::new("paper/binance/bitcoin/tetherusd/2024/01/01/");
+        let prefix = ObjectKey::new("paper/binance/bitcoin/tetherusd/hourly/2024/01/01/");
         let source_files = (0..24)
             .map(|hour| ObjectKey::new(format!("{prefix}{hour:02}.parquet")))
             .collect::<Vec<_>>();
@@ -655,14 +702,14 @@ mod tests {
             .unwrap();
         assert_eq!(
             target.compacted_file,
-            ObjectKey::new("paper/binance/bitcoin/tetherusd/2024/01/01.parquet")
+            ObjectKey::new("paper/binance/bitcoin/tetherusd/daily/2024/01/01.parquet")
         );
         assert_eq!(target.source_files, source_files);
     }
 
     #[test]
     fn missing_source_file_does_not_produce_a_target() {
-        let prefix = ObjectKey::new("paper/binance/bitcoin/tetherusd/2024/01/01/00/");
+        let prefix = ObjectKey::new("paper/binance/bitcoin/tetherusd/raw/2024/01/01/00/");
         let mut source_files = (0..60)
             .step_by(6)
             .map(|minute| ObjectKey::new(format!("{prefix}{minute:02}.parquet")))
@@ -676,7 +723,7 @@ mod tests {
 
     #[test]
     fn leaf_path_does_not_produce_a_target() {
-        let prefix = ObjectKey::new("paper/binance/bitcoin/tetherusd/2024/01/01/00/00/");
+        let prefix = ObjectKey::new("paper/binance/bitcoin/tetherusd/raw/2024/01/01/00/00/");
         assert_eq!(
             Planner::plan_compaction_with_suffix(&prefix, [] as [ObjectKey; 0], PARQUET_SUFFIX)
                 .unwrap(),

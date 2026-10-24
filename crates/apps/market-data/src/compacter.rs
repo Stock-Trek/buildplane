@@ -4,7 +4,7 @@ use crate::{
     parquet_writer::writer_properties,
     plan,
     s3::{Bucket, ObjectKey, S3},
-    subfolders::SubFolders,
+    tier::Tier,
 };
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
@@ -103,15 +103,8 @@ impl Compactor {
         deadline: Deadline,
     ) -> BpResult<()> {
         let started_at = Instant::now();
-        let result = Self::folder(
-            s3_client,
-            transfer_client,
-            bucket,
-            prefix,
-            PARQUET_SUFFIX,
-            deadline,
-        )
-        .await;
+        let result =
+            Self::compact_prefix(s3_client, transfer_client, bucket, prefix, deadline).await;
         match &result {
             Ok(()) => {
                 MarketDataMetrics::record_compaction_success(started_at.elapsed());
@@ -126,6 +119,49 @@ impl Compactor {
         result
     }
 
+    async fn compact_prefix(
+        s3_client: &S3Client,
+        transfer_client: &TransferClient,
+        bucket: &Bucket,
+        prefix: &ObjectKey,
+        deadline: Deadline,
+    ) -> BpResult<()> {
+        deadline.fail_if_exceeded()?;
+        if Tier::from_path(prefix.as_str()).is_some() {
+            return Self::folder(
+                s3_client,
+                transfer_client,
+                bucket,
+                prefix,
+                PARQUET_SUFFIX,
+                deadline,
+            )
+            .await;
+        }
+
+        let pair_prefix = prefix
+            .as_str()
+            .split('/')
+            .filter(|segment| !segment.is_empty())
+            .take(4)
+            .collect::<Vec<_>>()
+            .join("/");
+        for tier in [Tier::Raw, Tier::Hourly, Tier::Daily, Tier::Monthly] {
+            deadline.fail_if_exceeded()?;
+            let tier_prefix = ObjectKey::new(format!("{pair_prefix}/{}/", tier.as_str()));
+            Self::folder(
+                s3_client,
+                transfer_client,
+                bucket,
+                &tier_prefix,
+                PARQUET_SUFFIX,
+                deadline,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
     async fn folder(
         s3_client: &S3Client,
         transfer_client: &TransferClient,
@@ -136,38 +172,57 @@ impl Compactor {
     ) -> BpResult<()> {
         deadline.fail_if_exceeded()?;
         info!("compact folder with prefix {}", prefix);
-        let expected_subfolders = match SubFolders::subfolders_from_path(prefix.as_str()) {
-            Ok(subfolders) => subfolders,
-            Err(error) => {
-                warn!("skipping malformed path {}: {error}", prefix);
-                return Ok(());
-            }
+        let Some(tier) = Tier::from_path(prefix.as_str()) else {
+            warn!("skipping path {} without a tier", prefix);
+            return Ok(());
         };
-        let expected_files =
-            plan::Planner::expected_compaction_sources_with_suffix(prefix, suffix)?;
-        if !expected_subfolders.is_empty() {
-            let compacted_file = plan::Planner::compacted_file_path(prefix, suffix);
-            let staged_file = Self::staged_file_path(&compacted_file);
-            if S3::has_file(s3_client, bucket, &compacted_file).await? {
-                info!(
-                    "{} is already compacted; deleting remaining source files",
-                    compacted_file
-                );
-                S3::delete(s3_client, bucket, &staged_file).await?;
-                Self::delete_sources(s3_client, bucket, prefix, &expected_files, deadline).await?;
-                return Ok(());
-            }
-            if S3::has_file(s3_client, bucket, &staged_file).await? {
-                info!("publishing staged compacted file {}", staged_file);
-                S3::copy_file(s3_client, bucket, &staged_file, &compacted_file).await?;
-                Self::delete_sources(s3_client, bucket, prefix, &expected_files, deadline).await?;
-                S3::delete(s3_client, bucket, &staged_file).await?;
-                return Ok(());
-            }
+        let Some(time_segments) = Tier::time_segment_count(prefix.as_str()) else {
+            warn!("skipping malformed path {}", prefix);
+            return Ok(());
+        };
+        if tier.target().is_some() && time_segments == tier.source_depth() {
+            return Self::compact_folder(
+                s3_client,
+                transfer_client,
+                bucket,
+                prefix,
+                suffix,
+                deadline,
+            )
+            .await;
         }
+        if time_segments > tier.source_depth()
+            && let Some(source_tier) = tier.source()
+            && time_segments == source_tier.source_depth()
+        {
+            let source_prefix = Self::replace_tier(prefix, source_tier);
+            info!(
+                "compacting {} sources for target tier {}",
+                source_tier, tier
+            );
+            return Box::pin(Self::folder(
+                s3_client,
+                transfer_client,
+                bucket,
+                &source_prefix,
+                suffix,
+                deadline,
+            ))
+            .await;
+        }
+        if tier.target().is_none() {
+            return Ok(());
+        }
+        if time_segments > tier.source_depth() {
+            info!(
+                "{} is below the {} source depth; nothing to compact",
+                prefix, tier
+            );
+            return Ok(());
+        }
+
         let subfolders_files =
             Self::subfolders_files(s3_client, bucket, prefix, suffix, deadline).await?;
-        let recursed = !subfolders_files.subfolders.is_empty();
         for subfolder in &subfolders_files.subfolders {
             let subfolder_full_path = ObjectKey::new(format!("{}{}", prefix, subfolder));
             deadline.fail_if_exceeded()?;
@@ -181,18 +236,45 @@ impl Compactor {
             ))
             .await?;
         }
-        if expected_subfolders.is_empty() {
-            info!("no expected subfolders for {}", prefix);
+        Ok(())
+    }
+
+    async fn compact_folder(
+        s3_client: &S3Client,
+        transfer_client: &TransferClient,
+        bucket: &Bucket,
+        prefix: &ObjectKey,
+        suffix: &str,
+        deadline: Deadline,
+    ) -> BpResult<()> {
+        deadline.fail_if_exceeded()?;
+        let expected_files =
+            plan::Planner::expected_compaction_sources_with_suffix(prefix, suffix)?;
+        if expected_files.is_empty() {
+            info!("no expected source files for {}", prefix);
             return Ok(());
         }
-        // Recursion may have produced compacted files at this level, so the
-        // listing taken before recursing can be stale. Re-list to see them
-        // within the same invocation instead of waiting for the next run.
-        let subfolders_files = if recursed {
-            Self::subfolders_files(s3_client, bucket, prefix, suffix, deadline).await?
-        } else {
-            subfolders_files
-        };
+        let compacted_file = plan::Planner::compacted_file_path(prefix, suffix);
+        let staged_file = Self::staged_file_path(&compacted_file);
+        if S3::has_file(s3_client, bucket, &compacted_file).await? {
+            info!(
+                "{} is already compacted; deleting remaining source files",
+                compacted_file
+            );
+            S3::delete(s3_client, bucket, &staged_file).await?;
+            Self::delete_sources(s3_client, bucket, prefix, &expected_files, deadline).await?;
+            return Ok(());
+        }
+        if S3::has_file(s3_client, bucket, &staged_file).await? {
+            info!("publishing staged compacted file {}", staged_file);
+            S3::copy_file(s3_client, bucket, &staged_file, &compacted_file).await?;
+            Self::delete_sources(s3_client, bucket, prefix, &expected_files, deadline).await?;
+            S3::delete(s3_client, bucket, &staged_file).await?;
+            return Ok(());
+        }
+
+        let subfolders_files =
+            Self::subfolders_files(s3_client, bucket, prefix, suffix, deadline).await?;
         let missing = expected_files
             .iter()
             .filter(|expected| !subfolders_files.files.contains(*expected))
@@ -230,6 +312,19 @@ impl Compactor {
         )
         .await?;
         Ok(())
+    }
+
+    fn replace_tier(prefix: &ObjectKey, tier: Tier) -> ObjectKey {
+        let mut segments = prefix
+            .as_str()
+            .split('/')
+            .filter(|segment| !segment.is_empty())
+            .map(str::to_string)
+            .collect::<Vec<_>>();
+        if let Some(segment) = segments.get_mut(4) {
+            *segment = tier.as_str().to_string();
+        }
+        ObjectKey::new(format!("{}/", segments.join("/")))
     }
 
     fn staged_file_path(compacted_file: &ObjectKey) -> ObjectKey {
