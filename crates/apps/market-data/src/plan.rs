@@ -58,18 +58,6 @@ pub struct Planner;
 pub type Plan = Planner;
 
 impl Planner {
-    /// Plan the windows that are missing between the earliest known data and `end_time`.
-    ///
-    /// `backfill_start` can move the starting point earlier than the earliest existing
-    /// file. Compacted periods are skipped rather than re-ingesting their source windows.
-    pub fn plan_windows(
-        existing: &HashSet<String>,
-        end_time: DateTime<Utc>,
-        backfill_start: Option<DateTime<Utc>>,
-    ) -> BpResult<Vec<Window>> {
-        Ok(Self::plan_windows_with_skipped(existing, end_time, backfill_start)?.windows)
-    }
-
     /// Plan the missing windows and report windows covered by compacted periods.
     pub fn plan_windows_with_skipped(
         existing: &HashSet<String>,
@@ -103,73 +91,16 @@ impl Planner {
                 skipped_compacted: Vec::new(),
             });
         };
-        Self::plan_windows_between_with_skipped(existing, start, end_time)
+        Self::plan_windows_with_overwrite(existing, start, end_time, false)
     }
 
-    /// Plan missing windows in an explicit range, skipping compacted periods.
-    ///
-    /// The start is quantized to the update boundary.
-    pub fn plan_windows_between(
-        existing: &HashSet<String>,
-        start: DateTime<Utc>,
-        end_time: DateTime<Utc>,
-    ) -> BpResult<Vec<Window>> {
-        Ok(Self::plan_windows_between_with_skipped(existing, start, end_time)?.windows)
-    }
-
-    /// Plan missing windows and report windows covered by compacted periods.
-    ///
-    /// The start is quantized to the update boundary.
-    pub fn plan_windows_between_with_skipped(
-        existing: &HashSet<String>,
-        start: DateTime<Utc>,
-        end_time: DateTime<Utc>,
-    ) -> BpResult<WindowPlan> {
-        let start = QuantizedTime::timestamp(start, UPDATE_QUANTIZATION)?;
-        Self::plan_windows_between_with_overwrite(existing, start, end_time, false)
-    }
-
-    /// Plan windows for a targeted backfill.
-    ///
-    /// The start is quantized to the update boundary. When `force` is set,
-    /// windows with an existing leaf file are planned again so they can be
-    /// overwritten. Compacted periods are always skipped because rebuilding a
-    /// roll-up is a separate compaction operation.
-    pub fn plan_backfill_windows(
-        existing: &HashSet<String>,
-        start: DateTime<Utc>,
-        end_time: DateTime<Utc>,
-        force: bool,
-    ) -> BpResult<Vec<Window>> {
-        Ok(Self::plan_backfill_windows_with_skipped(existing, start, end_time, force)?.windows)
-    }
-
-    /// Plan a targeted backfill and report windows covered by compacted periods.
-    ///
-    /// A forced backfill still cannot rewrite compacted roll-ups, so callers
-    /// must surface `skipped_compacted` rather than reporting a silent no-op.
-    pub fn plan_backfill_windows_with_skipped(
-        existing: &HashSet<String>,
-        start: DateTime<Utc>,
-        end_time: DateTime<Utc>,
-        force: bool,
-    ) -> BpResult<WindowPlan> {
-        let start = QuantizedTime::timestamp(start, UPDATE_QUANTIZATION)?;
-        Self::plan_windows_between_with_overwrite(existing, start, end_time, force)
-    }
-
-    fn plan_windows_between_with_overwrite(
+    pub fn plan_windows_with_overwrite(
         existing: &HashSet<String>,
         start: DateTime<Utc>,
         end_time: DateTime<Utc>,
         overwrite_existing: bool,
     ) -> BpResult<WindowPlan> {
-        debug_assert_eq!(
-            start,
-            QuantizedTime::timestamp(start, UPDATE_QUANTIZATION)?,
-            "window planning start must be quantized to the update boundary"
-        );
-        let mut start = start;
+        let mut start = QuantizedTime::timestamp(start, UPDATE_QUANTIZATION)?;
         let mut plan = WindowPlan::default();
         while start < end_time {
             if let Some((boundary, compacted_file)) = Self::compacted_boundary(existing, start)? {
@@ -213,20 +144,6 @@ impl Planner {
         Ok(count)
     }
 
-    /// Plan compaction for one prefix using the entries directly below it.
-    ///
-    /// Returns a target only when every expected source file is present.
-    pub fn plan_compaction<I, K>(
-        prefix: &ObjectKey,
-        entries: I,
-    ) -> BpResult<Option<CompactionTarget>>
-    where
-        I: IntoIterator<Item = K>,
-        K: AsRef<str>,
-    {
-        Self::plan_compaction_with_suffix(prefix, entries, PARQUET_SUFFIX)
-    }
-
     /// Plan compaction for one prefix using a non-default file suffix.
     pub fn plan_compaction_with_suffix<I, K>(
         prefix: &ObjectKey,
@@ -256,11 +173,6 @@ impl Planner {
             source_files,
             compacted_file: Self::compacted_file_path(prefix, suffix),
         }))
-    }
-
-    /// Expected source files for compacting `prefix`, or an empty list for a leaf path.
-    pub fn expected_compaction_sources(prefix: &ObjectKey) -> BpResult<Vec<ObjectKey>> {
-        Self::expected_compaction_sources_with_suffix(prefix, PARQUET_SUFFIX)
     }
 
     /// Expected source files for compacting `prefix` with a non-default file suffix.
@@ -296,7 +208,7 @@ impl Planner {
         ))
     }
 
-    pub fn window_file_path(start_time: DateTime<Utc>) -> String {
+    fn window_file_path(start_time: DateTime<Utc>) -> String {
         let year = start_time.year();
         let month = start_time.month() as i32;
         let day = start_time.day() as i32;
@@ -409,7 +321,9 @@ mod tests {
     fn no_existing_files_plans_only_the_latest_window() {
         let end = utc(2024, 1, 1, 12, 0);
         assert_eq!(
-            Planner::plan_windows(&HashSet::new(), end, None).unwrap(),
+            Planner::plan_windows_with_skipped(&HashSet::new(), end, None)
+                .unwrap()
+                .windows,
             vec![window(utc(2024, 1, 1, 11, 54), end)]
         );
     }
@@ -418,7 +332,9 @@ mod tests {
     fn backfill_plans_missing_windows_from_the_requested_start() {
         let end = utc(2024, 1, 1, 0, 18);
         assert_eq!(
-            Planner::plan_windows(&HashSet::new(), end, Some(utc(2024, 1, 1, 0, 0))).unwrap(),
+            Planner::plan_windows_with_skipped(&HashSet::new(), end, Some(utc(2024, 1, 1, 0, 0)))
+                .unwrap()
+                .windows,
             vec![
                 window(utc(2024, 1, 1, 0, 0), utc(2024, 1, 1, 0, 6)),
                 window(utc(2024, 1, 1, 0, 6), utc(2024, 1, 1, 0, 12)),
@@ -431,7 +347,9 @@ mod tests {
     fn existing_windows_are_skipped_and_the_earliest_existing_sets_the_start() {
         let existing = paths(&["2024/01/01/00/00.parquet", "2024/01/01/00/12.parquet"]);
         assert_eq!(
-            Planner::plan_windows(&existing, utc(2024, 1, 1, 0, 18), None).unwrap(),
+            Planner::plan_windows_with_skipped(&existing, utc(2024, 1, 1, 0, 18), None)
+                .unwrap()
+                .windows,
             vec![window(utc(2024, 1, 1, 0, 6), utc(2024, 1, 1, 0, 12))]
         );
     }
@@ -440,12 +358,13 @@ mod tests {
     fn backfill_can_start_before_the_earliest_existing_window() {
         let existing = paths(&["2024/01/01/00/12.parquet"]);
         assert_eq!(
-            Planner::plan_windows(
+            Planner::plan_windows_with_skipped(
                 &existing,
                 utc(2024, 1, 1, 0, 18),
                 Some(utc(2024, 1, 1, 0, 0))
             )
-            .unwrap(),
+            .unwrap()
+            .windows,
             vec![
                 window(utc(2024, 1, 1, 0, 0), utc(2024, 1, 1, 0, 6)),
                 window(utc(2024, 1, 1, 0, 6), utc(2024, 1, 1, 0, 12)),
@@ -457,12 +376,14 @@ mod tests {
     fn plan_windows_between_quantizes_the_start() {
         let existing = paths(&["2024/01/01/00/00.parquet"]);
         assert_eq!(
-            Planner::plan_windows_between(
+            Planner::plan_windows_with_overwrite(
                 &existing,
                 utc(2024, 1, 1, 0, 2),
                 utc(2024, 1, 1, 0, 12),
+                false
             )
-            .unwrap(),
+            .unwrap()
+            .windows,
             vec![window(utc(2024, 1, 1, 0, 6), utc(2024, 1, 1, 0, 12))]
         );
     }
@@ -471,13 +392,14 @@ mod tests {
     fn forced_backfill_replans_existing_windows() {
         let existing = paths(&["2024/01/01/00/00.parquet", "2024/01/01/00/06.parquet"]);
         assert_eq!(
-            Planner::plan_backfill_windows(
+            Planner::plan_windows_with_overwrite(
                 &existing,
                 utc(2024, 1, 1, 0, 2),
                 utc(2024, 1, 1, 0, 12),
                 true,
             )
-            .unwrap(),
+            .unwrap()
+            .windows,
             vec![
                 window(utc(2024, 1, 1, 0, 0), utc(2024, 1, 1, 0, 6)),
                 window(utc(2024, 1, 1, 0, 6), utc(2024, 1, 1, 0, 12)),
@@ -489,13 +411,14 @@ mod tests {
     fn non_forced_backfill_skips_existing_windows() {
         let existing = paths(&["2024/01/01/00/00.parquet"]);
         assert_eq!(
-            Planner::plan_backfill_windows(
+            Planner::plan_windows_with_overwrite(
                 &existing,
                 utc(2024, 1, 1, 0, 0),
                 utc(2024, 1, 1, 0, 12),
                 false,
             )
-            .unwrap(),
+            .unwrap()
+            .windows,
             vec![window(utc(2024, 1, 1, 0, 6), utc(2024, 1, 1, 0, 12))]
         );
     }
@@ -504,13 +427,14 @@ mod tests {
     fn forced_backfill_still_skips_compacted_periods() {
         let existing = paths(&["2024/01/01/00.parquet"]);
         assert_eq!(
-            Planner::plan_backfill_windows(
+            Planner::plan_windows_with_overwrite(
                 &existing,
                 utc(2024, 1, 1, 0, 0),
                 utc(2024, 1, 1, 1, 12),
                 true,
             )
-            .unwrap(),
+            .unwrap()
+            .windows,
             vec![
                 window(utc(2024, 1, 1, 1, 0), utc(2024, 1, 1, 1, 6)),
                 window(utc(2024, 1, 1, 1, 6), utc(2024, 1, 1, 1, 12)),
@@ -521,7 +445,7 @@ mod tests {
     #[test]
     fn forced_backfill_reports_compacted_periods() {
         let existing = paths(&["2024/01/01/00.parquet"]);
-        let plan = Planner::plan_backfill_windows_with_skipped(
+        let plan = Planner::plan_windows_with_overwrite(
             &existing,
             utc(2024, 1, 1, 0, 0),
             utc(2024, 1, 1, 1, 12),
@@ -550,7 +474,7 @@ mod tests {
     #[test]
     fn compacted_skips_are_clipped_to_the_requested_range() {
         let existing = paths(&["2024/01/01/00.parquet"]);
-        let plan = Planner::plan_backfill_windows_with_skipped(
+        let plan = Planner::plan_windows_with_overwrite(
             &existing,
             utc(2024, 1, 1, 0, 0),
             utc(2024, 1, 1, 0, 30),
@@ -565,10 +489,11 @@ mod tests {
     #[test]
     fn plain_windows_plan_reports_compacted_periods() {
         let existing = paths(&["2024/01/01/00.parquet"]);
-        let plan = Planner::plan_windows_between_with_skipped(
+        let plan = Planner::plan_windows_with_overwrite(
             &existing,
             utc(2024, 1, 1, 0, 0),
             utc(2024, 1, 1, 0, 12),
+            false,
         )
         .unwrap();
         assert!(plan.windows.is_empty());
@@ -579,8 +504,9 @@ mod tests {
     fn fully_ingested_latest_window_has_no_work() {
         let existing = paths(&["2024/01/01/00/00.parquet"]);
         assert!(
-            Planner::plan_windows(&existing, utc(2024, 1, 1, 0, 6), None)
+            Planner::plan_windows_with_skipped(&existing, utc(2024, 1, 1, 0, 6), None)
                 .unwrap()
+                .windows
                 .is_empty()
         );
     }
@@ -589,12 +515,13 @@ mod tests {
     fn compacted_hours_are_skipped() {
         let existing = paths(&["2024/01/01/03.parquet"]);
         assert_eq!(
-            Planner::plan_windows(
+            Planner::plan_windows_with_skipped(
                 &existing,
                 utc(2024, 1, 1, 4, 12),
                 Some(utc(2024, 1, 1, 3, 0))
             )
-            .unwrap(),
+            .unwrap()
+            .windows,
             vec![
                 window(utc(2024, 1, 1, 4, 0), utc(2024, 1, 1, 4, 6)),
                 window(utc(2024, 1, 1, 4, 6), utc(2024, 1, 1, 4, 12)),
@@ -624,7 +551,7 @@ mod tests {
     #[test]
     fn forced_backfill_reports_compacted_windows_as_compacted() {
         let existing = paths(&["2024/01/01/00.parquet"]);
-        let plan = Planner::plan_backfill_windows_with_skipped(
+        let plan = Planner::plan_windows_with_overwrite(
             &existing,
             utc(2024, 1, 1, 0, 0),
             utc(2024, 1, 1, 1, 12),
@@ -645,12 +572,13 @@ mod tests {
     fn compacted_days_are_skipped() {
         let existing = paths(&["2024/01/01.parquet"]);
         assert_eq!(
-            Planner::plan_windows(
+            Planner::plan_windows_with_skipped(
                 &existing,
                 utc(2024, 1, 2, 0, 12),
                 Some(utc(2024, 1, 1, 12, 0))
             )
-            .unwrap(),
+            .unwrap()
+            .windows,
             vec![
                 window(utc(2024, 1, 2, 0, 0), utc(2024, 1, 2, 0, 6)),
                 window(utc(2024, 1, 2, 0, 6), utc(2024, 1, 2, 0, 12)),
@@ -662,12 +590,13 @@ mod tests {
     fn compacted_months_are_skipped() {
         let existing = paths(&["2024/01.parquet"]);
         assert_eq!(
-            Planner::plan_windows(
+            Planner::plan_windows_with_skipped(
                 &existing,
                 utc(2024, 2, 1, 0, 12),
                 Some(utc(2024, 1, 15, 0, 0))
             )
-            .unwrap(),
+            .unwrap()
+            .windows,
             vec![
                 window(utc(2024, 2, 1, 0, 0), utc(2024, 2, 1, 0, 6)),
                 window(utc(2024, 2, 1, 0, 6), utc(2024, 2, 1, 0, 12)),
@@ -679,12 +608,13 @@ mod tests {
     fn compacted_years_are_skipped() {
         let existing = paths(&["2024.parquet"]);
         assert_eq!(
-            Planner::plan_windows(
+            Planner::plan_windows_with_skipped(
                 &existing,
                 utc(2025, 1, 1, 0, 12),
                 Some(utc(2024, 7, 1, 0, 0))
             )
-            .unwrap(),
+            .unwrap()
+            .windows,
             vec![
                 window(utc(2025, 1, 1, 0, 0), utc(2025, 1, 1, 0, 6)),
                 window(utc(2025, 1, 1, 0, 6), utc(2025, 1, 1, 0, 12)),
@@ -699,7 +629,7 @@ mod tests {
             .step_by(6)
             .map(|minute| ObjectKey::new(format!("{prefix}{minute:02}.parquet")))
             .collect::<Vec<_>>();
-        let target = Planner::plan_compaction(&prefix, &source_files)
+        let target = Planner::plan_compaction_with_suffix(&prefix, &source_files, PARQUET_SUFFIX)
             .unwrap()
             .unwrap();
         assert_eq!(
@@ -720,7 +650,7 @@ mod tests {
         let source_files = (0..24)
             .map(|hour| ObjectKey::new(format!("{prefix}{hour:02}.parquet")))
             .collect::<Vec<_>>();
-        let target = Planner::plan_compaction(&prefix, &source_files)
+        let target = Planner::plan_compaction_with_suffix(&prefix, &source_files, PARQUET_SUFFIX)
             .unwrap()
             .unwrap();
         assert_eq!(
@@ -739,7 +669,7 @@ mod tests {
             .collect::<Vec<_>>();
         source_files.pop();
         assert_eq!(
-            Planner::plan_compaction(&prefix, &source_files).unwrap(),
+            Planner::plan_compaction_with_suffix(&prefix, &source_files, PARQUET_SUFFIX).unwrap(),
             None
         );
     }
@@ -748,7 +678,8 @@ mod tests {
     fn leaf_path_does_not_produce_a_target() {
         let prefix = ObjectKey::new("paper/binance/bitcoin/tetherusd/2024/01/01/00/00/");
         assert_eq!(
-            Planner::plan_compaction(&prefix, [] as [ObjectKey; 0]).unwrap(),
+            Planner::plan_compaction_with_suffix(&prefix, [] as [ObjectKey; 0], PARQUET_SUFFIX)
+                .unwrap(),
             None
         );
     }

@@ -219,7 +219,7 @@ impl KlinesUpdater {
                     .map(str::to_string)
             })
             .collect::<HashSet<_>>();
-        let plan = plan::Planner::plan_backfill_windows_with_skipped(
+        let plan = plan::Planner::plan_windows_with_overwrite(
             &existing,
             backfill.start,
             backfill.end,
