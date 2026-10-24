@@ -1,6 +1,7 @@
 use crate::{
     constants::{UPDATE_QUANTIZATION, common_trading_pairs},
     env_config::EnvConfig,
+    feed::Feed,
     ingest::{Ingest, IngestOutcome, WindowIngest},
     job::BackfillJob,
     plan,
@@ -193,11 +194,12 @@ impl KlinesUpdater {
         let resolved = backfill.resolve()?;
         let updater = self.exchange_updater(resolved.cex_id, resolved.trading_mode)?;
         let candles_base_path = format!(
-            "{}/{}/{}/{}",
+            "{}/{}/{}/{}/{}",
             resolved.trading_mode,
             resolved.cex_id,
             resolved.trading_pair.base,
-            resolved.trading_pair.quote
+            resolved.trading_pair.quote,
+            backfill.feed
         );
         let base_path_prefix = ObjectKey::new(format!("{}/", candles_base_path));
         info!(
@@ -421,8 +423,12 @@ impl KlinesUpdater {
             return Ok(outcome);
         }
         let candles_base_path = format!(
-            "{}/{}/{}/{}",
-            trading_mode, cex_id, trading_pair.base, trading_pair.quote
+            "{}/{}/{}/{}/{}",
+            trading_mode,
+            cex_id,
+            trading_pair.base,
+            trading_pair.quote,
+            Feed::Trades
         );
         let base_path_prefix = ObjectKey::new(format!("{}/", candles_base_path));
         let existing = S3::list_files(s3_client, bucket, &base_path_prefix)
