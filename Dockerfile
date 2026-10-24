@@ -59,7 +59,7 @@ COPY ./Cargo.lock ./Cargo.lock
 COPY ./Cargo.toml ./Cargo.toml
 COPY ./rust-toolchain.toml ./rust-toolchain.toml
 
-RUN cargo lambda build --manifest-path ./crates/agent/Cargo.toml --release
+RUN cargo lambda build --manifest-path ./crates/apps/agent/Cargo.toml --release
 
 
 
@@ -67,8 +67,8 @@ FROM base AS build-agent
 
 WORKDIR ${LAMBDA_RUNTIME_DIR}
 ENV BUILD_AGENT_SOURCE_DIR="${LAMBDA_RUNTIME_DIR}"
-COPY ./crates/exit_codes ./crates/exit_codes
-COPY ./crates/runner ./crates/runner
+COPY ./crates/compute/exit_codes ./crates/compute/exit_codes
+COPY ./crates/compute/runner ./crates/compute/runner
 COPY ./Cargo.lock ./Cargo.lock
 COPY ./Cargo.toml ./Cargo.toml
 COPY ./rust-toolchain.toml ./rust-toolchain.toml
@@ -84,7 +84,7 @@ RUN cargo vendor vendor > /tmp/vendor-config.toml \
 
 # Install the native host used to run algorithms.
 RUN cargo build \
-      --manifest-path ./crates/runner/Cargo.toml \
+      --manifest-path ./crates/compute/runner/Cargo.toml \
       --release \
       --bin build-runner \
       --locked \
@@ -97,7 +97,7 @@ RUN cargo build \
 # target directory into a fresh /tmp directory for every request, so builds only
 # rebuild the runner crate and never reuse artifacts from previous user code.
 RUN cargo build \
-      --manifest-path ./crates/runner/Cargo.toml \
+      --manifest-path ./crates/compute/runner/Cargo.toml \
       --target wasm32-wasip1 \
       --release \
       --lib \

@@ -3,7 +3,7 @@ use buildplane_git::git_host::GitFile;
 use std::io::{Cursor, Write};
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
-const USER_GENERATED_PREFIX: &str = "crates/runner/src/user_generated/";
+const USER_GENERATED_PREFIX: &str = "crates/compute/runner/src/user_generated/";
 
 pub struct SourceArchive;
 
