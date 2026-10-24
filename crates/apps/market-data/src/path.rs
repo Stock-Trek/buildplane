@@ -6,6 +6,8 @@ use buildplane_errors::{BpError, BpResult, DataError};
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use std::fmt;
 
+/// The root path segment that contains in-progress staged files.
+pub const STAGING_SEGMENT: &str = "staging";
 /// The path segment that identifies a market data feed.
 pub const FEED_SEGMENT: usize = 4;
 /// The path segment that identifies a market data tier.
@@ -202,9 +204,12 @@ impl MarketDataPath {
         Ok(ObjectKey::new(format!("{}/", segments.join("/"))))
     }
 
-    /// Add the staging suffix to a compacted file key.
-    pub fn staged_file_path(compacted_file: &ObjectKey, staging_suffix: &str) -> ObjectKey {
-        ObjectKey::new(Self::with_suffix(compacted_file.as_str(), staging_suffix))
+    /// Build the staging key for a compacted file.
+    ///
+    /// Staged files live under a dedicated root segment so they cannot be
+    /// mistaken for completed market data files.
+    pub fn staged_file_path(compacted_file: &ObjectKey) -> ObjectKey {
+        Self::join_key(STAGING_SEGMENT, compacted_file.as_str())
     }
 
     /// Normalize and validate a requested compaction target.
@@ -377,6 +382,16 @@ mod tests {
                 "monthly/2024/01.parquet",
                 "yearly/2024.parquet",
             ]
+        );
+    }
+
+    #[test]
+    fn places_staged_files_under_the_staging_root_segment() {
+        let compacted_file =
+            ObjectKey::new("paper/binance/bitcoin/tetherusd/trades/hourly/2024/01/01/03.parquet");
+        assert_eq!(
+            MarketDataPath::staged_file_path(&compacted_file).as_str(),
+            "staging/paper/binance/bitcoin/tetherusd/trades/hourly/2024/01/01/03.parquet"
         );
     }
 
