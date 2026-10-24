@@ -2,10 +2,10 @@ use crate::{
     compacter::Compactor,
     constants::{LOCK_KEY, common_trading_pairs},
     env_config::EnvConfig,
+    granularity::Granularity,
     job::{Job, JobOutcome},
     lock::LockGuard,
     s3::{Bucket, ObjectKey, S3},
-    tier::Tier,
     updater::KlinesUpdater,
 };
 use aws_sdk_s3::Client as S3Client;
@@ -189,14 +189,14 @@ impl JobExecutor {
         let mut errors = Vec::new();
         let mut compaction_targets = 0;
         'pairs: for pair in pairs {
-            for tier in Tier::ALL {
+            for granularity in Granularity::ALL {
                 if !deadline.has_remaining() {
                     let error = BpError::Timeout(TimeoutError::DeadlineExceeded);
                     warn!("stopping compaction before deadline: {error}");
                     errors.push(error);
                     break 'pairs;
                 }
-                let prefix = ObjectKey::new(format!("{pair}{}/", tier.as_str()));
+                let prefix = ObjectKey::new(format!("{pair}{}/", granularity.as_str()));
                 match Compactor::prefix(s3_client, transfer_client, bucket, &prefix, deadline).await
                 {
                     Ok(()) => compaction_targets += 1,

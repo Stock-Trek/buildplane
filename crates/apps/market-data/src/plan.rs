@@ -1,9 +1,9 @@
 use crate::{
     constants::{PARQUET_SUFFIX, UPDATE_QUANTIZATION},
+    granularity::Granularity,
     quantized_time::{Quantization, QuantizedTime, TopOfHour, TopOfMonth},
     s3::ObjectKey,
     subfolders::SubFolders,
-    tier::Tier,
 };
 use buildplane_errors::{BpError, BpResult, DataError};
 use chrono::{DateTime, Datelike, TimeZone, Timelike, Utc};
@@ -209,7 +209,7 @@ impl Planner {
             .collect::<Vec<_>>();
         let tier = segments
             .get(4)
-            .and_then(|segment| Tier::from_segment(segment))
+            .and_then(|segment| Granularity::from_segment(segment))
             .ok_or_else(|| {
                 BpError::Data(DataError::InvalidJob {
                     message: format!("compaction path {path} must include a data tier"),
@@ -239,7 +239,7 @@ impl Planner {
         let minute = start_time.minute() as i32;
         format!(
             "{}/{}",
-            Tier::Raw,
+            Granularity::Raw,
             SubFolders::file_path(&[year, month, day, hour, minute], PARQUET_SUFFIX)
         )
     }
@@ -276,22 +276,22 @@ impl Planner {
         [
             format!(
                 "{}/{}",
-                Tier::Hourly,
+                Granularity::Hourly,
                 SubFolders::file_path(&[year, month, day, hour], PARQUET_SUFFIX)
             ),
             format!(
                 "{}/{}",
-                Tier::Daily,
+                Granularity::Daily,
                 SubFolders::file_path(&[year, month, day], PARQUET_SUFFIX)
             ),
             format!(
                 "{}/{}",
-                Tier::Monthly,
+                Granularity::Monthly,
                 SubFolders::file_path(&[year, month], PARQUET_SUFFIX)
             ),
             format!(
                 "{}/{}",
-                Tier::Yearly,
+                Granularity::Yearly,
                 SubFolders::file_path(&[year], PARQUET_SUFFIX)
             ),
         ]
@@ -300,7 +300,7 @@ impl Planner {
     fn file_start_time(path: &str) -> Option<DateTime<Utc>> {
         let path = path.strip_suffix(PARQUET_SUFFIX)?;
         let mut segments = path.split('/').filter(|segment| !segment.is_empty());
-        Tier::from_segment(segments.next()?)?;
+        Granularity::from_segment(segments.next()?)?;
         let year = segments.next()?.parse::<i32>().ok()?;
         let month = Self::file_path_segment(segments.next(), 1)?;
         let day = Self::file_path_segment(segments.next(), 1)?;

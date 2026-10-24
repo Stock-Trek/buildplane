@@ -1,7 +1,7 @@
 use std::fmt;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum Tier {
+pub enum Granularity {
     Raw,
     Hourly,
     Daily,
@@ -9,7 +9,7 @@ pub enum Tier {
     Yearly,
 }
 
-impl Tier {
+impl Granularity {
     pub const ALL: [Self; 5] = [
         Self::Raw,
         Self::Hourly,
@@ -82,7 +82,7 @@ impl Tier {
     }
 }
 
-impl fmt::Display for Tier {
+impl fmt::Display for Granularity {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(self.as_str())
     }

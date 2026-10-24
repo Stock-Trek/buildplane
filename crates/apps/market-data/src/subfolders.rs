@@ -1,4 +1,6 @@
-use crate::{constants::UPDATE_QUANTIZATION, quantized_time::Quantization, tier::Tier};
+use crate::{
+    constants::UPDATE_QUANTIZATION, granularity::Granularity, quantized_time::Quantization,
+};
 use buildplane_errors::{BpError, BpResult, DataError};
 use chrono::{Datelike, NaiveDate};
 
@@ -21,7 +23,7 @@ impl SubFolders {
         let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
         let Some(_) = segments
             .get(4)
-            .and_then(|segment| Tier::from_segment(segment))
+            .and_then(|segment| Granularity::from_segment(segment))
         else {
             return Err(BpError::Data(DataError::InvalidYearMonth {
                 path: path.to_string(),

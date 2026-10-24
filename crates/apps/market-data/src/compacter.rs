@@ -1,10 +1,10 @@
 use crate::{
     constants::PARQUET_SUFFIX,
+    granularity::Granularity,
     parquet_reader::ParquetReader,
     parquet_writer::writer_properties,
     plan,
     s3::{Bucket, ObjectKey, S3},
-    tier::Tier,
 };
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
@@ -136,12 +136,12 @@ impl Compactor {
     ) -> BpResult<()> {
         deadline.fail_if_exceeded()?;
         info!("compact folder with prefix {}", prefix);
-        let tier = Tier::from_path(prefix.as_str()).ok_or_else(|| {
+        let tier = Granularity::from_path(prefix.as_str()).ok_or_else(|| {
             BpError::Data(DataError::InvalidJob {
                 message: format!("compaction prefix {prefix} must include a data tier"),
             })
         })?;
-        let time_segments = Tier::time_segment_count(prefix.as_str()).ok_or_else(|| {
+        let time_segments = Granularity::time_segment_count(prefix.as_str()).ok_or_else(|| {
             BpError::Data(DataError::InvalidJob {
                 message: format!("compaction prefix {prefix} has an invalid path"),
             })
@@ -277,7 +277,7 @@ impl Compactor {
         Ok(())
     }
 
-    fn replace_tier(prefix: &ObjectKey, tier: Tier) -> BpResult<ObjectKey> {
+    fn replace_tier(prefix: &ObjectKey, tier: Granularity) -> BpResult<ObjectKey> {
         let mut segments = prefix
             .as_str()
             .split('/')

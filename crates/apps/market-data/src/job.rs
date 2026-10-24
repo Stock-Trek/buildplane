@@ -1,8 +1,8 @@
 use crate::{
     constants::{PARQUET_SUFFIX, common_trading_pairs},
+    granularity::Granularity,
     s3::ObjectKey,
     subfolders::SubFolders,
-    tier::Tier,
 };
 use buildplane_errors::{BpError, BpResult, DataError};
 use buildplane_exchange_types::urls::TradingMode;
@@ -262,7 +262,7 @@ impl CompactJob {
         }
         if directory_segments
             .get(4)
-            .and_then(|segment| Tier::from_segment(segment))
+            .and_then(|segment| Granularity::from_segment(segment))
             .is_none()
         {
             return Err(BpError::Data(DataError::InvalidJob {
