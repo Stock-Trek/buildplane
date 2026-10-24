@@ -2,6 +2,7 @@ use crate::{
     compacter::Compactor,
     constants::{LOCK_KEY, common_trading_pairs},
     env_config::EnvConfig,
+    granularity::Granularity,
     job::{Job, JobOutcome},
     lock::LockGuard,
     s3::{Bucket, ObjectKey, S3},
@@ -172,33 +173,37 @@ impl JobExecutor {
         deadline: Deadline,
     ) -> BpResult<usize> {
         info!("compact all");
-        let mut prefixes = common_trading_pairs()
+        let mut pairs = common_trading_pairs()
             .into_iter()
             .flat_map(|(cex_id, trading_mode, trading_pairs)| {
                 trading_pairs.into_iter().map(move |trading_pair| {
-                    ObjectKey::new(format!(
+                    format!(
                         "{}/{}/{}/{}/",
                         trading_mode, cex_id, trading_pair.base, trading_pair.quote
-                    ))
+                    )
                 })
             })
             .collect::<Vec<_>>();
-        prefixes.sort_unstable();
-        prefixes.dedup();
+        pairs.sort_unstable();
+        pairs.dedup();
         let mut errors = Vec::new();
         let mut compaction_targets = 0;
-        for prefix in prefixes {
-            if !deadline.has_remaining() {
-                let error = BpError::Timeout(TimeoutError::DeadlineExceeded);
-                warn!("stopping compaction before deadline: {error}");
-                errors.push(error);
-                break;
-            }
-            match Compactor::prefix(s3_client, transfer_client, bucket, &prefix, deadline).await {
-                Ok(()) => compaction_targets += 1,
-                Err(error) => {
-                    warn!("failed to compact folder {}: {error}", prefix);
+        'pairs: for pair in pairs {
+            for granularity in Granularity::ALL {
+                if !deadline.has_remaining() {
+                    let error = BpError::Timeout(TimeoutError::DeadlineExceeded);
+                    warn!("stopping compaction before deadline: {error}");
                     errors.push(error);
+                    break 'pairs;
+                }
+                let prefix = ObjectKey::new(format!("{pair}{}/", granularity.as_str()));
+                match Compactor::prefix(s3_client, transfer_client, bucket, &prefix, deadline).await
+                {
+                    Ok(()) => compaction_targets += 1,
+                    Err(error) => {
+                        warn!("failed to compact folder {}: {error}", prefix);
+                        errors.push(error);
+                    }
                 }
             }
         }

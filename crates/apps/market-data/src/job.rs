@@ -1,5 +1,6 @@
 use crate::{
     constants::{PARQUET_SUFFIX, common_trading_pairs},
+    granularity::Granularity,
     s3::ObjectKey,
     subfolders::SubFolders,
 };
@@ -248,14 +249,24 @@ impl CompactJob {
         } else {
             &segments[..]
         };
-        // The data layout is mode/cex/base/quote followed by up to four time
-        // segments (year/month/day/hour). A file target may additionally name
-        // the minute leaf, but its parent must still be a valid directory depth.
-        if !(4..=8).contains(&directory_segments.len()) {
+        // The data layout is mode/cex/base/quote, followed by a required tier
+        // and up to four time segments (year/month/day/hour). A file target may
+        // additionally name the leaf, but its parent must still be a valid
+        // directory depth.
+        if !(5..=9).contains(&directory_segments.len()) {
             return Err(BpError::Data(DataError::InvalidJob {
                 message: format!(
-                    "compact target {target} must address a trading pair or one of its year, month, day, or hour folders"
+                    "compact target {target} must address a data tier or one of its year, month, day, or hour folders"
                 ),
+            }));
+        }
+        if directory_segments
+            .get(4)
+            .and_then(|segment| Granularity::from_segment(segment))
+            .is_none()
+        {
+            return Err(BpError::Data(DataError::InvalidJob {
+                message: format!("compact target {target} must include a data tier"),
             }));
         }
         TradingPairPath::new(directory_segments[..4].join("/")).resolve()?;
@@ -551,7 +562,7 @@ mod tests {
         let job = Job::from_value(json!({
             "mode": {
                 "compact": {
-                    "target": "paper/binance/bitcoin/tetherusd/2024/01/01/"
+                    "target": "paper/binance/bitcoin/tetherusd/raw/2024/01/01/"
                 }
             }
         }))
@@ -561,21 +572,22 @@ mod tests {
         };
         assert_eq!(
             compact.prefix().unwrap().as_str(),
-            "paper/binance/bitcoin/tetherusd/2024/01/01/"
+            "paper/binance/bitcoin/tetherusd/raw/2024/01/01/"
         );
     }
 
     #[test]
     fn compact_prefix_is_normalized() {
-        let compact = CompactJob::new("paper/binance/bitcoin/tetherusd");
+        let compact = CompactJob::new("paper/binance/bitcoin/tetherusd/raw");
         assert_eq!(
             compact.prefix().unwrap().as_str(),
-            "paper/binance/bitcoin/tetherusd/"
+            "paper/binance/bitcoin/tetherusd/raw/"
         );
-        let compact = CompactJob::new("paper/binance/bitcoin/tetherusd/2024/01/01/00.parquet");
+        let compact =
+            CompactJob::new("paper/binance/bitcoin/tetherusd/raw/2024/01/01/00/06.parquet");
         assert_eq!(
             compact.prefix().unwrap().as_str(),
-            "paper/binance/bitcoin/tetherusd/2024/01/01/"
+            "paper/binance/bitcoin/tetherusd/raw/2024/01/01/00/"
         );
     }
 
@@ -591,6 +603,9 @@ mod tests {
             "/paper/binance/bitcoin/tetherusd",
             "paper//binance/bitcoin/tetherusd",
             "paper/binance/bitcoin/tetherusd/../other",
+            "paper/binance/bitcoin/tetherusd",
+            "paper/binance/bitcoin/tetherusd/not-a-tier",
+            "paper/binance/bitcoin/tetherusd/not-a-tier/2024",
         ] {
             assert!(
                 CompactJob::new(target).prefix().is_err(),
@@ -602,12 +617,12 @@ mod tests {
     #[test]
     fn compact_rejects_invalid_depths_and_time_segments() {
         for target in [
-            "paper/binance/bitcoin/tetherusd/2024/01/01/00/00",
-            "paper/binance/bitcoin/tetherusd/2024/01/01/00/00/00",
-            "paper/binance/bitcoin/tetherusd/not-a-year",
-            "paper/binance/bitcoin/tetherusd/2024/13",
-            "paper/binance/bitcoin/tetherusd/2024/01/32",
-            "paper/binance/bitcoin/tetherusd/2024/01/01/24",
+            "paper/binance/bitcoin/tetherusd/raw/2024/01/01/00/00",
+            "paper/binance/bitcoin/tetherusd/raw/2024/01/01/00/00/00",
+            "paper/binance/bitcoin/tetherusd/raw/not-a-year",
+            "paper/binance/bitcoin/tetherusd/raw/2024/13",
+            "paper/binance/bitcoin/tetherusd/raw/2024/01/32",
+            "paper/binance/bitcoin/tetherusd/raw/2024/01/01/24",
         ] {
             assert!(
                 CompactJob::new(target).prefix().is_err(),
@@ -619,12 +634,12 @@ mod tests {
     #[test]
     fn compact_accepts_each_valid_data_depth() {
         for target in [
-            "paper/binance/bitcoin/tetherusd",
-            "paper/binance/bitcoin/tetherusd/2024",
-            "paper/binance/bitcoin/tetherusd/2024/01",
-            "paper/binance/bitcoin/tetherusd/2024/01/01",
-            "paper/binance/bitcoin/tetherusd/2024/01/01/00",
-            "paper/binance/bitcoin/tetherusd/2024/01/01/00/00.parquet",
+            "paper/binance/bitcoin/tetherusd/raw",
+            "paper/binance/bitcoin/tetherusd/raw/2024",
+            "paper/binance/bitcoin/tetherusd/raw/2024/01",
+            "paper/binance/bitcoin/tetherusd/raw/2024/01/01",
+            "paper/binance/bitcoin/tetherusd/raw/2024/01/01/00",
+            "paper/binance/bitcoin/tetherusd/raw/2024/01/01/00/06.parquet",
         ] {
             assert!(
                 CompactJob::new(target).prefix().is_ok(),
