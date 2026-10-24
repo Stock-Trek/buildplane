@@ -1,5 +1,5 @@
 [package]
-name = "buildplane-orchestrator"
+name = "buildplane-build-orchestrator"
 version.workspace = true
 edition.workspace = true
 

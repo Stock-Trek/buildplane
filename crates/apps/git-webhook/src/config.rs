@@ -81,7 +81,7 @@ mod tests {
 
     const REQUIRED: [(&str, &str); 16] = [
         (RUST_LOG, "info"),
-        (AWS_LAMBDA_FUNCTION_NAME, "buildplane-webhook"),
+        (AWS_LAMBDA_FUNCTION_NAME, "buildplane-git-webhook"),
         (DEADLINE_BUFFER_SECS, "5"),
         (AWS_CONNECT_TIMEOUT_SECS, "10"),
         (AWS_OPERATION_TIMEOUT_SECS, "120"),
@@ -106,7 +106,7 @@ mod tests {
     fn parses_all_required_values() {
         let config = WebhookConfig::from_vars(&vars(&REQUIRED)).unwrap();
 
-        assert_eq!(config.lambda_function_name, "buildplane-webhook");
+        assert_eq!(config.lambda_function_name, "buildplane-git-webhook");
         assert_eq!(config.sqs_queue_url, "https://sqs.test/queue");
         assert_eq!(config.dedup_max_deliveries.get(), 4096);
         assert_eq!(config.infisical.environment, "production");

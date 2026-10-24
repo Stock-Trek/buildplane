@@ -59,7 +59,7 @@ COPY ./Cargo.lock ./Cargo.lock
 COPY ./Cargo.toml ./Cargo.toml
 COPY ./rust-toolchain.toml ./rust-toolchain.toml
 
-RUN cargo lambda build --manifest-path ./crates/apps/agent/Cargo.toml --release
+RUN cargo lambda build --manifest-path ./crates/apps/build-agent/Cargo.toml --release
 
 
 
@@ -104,6 +104,6 @@ RUN cargo build \
       --locked \
       --offline
 
-COPY --from=builder /app/target/lambda/buildplane-agent/bootstrap .
+COPY --from=builder /app/target/lambda/buildplane-build-agent/bootstrap .
 
 CMD ["bootstrap"]

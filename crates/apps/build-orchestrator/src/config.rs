@@ -167,7 +167,7 @@ mod tests {
 
     const REQUIRED: [(&str, &str); 26] = [
         (RUST_LOG, "info"),
-        (AWS_LAMBDA_FUNCTION_NAME, "buildplane-orchestrator"),
+        (AWS_LAMBDA_FUNCTION_NAME, "buildplane-build-orchestrator"),
         (BUILD_AGENT_TIMEOUT_SECS, "300"),
         (BUILD_AGENT_SOURCE_DOWNLOAD_TIMEOUT_SECS, "60"),
         (DEADLINE_BUFFER_SECS, "5"),
@@ -191,7 +191,7 @@ mod tests {
         (S3_MAX_SOURCE_ARCHIVE_SIZE_BYTES, "16777216"),
         (S3_MAX_ARTIFACT_SIZE_BYTES, "16777216"),
         (S3_SIGNED_URL_EXPIRY_SECS, "3600"),
-        (BUILD_AGENT_FUNCTION_NAME, "buildplane-agent"),
+        (BUILD_AGENT_FUNCTION_NAME, "buildplane-build-agent"),
     ];
 
     fn vars(values: &[(&str, &str)]) -> EnvVars {
@@ -202,7 +202,7 @@ mod tests {
     fn parses_all_required_values() {
         let config = OrchestratorConfig::from_vars(&vars(&REQUIRED)).unwrap();
 
-        assert_eq!(config.lambda_function_name, "buildplane-orchestrator");
+        assert_eq!(config.lambda_function_name, "buildplane-build-orchestrator");
         assert_eq!(config.s3.user_artifacts_bucket, "user-artifacts");
         assert_eq!(
             config.s3.max_source_archive_size_bytes,
