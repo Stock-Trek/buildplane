@@ -25,7 +25,6 @@ use tokio::fs::File;
 use tracing::{info, warn};
 
 const READ_BATCH_SIZE: usize = 8192;
-const STAGING_SUFFIX: &str = ".staging";
 const TEMP_FILE_PREFIX: &str = "market-data-updater-compaction-";
 
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -224,7 +223,7 @@ impl Compactor {
             return Ok(());
         }
         let compacted_file = MarketDataPath::compacted_file_path(prefix, suffix)?;
-        let staged_file = MarketDataPath::staged_file_path(&compacted_file, STAGING_SUFFIX);
+        let staged_file = MarketDataPath::staged_file_path(&compacted_file);
         if S3::has_file(s3_client, bucket, &compacted_file).await? {
             info!(
                 "{} is already compacted; deleting remaining source files",
@@ -360,7 +359,7 @@ impl Compactor {
             warn!("No data to compact");
             return Ok(());
         }
-        let staged_file = MarketDataPath::staged_file_path(compacted_file, STAGING_SUFFIX);
+        let staged_file = MarketDataPath::staged_file_path(compacted_file);
         if !Self::compact(
             s3_client,
             transfer_client,
