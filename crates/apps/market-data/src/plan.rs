@@ -107,6 +107,8 @@ impl Planner {
     }
 
     /// Plan missing windows in an explicit range, skipping compacted periods.
+    ///
+    /// The start is quantized to the update boundary.
     pub fn plan_windows_between(
         existing: &HashSet<String>,
         start: DateTime<Utc>,
@@ -116,11 +118,14 @@ impl Planner {
     }
 
     /// Plan missing windows and report windows covered by compacted periods.
+    ///
+    /// The start is quantized to the update boundary.
     pub fn plan_windows_between_with_skipped(
         existing: &HashSet<String>,
         start: DateTime<Utc>,
         end_time: DateTime<Utc>,
     ) -> BpResult<WindowPlan> {
+        let start = QuantizedTime::timestamp(start, UPDATE_QUANTIZATION)?;
         Self::plan_windows_between_with_overwrite(existing, start, end_time, false)
     }
 
@@ -159,6 +164,11 @@ impl Planner {
         end_time: DateTime<Utc>,
         overwrite_existing: bool,
     ) -> BpResult<WindowPlan> {
+        debug_assert_eq!(
+            start,
+            QuantizedTime::timestamp(start, UPDATE_QUANTIZATION)?,
+            "window planning start must be quantized to the update boundary"
+        );
         let mut start = start;
         let mut plan = WindowPlan::default();
         while start < end_time {
@@ -440,6 +450,20 @@ mod tests {
                 window(utc(2024, 1, 1, 0, 0), utc(2024, 1, 1, 0, 6)),
                 window(utc(2024, 1, 1, 0, 6), utc(2024, 1, 1, 0, 12)),
             ]
+        );
+    }
+
+    #[test]
+    fn plan_windows_between_quantizes_the_start() {
+        let existing = paths(&["2024/01/01/00/00.parquet"]);
+        assert_eq!(
+            Planner::plan_windows_between(
+                &existing,
+                utc(2024, 1, 1, 0, 2),
+                utc(2024, 1, 1, 0, 12),
+            )
+            .unwrap(),
+            vec![window(utc(2024, 1, 1, 0, 6), utc(2024, 1, 1, 0, 12))]
         );
     }
 
