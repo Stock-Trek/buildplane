@@ -6,8 +6,6 @@ use buildplane_errors::{BpError, BpResult, DataError};
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use std::fmt;
 
-/// The number of path segments that identify a trading pair.
-pub const TRADING_PAIR_SEGMENTS: usize = 4;
 /// The path segment that identifies a market data feed.
 pub const FEED_SEGMENT: usize = 4;
 /// The path segment that identifies a market data tier.
@@ -23,7 +21,6 @@ pub const TIME_SEGMENT_START: usize = 6;
 pub struct MarketDataPath;
 
 impl MarketDataPath {
-    pub const TRADING_PAIR_SEGMENTS: usize = crate::path::TRADING_PAIR_SEGMENTS;
     pub const FEED_SEGMENT: usize = crate::path::FEED_SEGMENT;
     pub const TIER_SEGMENT: usize = crate::path::TIER_SEGMENT;
     pub const TIME_SEGMENT_START: usize = crate::path::TIME_SEGMENT_START;
