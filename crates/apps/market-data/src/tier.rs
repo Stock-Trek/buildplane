@@ -77,11 +77,8 @@ impl Tier {
 
     pub fn time_segment_count(path: &str) -> Option<usize> {
         let segments = path_segments(path);
-        let offset = segments
-            .get(4)
-            .and_then(|segment| Self::from_segment(segment))
-            .map_or(4, |_| 5);
-        segments.len().checked_sub(offset)
+        Self::from_segment(segments.get(4)?)?;
+        Some(segments.len() - 5)
     }
 }
 

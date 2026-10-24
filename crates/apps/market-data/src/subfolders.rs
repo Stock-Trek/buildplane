@@ -19,11 +19,15 @@ impl SubFolders {
         quantization: Quantization,
     ) -> BpResult<Vec<String>> {
         let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-        let time_offset = segments
+        let Some(_) = segments
             .get(4)
             .and_then(|segment| Tier::from_segment(segment))
-            .map_or(4, |_| 5);
-        let time_segments = segments.get(time_offset..).unwrap_or_default();
+        else {
+            return Err(BpError::Data(DataError::InvalidYearMonth {
+                path: path.to_string(),
+            }));
+        };
+        let time_segments = segments.get(5..).unwrap_or_default();
         match time_segments.len() {
             0 => Ok(Vec::new()),
             1 => {

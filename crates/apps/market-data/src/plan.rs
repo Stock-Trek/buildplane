@@ -5,7 +5,7 @@ use crate::{
     subfolders::SubFolders,
     tier::Tier,
 };
-use buildplane_errors::BpResult;
+use buildplane_errors::{BpError, BpResult, DataError};
 use chrono::{DateTime, Datelike, TimeZone, Timelike, Utc};
 use std::collections::HashSet;
 
@@ -172,7 +172,7 @@ impl Planner {
         Ok(Some(CompactionTarget {
             prefix: prefix.clone(),
             source_files,
-            compacted_file: Self::compacted_file_path(prefix, suffix),
+            compacted_file: Self::compacted_file_path(prefix, suffix)?,
         }))
     }
 
@@ -201,28 +201,34 @@ impl Planner {
             .collect())
     }
 
-    pub fn compacted_file_path(prefix: &ObjectKey, suffix: &str) -> ObjectKey {
+    pub fn compacted_file_path(prefix: &ObjectKey, suffix: &str) -> BpResult<ObjectKey> {
         let path = prefix.as_str().trim_end_matches('/');
         let segments = path
             .split('/')
             .filter(|segment| !segment.is_empty())
             .collect::<Vec<_>>();
-        if let Some(tier) = segments
+        let tier = segments
             .get(4)
             .and_then(|segment| Tier::from_segment(segment))
-            && let Some(target) = tier.target()
-        {
-            let mut target_path = segments[..4].join("/");
+            .ok_or_else(|| {
+                BpError::Data(DataError::InvalidJob {
+                    message: format!("compaction path {path} must include a data tier"),
+                })
+            })?;
+        let target = tier.target().ok_or_else(|| {
+            BpError::Data(DataError::InvalidJob {
+                message: format!("the {tier} tier has no compaction target"),
+            })
+        })?;
+        let mut target_path = segments[..4].join("/");
+        target_path.push('/');
+        target_path.push_str(target.as_str());
+        for segment in &segments[5..] {
             target_path.push('/');
-            target_path.push_str(target.as_str());
-            for segment in &segments[5..] {
-                target_path.push('/');
-                target_path.push_str(segment);
-            }
-            target_path.push_str(suffix);
-            return ObjectKey::new(target_path);
+            target_path.push_str(segment);
         }
-        ObjectKey::new(format!("{path}{suffix}"))
+        target_path.push_str(suffix);
+        Ok(ObjectKey::new(target_path))
     }
 
     fn window_file_path(start_time: DateTime<Utc>) -> String {
@@ -294,11 +300,8 @@ impl Planner {
     fn file_start_time(path: &str) -> Option<DateTime<Utc>> {
         let path = path.strip_suffix(PARQUET_SUFFIX)?;
         let mut segments = path.split('/').filter(|segment| !segment.is_empty());
-        let first = segments.next()?;
-        let year = match Tier::from_segment(first) {
-            Some(_) => segments.next()?.parse::<i32>().ok()?,
-            None => first.parse::<i32>().ok()?,
-        };
+        Tier::from_segment(segments.next()?)?;
+        let year = segments.next()?.parse::<i32>().ok()?;
         let month = Self::file_path_segment(segments.next(), 1)?;
         let day = Self::file_path_segment(segments.next(), 1)?;
         let hour = Self::file_path_segment(segments.next(), 0)?;

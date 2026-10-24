@@ -8,7 +8,7 @@ use crate::{
 };
 use aws_sdk_s3::Client as S3Client;
 use aws_sdk_s3_transfer_manager::Client as TransferClient;
-use buildplane_errors::{BpError, BpResult};
+use buildplane_errors::{BpError, BpResult, DataError};
 use buildplane_metrics::market_data::MarketDataMetrics;
 use buildplane_time::deadline::Deadline;
 use futures::TryStreamExt;
@@ -91,7 +91,7 @@ struct SubfoldersFiles {
 }
 
 impl Compactor {
-    /// Compact one specific trading-pair prefix.
+    /// Compact one specific tier prefix.
     ///
     /// Ready children are rolled up recursively, preserving the existing
     /// staged-copy and delete-source safety behavior.
@@ -103,8 +103,15 @@ impl Compactor {
         deadline: Deadline,
     ) -> BpResult<()> {
         let started_at = Instant::now();
-        let result =
-            Self::compact_prefix(s3_client, transfer_client, bucket, prefix, deadline).await;
+        let result = Self::folder(
+            s3_client,
+            transfer_client,
+            bucket,
+            prefix,
+            PARQUET_SUFFIX,
+            deadline,
+        )
+        .await;
         match &result {
             Ok(()) => {
                 MarketDataMetrics::record_compaction_success(started_at.elapsed());
@@ -119,49 +126,6 @@ impl Compactor {
         result
     }
 
-    async fn compact_prefix(
-        s3_client: &S3Client,
-        transfer_client: &TransferClient,
-        bucket: &Bucket,
-        prefix: &ObjectKey,
-        deadline: Deadline,
-    ) -> BpResult<()> {
-        deadline.fail_if_exceeded()?;
-        if Tier::from_path(prefix.as_str()).is_some() {
-            return Self::folder(
-                s3_client,
-                transfer_client,
-                bucket,
-                prefix,
-                PARQUET_SUFFIX,
-                deadline,
-            )
-            .await;
-        }
-
-        let pair_prefix = prefix
-            .as_str()
-            .split('/')
-            .filter(|segment| !segment.is_empty())
-            .take(4)
-            .collect::<Vec<_>>()
-            .join("/");
-        for tier in [Tier::Raw, Tier::Hourly, Tier::Daily, Tier::Monthly] {
-            deadline.fail_if_exceeded()?;
-            let tier_prefix = ObjectKey::new(format!("{pair_prefix}/{}/", tier.as_str()));
-            Self::folder(
-                s3_client,
-                transfer_client,
-                bucket,
-                &tier_prefix,
-                PARQUET_SUFFIX,
-                deadline,
-            )
-            .await?;
-        }
-        Ok(())
-    }
-
     async fn folder(
         s3_client: &S3Client,
         transfer_client: &TransferClient,
@@ -172,14 +136,16 @@ impl Compactor {
     ) -> BpResult<()> {
         deadline.fail_if_exceeded()?;
         info!("compact folder with prefix {}", prefix);
-        let Some(tier) = Tier::from_path(prefix.as_str()) else {
-            warn!("skipping path {} without a tier", prefix);
-            return Ok(());
-        };
-        let Some(time_segments) = Tier::time_segment_count(prefix.as_str()) else {
-            warn!("skipping malformed path {}", prefix);
-            return Ok(());
-        };
+        let tier = Tier::from_path(prefix.as_str()).ok_or_else(|| {
+            BpError::Data(DataError::InvalidJob {
+                message: format!("compaction prefix {prefix} must include a data tier"),
+            })
+        })?;
+        let time_segments = Tier::time_segment_count(prefix.as_str()).ok_or_else(|| {
+            BpError::Data(DataError::InvalidJob {
+                message: format!("compaction prefix {prefix} has an invalid path"),
+            })
+        })?;
         if tier.target().is_some() && time_segments == tier.source_depth() {
             return Self::compact_folder(
                 s3_client,
@@ -195,7 +161,7 @@ impl Compactor {
             && let Some(source_tier) = tier.source()
             && time_segments == source_tier.source_depth()
         {
-            let source_prefix = Self::replace_tier(prefix, source_tier);
+            let source_prefix = Self::replace_tier(prefix, source_tier)?;
             info!(
                 "compacting {} sources for target tier {}",
                 source_tier, tier
@@ -209,9 +175,6 @@ impl Compactor {
                 deadline,
             ))
             .await;
-        }
-        if tier.target().is_none() {
-            return Ok(());
         }
         if time_segments > tier.source_depth() {
             info!(
@@ -254,7 +217,7 @@ impl Compactor {
             info!("no expected source files for {}", prefix);
             return Ok(());
         }
-        let compacted_file = plan::Planner::compacted_file_path(prefix, suffix);
+        let compacted_file = plan::Planner::compacted_file_path(prefix, suffix)?;
         let staged_file = Self::staged_file_path(&compacted_file);
         if S3::has_file(s3_client, bucket, &compacted_file).await? {
             info!(
@@ -314,17 +277,20 @@ impl Compactor {
         Ok(())
     }
 
-    fn replace_tier(prefix: &ObjectKey, tier: Tier) -> ObjectKey {
+    fn replace_tier(prefix: &ObjectKey, tier: Tier) -> BpResult<ObjectKey> {
         let mut segments = prefix
             .as_str()
             .split('/')
             .filter(|segment| !segment.is_empty())
             .map(str::to_string)
             .collect::<Vec<_>>();
-        if let Some(segment) = segments.get_mut(4) {
-            *segment = tier.as_str().to_string();
-        }
-        ObjectKey::new(format!("{}/", segments.join("/")))
+        let Some(segment) = segments.get_mut(4) else {
+            return Err(BpError::Data(DataError::InvalidJob {
+                message: format!("compaction prefix {prefix} must include a data tier"),
+            }));
+        };
+        *segment = tier.as_str().to_string();
+        Ok(ObjectKey::new(format!("{}/", segments.join("/"))))
     }
 
     fn staged_file_path(compacted_file: &ObjectKey) -> ObjectKey {
