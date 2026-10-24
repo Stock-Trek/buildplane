@@ -26,9 +26,16 @@ use crate::s3::{Bucket, ObjectKey, S3};
 
 const STALE_AFTER: Duration = Duration::from_secs(16 * 60);
 const RENEW_INTERVAL: Duration = Duration::from_secs(5 * 60);
+const MAX_RENEW_FAILURES: u32 = 2;
+const RENEW_SAFETY_MARGIN: Duration = Duration::from_secs(60);
 const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(60);
 const RETRY_INTERVAL: Duration = Duration::from_secs(5);
 static NEXT_LOCK_TOKEN: AtomicU64 = AtomicU64::new(0);
+
+const _: () = assert!(
+    RENEW_INTERVAL.as_secs() * (MAX_RENEW_FAILURES as u64 + 1) < STALE_AFTER.as_secs(),
+    "a lock must be abandoned before a contender can consider it stale"
+);
 
 struct LockState {
     e_tag: String,
@@ -156,6 +163,8 @@ impl LockGuard {
             let mut ticker = interval(RENEW_INTERVAL);
             ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
             ticker.tick().await;
+            let mut last_success = Instant::now();
+            let mut consecutive_failures = 0;
             loop {
                 tokio::select! {
                     biased;
@@ -177,6 +186,9 @@ impl LockGuard {
                             .lock()
                             .unwrap_or_else(|poisoned| poisoned.into_inner());
                         state.e_tag = e_tag;
+                        drop(state);
+                        last_success = Instant::now();
+                        consecutive_failures = 0;
                     }
                     Ok(None) => {
                         let mut state = state
@@ -191,7 +203,32 @@ impl LockGuard {
                         }
                         break;
                     }
-                    Err(error) => warn!("failed to renew lock {}: {error}", key),
+                    Err(error) => {
+                        consecutive_failures += 1;
+                        let next_renewal = Instant::now() + RENEW_INTERVAL;
+                        let must_stop =
+                            next_renewal + RENEW_SAFETY_MARGIN >= last_success + STALE_AFTER;
+                        warn!(
+                            "failed to renew lock {} ({consecutive_failures}/{MAX_RENEW_FAILURES} consecutive failures): {error}",
+                            key
+                        );
+                        if consecutive_failures >= MAX_RENEW_FAILURES || must_stop {
+                            let mut state = state
+                                .lock()
+                                .unwrap_or_else(|poisoned| poisoned.into_inner());
+                            if !state.released {
+                                state.lost = true;
+                                drop(state);
+                                MarketDataMetrics::record_lock_lost();
+                                warn!(
+                                    "lock {} could not be renewed; cancelling before another invocation can take it over",
+                                    key
+                                );
+                                lost_notify.notify_one();
+                            }
+                            break;
+                        }
+                    }
                 }
             }
         })
@@ -988,6 +1025,97 @@ mod tests {
         tokio::time::timeout(Duration::from_secs(1), guard.wait_until_lost())
             .await
             .expect("lock loss should be reported");
+        guard.release().await.unwrap();
+
+        let requests = requests(&http_client);
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[1].method(), "PUT");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn heartbeat_recovers_after_a_transient_renewal_failure() {
+        let (s3_client, http_client) = s3_client(vec![
+            put_response(Some(ETAG_1)),
+            s3_response(500, &[], ""),
+            put_response(Some(ETAG_2)),
+            delete_response(),
+        ]);
+        let mut guard = LockGuard::acquire(&s3_client, &bucket(), &key())
+            .await
+            .unwrap();
+
+        tokio::task::yield_now().await;
+        tokio::time::advance(RENEW_INTERVAL + Duration::from_secs(1)).await;
+        for _ in 0..100 {
+            if requests(&http_client).len() >= 2 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        tokio::time::advance(RENEW_INTERVAL + Duration::from_secs(1)).await;
+        for _ in 0..100 {
+            if requests(&http_client).len() >= 3 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        guard.release().await.unwrap();
+
+        let requests = requests(&http_client);
+        assert_eq!(requests.len(), 4);
+        assert_eq!(requests[1].method(), "PUT");
+        assert_eq!(requests[1].headers().get("if-match"), Some(ETAG_1));
+        assert_eq!(requests[2].method(), "PUT");
+        assert_eq!(requests[2].headers().get("if-match"), Some(ETAG_1));
+        assert_eq!(requests[3].method(), "DELETE");
+        assert_eq!(requests[3].headers().get("if-match"), Some(ETAG_2));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn heartbeat_marks_lock_lost_after_repeated_transient_renewal_failures() {
+        let (s3_client, http_client) = s3_client(vec![
+            put_response(Some(ETAG_1)),
+            s3_response(500, &[], ""),
+            s3_response(500, &[], ""),
+        ]);
+        let mut guard = LockGuard::acquire(&s3_client, &bucket(), &key())
+            .await
+            .unwrap();
+
+        tokio::task::yield_now().await;
+        tokio::time::advance(RENEW_INTERVAL + Duration::from_secs(1)).await;
+        for _ in 0..100 {
+            if requests(&http_client).len() >= 2 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        tokio::time::advance(RENEW_INTERVAL + Duration::from_secs(1)).await;
+        tokio::time::timeout(Duration::from_secs(1), guard.wait_until_lost())
+            .await
+            .expect("repeated renewal failures should abandon the lock");
+        guard.release().await.unwrap();
+
+        let requests = requests(&http_client);
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[1].method(), "PUT");
+        assert_eq!(requests[2].method(), "PUT");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn heartbeat_stops_before_a_delayed_renewal_can_expire_the_lease() {
+        let (s3_client, http_client) =
+            s3_client(vec![put_response(Some(ETAG_1)), s3_response(500, &[], "")]);
+        let mut guard = LockGuard::acquire(&s3_client, &bucket(), &key())
+            .await
+            .unwrap();
+
+        tokio::task::yield_now().await;
+        tokio::time::advance(RENEW_INTERVAL * 2 + RENEW_SAFETY_MARGIN + Duration::from_secs(1))
+            .await;
+        tokio::time::timeout(Duration::from_secs(1), guard.wait_until_lost())
+            .await
+            .expect("a renewal that would run past the lease should abandon the lock");
         guard.release().await.unwrap();
 
         let requests = requests(&http_client);
