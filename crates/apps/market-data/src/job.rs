@@ -1,10 +1,4 @@
-use crate::{
-    constants::{PARQUET_SUFFIX, common_trading_pairs},
-    feed::Feed,
-    granularity::Granularity,
-    s3::ObjectKey,
-    subfolders::SubFolders,
-};
+use crate::{constants::common_trading_pairs, feed::Feed, path::MarketDataPath, s3::ObjectKey};
 use buildplane_errors::{BpError, BpResult, DataError};
 use buildplane_exchange_types::urls::TradingMode;
 use chrono::{DateTime, NaiveDate, Utc};
@@ -232,69 +226,7 @@ impl CompactJob {
     /// a valid compaction depth. Arbitrary prefixes are rejected before any S3
     /// listing or deletion takes place.
     pub fn prefix(&self) -> BpResult<ObjectKey> {
-        let target = self.target.trim();
-        if target.is_empty() {
-            return Err(BpError::Data(DataError::InvalidJob {
-                message: "compact target cannot be empty".to_string(),
-            }));
-        }
-        let is_file_target = !target.ends_with('/');
-        let target = target.trim_end_matches('/');
-        let segments = target.split('/').collect::<Vec<_>>();
-        if segments
-            .iter()
-            .any(|segment| segment.is_empty() || matches!(*segment, "." | ".."))
-        {
-            return Err(BpError::Data(DataError::InvalidJob {
-                message: format!("compact target {target} contains an invalid path segment"),
-            }));
-        }
-        let directory_segments = if is_file_target
-            && segments
-                .last()
-                .is_some_and(|segment| segment.ends_with(PARQUET_SUFFIX))
-        {
-            &segments[..segments.len() - 1]
-        } else {
-            &segments[..]
-        };
-        // The data layout is mode/cex/base/quote/feed, followed by a required
-        // tier and up to four time segments (year/month/day/hour). A file target
-        // may additionally name the leaf, but its parent must still be a valid
-        // directory depth.
-        if !(6..=10).contains(&directory_segments.len()) {
-            return Err(BpError::Data(DataError::InvalidJob {
-                message: format!(
-                    "compact target {target} must address a feed, data tier, or one of its year, month, day, or hour folders"
-                ),
-            }));
-        }
-        if directory_segments
-            .get(4)
-            .and_then(|segment| Feed::from_segment(segment))
-            .is_none()
-        {
-            return Err(BpError::Data(DataError::InvalidJob {
-                message: format!("compact target {target} must include a data feed"),
-            }));
-        }
-        if directory_segments
-            .get(5)
-            .and_then(|segment| Granularity::from_segment(segment))
-            .is_none()
-        {
-            return Err(BpError::Data(DataError::InvalidJob {
-                message: format!("compact target {target} must include a data tier"),
-            }));
-        }
-        TradingPairPath::new(directory_segments[..4].join("/")).resolve()?;
-        let prefix = format!("{}/", directory_segments.join("/"));
-        SubFolders::subfolders_from_path(&prefix).map_err(|error| {
-            BpError::Data(DataError::InvalidJob {
-                message: format!("compact target {target} has an invalid time path: {error}"),
-            })
-        })?;
-        Ok(ObjectKey::new(prefix))
+        MarketDataPath::compact_prefix(&self.target)
     }
 }
 
@@ -323,9 +255,11 @@ impl TradingPairPath {
         }
         for (cex_id, trading_mode, trading_pairs) in common_trading_pairs() {
             for trading_pair in trading_pairs {
-                let candidate = format!(
-                    "{trading_mode}/{cex_id}/{}/{}",
-                    trading_pair.base, trading_pair.quote
+                let candidate = MarketDataPath::trading_pair(
+                    trading_mode,
+                    cex_id,
+                    trading_pair.base,
+                    trading_pair.quote,
                 );
                 if candidate.eq_ignore_ascii_case(&normalized) {
                     return Ok(ResolvedTradingPair {
@@ -386,9 +320,11 @@ impl<'de> Deserialize<'de> for TradingPairPath {
 
         match TradingPairPathRepr::deserialize(deserializer)? {
             TradingPairPathRepr::Path(path) => Ok(Self::new(path)),
-            TradingPairPathRepr::Parts(parts) => Ok(Self::new(format!(
-                "{}/{}/{}/{}",
-                parts.trading_mode, parts.cex_id, parts.base, parts.quote
+            TradingPairPathRepr::Parts(parts) => Ok(Self::new(MarketDataPath::trading_pair(
+                parts.trading_mode,
+                parts.cex_id,
+                parts.base,
+                parts.quote,
             ))),
         }
     }

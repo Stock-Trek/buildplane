@@ -1,7 +1,4 @@
-use crate::{
-    constants::UPDATE_QUANTIZATION, feed::Feed, granularity::Granularity,
-    quantized_time::Quantization,
-};
+use crate::{constants::UPDATE_QUANTIZATION, path::MarketDataPath, quantized_time::Quantization};
 use buildplane_errors::{BpError, BpResult, DataError};
 use chrono::{Datelike, NaiveDate};
 
@@ -21,26 +18,15 @@ impl SubFolders {
         path: &str,
         quantization: Quantization,
     ) -> BpResult<Vec<String>> {
-        let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-        if segments
-            .get(4)
-            .and_then(|segment| Feed::from_segment(segment))
-            .is_none()
-        {
+        let segments = MarketDataPath::segments(path);
+        if MarketDataPath::granularity_from_path(path).is_none() {
             return Err(BpError::Data(DataError::InvalidYearMonth {
                 path: path.to_string(),
             }));
         }
-        if segments
-            .get(5)
-            .and_then(|segment| Granularity::from_segment(segment))
-            .is_none()
-        {
-            return Err(BpError::Data(DataError::InvalidYearMonth {
-                path: path.to_string(),
-            }));
-        }
-        let time_segments = segments.get(6..).unwrap_or_default();
+        let time_segments = segments
+            .get(MarketDataPath::TIME_SEGMENT_START..)
+            .unwrap_or_default();
         match time_segments.len() {
             0 => Ok(Vec::new()),
             1 => {
@@ -79,16 +65,11 @@ impl SubFolders {
     }
 
     pub fn subfolders(numbers: &[i32]) -> Vec<String> {
-        numbers.iter().map(|n| format!("{:02}/", n)).collect()
+        MarketDataPath::subfolders(numbers)
     }
 
     pub fn file_path(numbers: &[i32], suffix: &str) -> String {
-        let raw_file_path = numbers
-            .iter()
-            .map(|n| format!("{:02}", n))
-            .collect::<Vec<_>>()
-            .join("/");
-        format!("{}{}", raw_file_path, suffix)
+        MarketDataPath::file(numbers, suffix)
     }
 
     fn months_in_year(quantization: Quantization) -> Vec<i32> {

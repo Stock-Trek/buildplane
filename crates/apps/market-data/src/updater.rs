@@ -4,9 +4,10 @@ use crate::{
     feed::Feed,
     ingest::{Ingest, IngestOutcome, WindowIngest},
     job::BackfillJob,
+    path::MarketDataPath,
     plan,
     quantized_time::QuantizedTime,
-    s3::{Bucket, ObjectKey, S3},
+    s3::{Bucket, S3},
     updaters::{binance_updater::BinanceUpdater, exchange_updater::ExchangeUpdater},
 };
 use arrow_schema::SchemaRef;
@@ -193,15 +194,14 @@ impl KlinesUpdater {
     ) -> BpResult<UpdateOutcome> {
         let resolved = backfill.resolve()?;
         let updater = self.exchange_updater(resolved.cex_id, resolved.trading_mode)?;
-        let candles_base_path = format!(
-            "{}/{}/{}/{}/{}",
+        let pair = MarketDataPath::trading_pair(
             resolved.trading_mode,
             resolved.cex_id,
             resolved.trading_pair.base,
             resolved.trading_pair.quote,
-            backfill.feed
         );
-        let base_path_prefix = ObjectKey::new(format!("{}/", candles_base_path));
+        let candles_base_path = MarketDataPath::feed(&pair, backfill.feed);
+        let base_path_prefix = MarketDataPath::feed_prefix(&pair, backfill.feed);
         info!(
             "backfill {:?} between {} and {} (force: {})",
             resolved.trading_pair, backfill.start, backfill.end, backfill.force
@@ -422,15 +422,14 @@ impl KlinesUpdater {
             outcome.record_deadline(0);
             return Ok(outcome);
         }
-        let candles_base_path = format!(
-            "{}/{}/{}/{}/{}",
+        let pair = MarketDataPath::trading_pair(
             trading_mode,
             cex_id,
             trading_pair.base,
             trading_pair.quote,
-            Feed::Trades
         );
-        let base_path_prefix = ObjectKey::new(format!("{}/", candles_base_path));
+        let candles_base_path = MarketDataPath::feed(&pair, Feed::Trades);
+        let base_path_prefix = MarketDataPath::feed_prefix(&pair, Feed::Trades);
         let existing = S3::list_files(s3_client, bucket, &base_path_prefix)
             .await?
             .into_iter()

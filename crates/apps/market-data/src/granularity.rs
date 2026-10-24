@@ -1,4 +1,4 @@
-use crate::feed::Feed;
+use crate::path::MarketDataPath;
 use std::fmt;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -71,16 +71,11 @@ impl Granularity {
     }
 
     pub fn from_path(path: &str) -> Option<Self> {
-        let segments = path_segments(path);
-        Feed::from_segment(segments.get(4)?)?;
-        Self::from_segment(segments.get(5)?)
+        MarketDataPath::granularity_from_path(path)
     }
 
     pub fn time_segment_count(path: &str) -> Option<usize> {
-        let segments = path_segments(path);
-        Feed::from_segment(segments.get(4)?)?;
-        Self::from_segment(segments.get(5)?)?;
-        Some(segments.len() - 6)
+        MarketDataPath::time_segment_count(path)
     }
 }
 
@@ -88,12 +83,6 @@ impl fmt::Display for Granularity {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(self.as_str())
     }
-}
-
-fn path_segments(path: &str) -> Vec<&str> {
-    path.split('/')
-        .filter(|segment| !segment.is_empty())
-        .collect()
 }
 
 #[cfg(test)]

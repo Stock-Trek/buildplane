@@ -1,3 +1,4 @@
+use crate::path::MarketDataPath;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -46,9 +47,7 @@ impl Feed {
     }
 
     pub fn from_path(path: &str) -> Option<Self> {
-        path_segments(path)
-            .get(4)
-            .and_then(|segment| Self::from_segment(segment))
+        MarketDataPath::feed_from_path(path)
     }
 }
 
@@ -56,12 +55,6 @@ impl fmt::Display for Feed {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(self.as_str())
     }
-}
-
-fn path_segments(path: &str) -> Vec<&str> {
-    path.split('/')
-        .filter(|segment| !segment.is_empty())
-        .collect()
 }
 
 #[cfg(test)]
