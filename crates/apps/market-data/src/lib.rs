@@ -7,7 +7,6 @@ pub mod ingest;
 pub mod job;
 pub mod job_executor;
 pub mod lock;
-pub mod market_data_path;
 pub mod parquet_reader;
 pub mod parquet_writer;
 pub mod path;
