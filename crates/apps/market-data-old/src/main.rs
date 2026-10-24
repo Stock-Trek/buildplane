@@ -1,7 +1,7 @@
 #![recursion_limit = "256"]
 
 use buildplane_config::tracing_setup::TracingSetup;
-use buildplane_market_data::{env_config::EnvConfig, job::Job, job_executor::JobExecutor};
+use buildplane_market_data_old::{env_config::EnvConfig, job::Job, job_executor::JobExecutor};
 use buildplane_metrics::{descriptions::DescriptionsMetrics, market_data::MarketDataMetrics};
 use buildplane_time::deadline::Deadline;
 use lambda_runtime::{Error, LambdaEvent, service_fn};

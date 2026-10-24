@@ -1,5 +1,5 @@
 [package]
-name = "buildplane-market-data"
+name = "buildplane-market-data-old"
 version.workspace = true
 edition.workspace = true
 

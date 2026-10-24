@@ -1193,7 +1193,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "buildplane-market-data"
+name = "buildplane-market-data-old"
 version = "0.2.0"
 dependencies = [
  "arrow-array",
