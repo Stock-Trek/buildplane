@@ -18,8 +18,8 @@ use stock_trek_types::cex::{cex_id::CexId, trading_pair::TradingPair};
 ///
 /// ```json
 /// { "mode": "backfill", "pair": "paper/binance/bitcoin/tetherusd",
-///   "start": "2024-01-01T00:00:00Z", "end": "2024-01-02T00:00:00Z",
-///   "force": true }
+///   "feed": "trades", "start": "2024-01-01T00:00:00Z",
+///   "end": "2024-01-02T00:00:00Z", "force": true }
 /// ```
 ///
 /// The payload must explicitly include a `mode`, `job`, or `action` field
@@ -161,9 +161,7 @@ impl Job {
 #[serde(deny_unknown_fields)]
 pub struct BackfillJob {
     pub pair: TradingPairPath,
-    /// The type of market data to backfill. Defaults to trades for backwards
-    /// compatibility with payloads that predate feed-specific paths.
-    #[serde(default, alias = "data_feed", alias = "feed_type")]
+    /// The type of market data to backfill.
     pub feed: Feed,
     #[serde(deserialize_with = "deserialize_timestamp")]
     pub start: DateTime<Utc>,
@@ -479,6 +477,7 @@ mod tests {
             Job::from_value(json!({
                 "mode": "backfill",
                 "pair": "paper/binance/bitcoin/tetherusd",
+                "feed": "trades",
                 "start": "2024-01-01",
                 "end": "2024-01-02",
                 "force": false,
@@ -504,6 +503,7 @@ mod tests {
                     "quote": "TetherUSD",
                     "extra": true
                 },
+                "feed": "trades",
                 "start": "2024-01-01",
                 "end": "2024-01-02",
                 "force": false
@@ -518,8 +518,23 @@ mod tests {
             Job::from_value(json!({
                 "mode": "backfill",
                 "pair": "paper/binance/bitcoin/tetherusd",
+                "feed": "trades",
                 "start": "2024-01-01",
                 "end": "2024-01-02"
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn backfill_requires_an_explicit_feed() {
+        assert!(
+            Job::from_value(json!({
+                "mode": "backfill",
+                "pair": "paper/binance/bitcoin/tetherusd",
+                "start": "2024-01-01",
+                "end": "2024-01-02",
+                "force": false
             }))
             .is_err()
         );
@@ -539,6 +554,7 @@ mod tests {
         let job = Job::from_value(json!({
             "mode": "backfill",
             "pair": "paper/binance/bitcoin/tetherusd",
+            "feed": "trades",
             "start": "2024-01-01",
             "end": "2024-01-02T00:00:00Z",
             "force": true
@@ -582,6 +598,7 @@ mod tests {
                 "base": "Bitcoin",
                 "quote": "TetherUSD"
             },
+            "feed": "trades",
             "start": "2024-01-01T00:00:00Z",
             "end": "2024-01-01T01:00:00Z",
             "force": false
@@ -695,6 +712,7 @@ mod tests {
             Job::from_value(json!({
                 "mode": "backfill",
                 "pair": "paper/binance/bitcoin/tetherusd",
+                "feed": "trades",
                 "start": "2024-01-02",
                 "end": "2024-01-01",
                 "force": false
@@ -705,6 +723,7 @@ mod tests {
             Job::from_value(json!({
                 "mode": "backfill",
                 "pair": "paper/binance/bitcoin/tetherusd",
+                "feed": "trades",
                 "start": "2024-01-01",
                 "end": "2024-01-02",
                 "force": false

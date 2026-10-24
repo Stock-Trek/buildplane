@@ -5,10 +5,9 @@ use std::fmt;
 ///
 /// The feed is the path segment between the quote asset and the data
 /// granularity, for example `paper/binance/bitcoin/tetherusd/trades/raw/...`.
-#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Feed {
-    #[default]
     Trades,
     Book,
     Funding,
@@ -90,10 +89,5 @@ mod tests {
             Feed::from_path("paper/binance/bitcoin/tetherusd/not-a-feed/raw"),
             None
         );
-    }
-
-    #[test]
-    fn default_feed_is_trades() {
-        assert_eq!(Feed::default(), Feed::Trades);
     }
 }
