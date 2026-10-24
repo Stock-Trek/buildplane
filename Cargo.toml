@@ -7,6 +7,25 @@ version = "0.2.0"
 edition = "2024"
 
 [workspace.dependencies]
+buildplane-agent = { path = "crates/agent" }
+buildplane-config = { path = "crates/config" }
+buildplane-errors = { path = "crates/errors" }
+buildplane-exchange-gateway = { path = "crates/exchange-gateway" }
+buildplane-exchange-types = { path = "crates/exchange-types" }
+buildplane-exit-codes = { path = "crates/exit_codes" }
+buildplane-git = { path = "crates/git" }
+buildplane-github = { path = "crates/github" }
+buildplane-market-data = { path = "crates/market-data" }
+buildplane-messages = { path = "crates/messages" }
+buildplane-metrics = { path = "crates/metrics" }
+buildplane-orchestrator = { path = "crates/orchestrator" }
+buildplane-proto-gen = { path = "crates/proto_gen" }
+buildplane-runner = { path = "crates/runner" }
+buildplane-sqs = { path = "crates/sqs" }
+buildplane-time = { path = "crates/time" }
+buildplane-type-bridge = { path = "crates/type-bridge" }
+buildplane-types = { path = "crates/types" }
+buildplane-webhook = { path = "crates/webhook" }
 arrow-array = "60"
 arrow-schema = "60"
 async-trait = "0.1"

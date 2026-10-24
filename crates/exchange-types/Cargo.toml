@@ -4,8 +4,8 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-buildplane-errors = { path = "../errors" }
-buildplane-types = { path = "../types" }
+buildplane-errors = { workspace = true }
+buildplane-types = { workspace = true }
 bs58 = { workspace = true }
 data-encoding = { workspace = true }
 ed25519-compact = { workspace = true }

@@ -5,8 +5,8 @@ edition.workspace = true
 
 [dependencies]
 bimap = { workspace = true }
-buildplane-errors = { path = "../errors" }
-buildplane-exchange-types = { path = "../exchange-types" }
+buildplane-errors = { workspace = true }
+buildplane-exchange-types = { workspace = true }
 rust_decimal = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 stock-trek-types = { workspace = true }

@@ -6,10 +6,10 @@ edition.workspace = true
 [dependencies]
 aws-config = { workspace = true }
 aws-sdk-sqs = { workspace = true, default-features = false, features = ["default-https-client", "rt-tokio"] }
-buildplane-errors = { path = "../errors" }
-buildplane-messages = { path = "../messages" }
-buildplane-metrics = { path = "../metrics" }
-buildplane-time = { path = "../time" }
+buildplane-errors = { workspace = true }
+buildplane-messages = { workspace = true }
+buildplane-metrics = { workspace = true }
+buildplane-time = { workspace = true }
 lru = { workspace = true }
 parking_lot = { workspace = true }
 serde_json = { workspace = true }

@@ -5,10 +5,10 @@ edition.workspace = true
 
 [dependencies]
 base64 = { workspace = true }
-buildplane-config = { path = "../config" }
-buildplane-errors = { path = "../errors" }
-buildplane-git = { path = "../git" }
-buildplane-time = { path = "../time" }
+buildplane-config = { workspace = true }
+buildplane-errors = { workspace = true }
+buildplane-git = { workspace = true }
+buildplane-time = { workspace = true }
 jsonwebtoken = { workspace = true, default-features = false, features = ["use_pem"] }
 lru = { workspace = true }
 octocrab = { workspace = true }

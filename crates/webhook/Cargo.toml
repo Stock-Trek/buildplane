@@ -4,13 +4,13 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-buildplane-config = { path = "../config" }
-buildplane-errors = { path = "../errors" }
-buildplane-github = { path = "../github" }
-buildplane-messages = { path = "../messages" }
-buildplane-metrics = { path = "../metrics" }
-buildplane-sqs = { path = "../sqs" }
-buildplane-time = { path = "../time" }
+buildplane-config = { workspace = true }
+buildplane-errors = { workspace = true }
+buildplane-github = { workspace = true }
+buildplane-messages = { workspace = true }
+buildplane-metrics = { workspace = true }
+buildplane-sqs = { workspace = true }
+buildplane-time = { workspace = true }
 aws-config = { workspace = true }
 aws-credential-types = { workspace = true }
 aws-sdk-sqs = { workspace = true, default-features = false, features = ["default-https-client", "rt-tokio"] }
