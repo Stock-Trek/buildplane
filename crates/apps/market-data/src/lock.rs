@@ -4,6 +4,14 @@ use aws_sdk_s3::{
     operation::delete_object::DeleteObjectError,
     primitives::ByteStream,
 };
+use aws_smithy_runtime_api::{
+    box_error::BoxError,
+    client::{
+        interceptors::{Intercept, context::BeforeDeserializationInterceptorContextRef},
+        runtime_components::RuntimeComponents,
+    },
+};
+use aws_smithy_types::config_bag::ConfigBag;
 use buildplane_errors::{BpError, BpResult, DataError};
 use buildplane_metrics::market_data::MarketDataMetrics;
 use buildplane_time::deadline::Deadline;
@@ -25,6 +33,7 @@ use tracing::{info, warn};
 use crate::s3::{Bucket, ObjectKey, S3};
 
 const STALE_AFTER: Duration = Duration::from_secs(16 * 60);
+const CLOCK_SKEW_MARGIN: Duration = Duration::from_secs(16 * 60);
 const RENEW_INTERVAL: Duration = Duration::from_secs(5 * 60);
 const MAX_RENEW_FAILURES: u32 = 2;
 const RENEW_SAFETY_MARGIN: Duration = Duration::from_secs(60);
@@ -36,6 +45,55 @@ const _: () = assert!(
     RENEW_INTERVAL.as_secs() * (MAX_RENEW_FAILURES as u64 + 1) < STALE_AFTER.as_secs(),
     "a lock must be abandoned before a contender can consider it stale"
 );
+
+#[derive(Clone, Debug, Default)]
+struct ResponseDate {
+    value: Arc<Mutex<Option<SystemTime>>>,
+}
+
+impl ResponseDate {
+    fn get(&self) -> Option<SystemTime> {
+        *self
+            .value
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+impl Intercept for ResponseDate {
+    fn name(&self) -> &'static str {
+        "LockResponseDate"
+    }
+
+    fn read_before_deserialization(
+        &self,
+        context: &BeforeDeserializationInterceptorContextRef<'_>,
+        _runtime_components: &RuntimeComponents,
+        _cfg: &mut ConfigBag,
+    ) -> Result<(), BoxError> {
+        let headers = context.response().headers();
+        let date = headers
+            .get("date")
+            .and_then(|value| httpdate::parse_http_date(value).ok())
+            .or_else(|| {
+                headers.get("x-amz-date").and_then(|value| {
+                    httpdate::parse_http_date(value).ok().or_else(|| {
+                        chrono::NaiveDateTime::parse_from_str(value, "%Y%m%dT%H%M%SZ")
+                            .ok()
+                            .map(|date| date.and_utc().into())
+                    })
+                })
+            });
+        let Some(date) = date else {
+            return Ok(());
+        };
+        *self
+            .value
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(date);
+        Ok(())
+    }
+}
 
 struct LockState {
     e_tag: String,
@@ -374,10 +432,13 @@ impl LockGuard {
         key: &ObjectKey,
     ) -> BpResult<bool> {
         let target = S3::object_target(bucket, key);
+        let response_date = ResponseDate::default();
         let head = match s3_client
             .head_object()
             .bucket(bucket.as_str())
             .key(key.as_str())
+            .customize()
+            .interceptor(response_date.clone())
             .send()
             .await
         {
@@ -393,12 +454,16 @@ impl LockGuard {
         else {
             return Ok(false);
         };
-        let stale_after = chrono::Duration::from_std(STALE_AFTER).map_err(|_| {
+        let (now, stale_after) = match response_date.get().map(DateTime::<Utc>::from) {
+            Some(server_now) => (server_now, STALE_AFTER),
+            None => (Utc::now(), STALE_AFTER + CLOCK_SKEW_MARGIN),
+        };
+        let stale_after = chrono::Duration::from_std(stale_after).map_err(|_| {
             BpError::Data(DataError::DateTimeOutOfRange {
                 operation: "convert lock staleness duration",
             })
         })?;
-        if Utc::now().signed_duration_since(last_modified) < stale_after {
+        if now.signed_duration_since(last_modified) < stale_after {
             return Ok(false);
         }
         let Some(e_tag) = head.e_tag().filter(|e_tag| !e_tag.is_empty()) else {
@@ -850,6 +915,82 @@ mod tests {
         assert_eq!(requests[3].method(), "PUT");
         assert_eq!(requests[4].method(), "DELETE");
         assert_eq!(requests[4].headers().get("if-match"), Some(ETAG_2));
+    }
+
+    #[tokio::test]
+    async fn stale_detection_uses_s3_response_date() {
+        let last_modified = (Utc::now() - chrono::Duration::minutes(20))
+            .format("%a, %d %b %Y %H:%M:%S GMT")
+            .to_string();
+        let response_date = SystemTime::now() - Duration::from_secs(10 * 60);
+        let response_date = httpdate::fmt_http_date(response_date);
+        let (s3_client, http_client) = s3_client(vec![s3_response(
+            200,
+            &[
+                ("etag", ETAG_1),
+                ("last-modified", &last_modified),
+                ("date", &response_date),
+            ],
+            "",
+        )]);
+
+        let removed = LockGuard::take_over_stale(&s3_client, &bucket(), &key())
+            .await
+            .unwrap();
+
+        assert!(!removed);
+        let requests = requests(&http_client);
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].method(), "HEAD");
+    }
+
+    #[tokio::test]
+    async fn stale_detection_uses_s3_amz_date() {
+        let last_modified = (Utc::now() - chrono::Duration::minutes(20))
+            .format("%a, %d %b %Y %H:%M:%S GMT")
+            .to_string();
+        let response_date = (Utc::now() - chrono::Duration::minutes(10))
+            .format("%Y%m%dT%H%M%SZ")
+            .to_string();
+        let (s3_client, http_client) = s3_client(vec![s3_response(
+            200,
+            &[
+                ("etag", ETAG_1),
+                ("last-modified", &last_modified),
+                ("x-amz-date", &response_date),
+            ],
+            "",
+        )]);
+
+        let removed = LockGuard::take_over_stale(&s3_client, &bucket(), &key())
+            .await
+            .unwrap();
+
+        assert!(!removed);
+        let requests = requests(&http_client);
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].method(), "HEAD");
+    }
+
+    #[tokio::test]
+    async fn stale_detection_applies_skew_margin_without_response_date() {
+        let last_modified = (Utc::now() - chrono::Duration::minutes(20))
+            .format("%a, %d %b %Y %H:%M:%S GMT")
+            .to_string();
+        let (s3_client, http_client) = s3_client(vec![s3_response(
+            200,
+            &[("etag", ETAG_1), ("last-modified", &last_modified)],
+            "",
+        )]);
+
+        let removed = LockGuard::take_over_stale(&s3_client, &bucket(), &key())
+            .await
+            .unwrap();
+
+        assert!(!removed);
+        let requests = requests(&http_client);
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].method(), "HEAD");
     }
 
     #[tokio::test]
