@@ -4,12 +4,12 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-arrow-array.workspace = true
-arrow-schema.workspace = true
-aws-config.workspace = true
-aws-sdk-s3.workspace = true
-aws-sdk-s3-transfer-manager.workspace = true
-bytes.workspace = true
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+aws-sdk-s3-transfer-manager = { workspace = true }
+bytes = { workspace = true }
 buildplane-config = { path = "../config" }
 buildplane-errors = { path = "../errors" }
 buildplane-exchange-gateway = { path = "../exchange-gateway" }
@@ -17,19 +17,19 @@ buildplane-exchange-types = { path = "../exchange-types" }
 buildplane-metrics = { path = "../metrics" }
 buildplane-time = { path = "../time" }
 buildplane-type-bridge = { path = "../type-bridge" }
-chrono.workspace = true
-futures.workspace = true
-lambda_runtime.workspace = true
-metrics_cloudwatch_embedded.workspace = true
-parquet.workspace = true
-rust_decimal.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-stock-trek-types.workspace = true
-thiserror.workspace = true
-tokio.workspace = true
-tracing.workspace = true
+chrono = { workspace = true }
+futures = { workspace = true }
+lambda_runtime = { workspace = true }
+metrics_cloudwatch_embedded = { workspace = true, features = ["lambda"] }
+parquet = { workspace = true, features = ["async"] }
+rust_decimal = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+stock-trek-types = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["fs", "macros", "rt", "rt-multi-thread", "sync", "time"] }
+tracing = { workspace = true }
 
 [dev-dependencies]
-aws-smithy-runtime-api.workspace = true
-http.workspace = true
+aws-smithy-runtime-api = { workspace = true, features = ["client", "http-1x"] }
+http = { workspace = true }

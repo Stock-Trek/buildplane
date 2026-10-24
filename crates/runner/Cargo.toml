@@ -8,8 +8,8 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 buildplane-exit-codes = { path = "../exit_codes" }
-prost.workspace = true
-rust_decimal.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-stock-trek.workspace = true
+prost = { workspace = true }
+rust_decimal = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+stock-trek = { workspace = true }

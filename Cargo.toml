@@ -12,19 +12,19 @@ arrow-schema = "60"
 async-trait = "0.1"
 aws-config = "1"
 aws-credential-types = "1"
-aws_lambda_events = { version = "1", default-features = false, features = ["sqs"] }
-aws-sdk-lambda = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"] }
+aws_lambda_events = "1"
+aws-sdk-lambda = "1"
 aws-sdk-s3 = "1"
 aws-sdk-s3-transfer-manager = "0.2"
-aws-sdk-sqs = { version = "1", default-features = false, features = ["default-https-client", "rt-tokio"] }
+aws-sdk-sqs = "1"
 aws-sigv4 = "1"
-aws-smithy-runtime-api = { version = "1", features = ["client", "http-1x"] }
+aws-smithy-runtime-api = "1"
 axum = "0.8"
 base64 = "0.23"
 bimap = "0.6"
 bs58 = "0.5"
 bytes = "1"
-chrono = { version = "0.4", features = ["serde"] }
+chrono = "0.4"
 data-encoding = "2"
 ed25519-compact = "2"
 futures = "0.3"
@@ -34,45 +34,45 @@ hmac = "0.13"
 http = "1"
 httpdate = "1"
 iris = { version = "1", registry = "shipyard" }
-jsonwebtoken = { version = "10", default-features = false, features = ["use_pem"] }
-lambda_http = { version = "1", features = ["pass_through"] }
+jsonwebtoken = "10"
+lambda_http = "1"
 lambda_runtime = "1"
 lru = "0.18"
 metrics = "0.24"
-metrics_cloudwatch_embedded = { version = "0.10", features = ["lambda"] }
+metrics_cloudwatch_embedded = "0.10"
 octocrab = "0.54"
 p256 = "0.13"
 p384 = "0.13"
 parking_lot = "0.12"
-parquet = { version = "60", features = ["async"] }
+parquet = "60"
 prost = "0.14"
 prost-build = "0.14"
 protoc-bin-vendored = "3"
 query-params = { version = "2", registry = "shipyard" }
 rand = "0.8"
-reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls", "stream"] }
-rsa = { version = "0.9", features = ["sha2"] }
+reqwest = "0.12"
+rsa = "0.9"
 rust_decimal = "1"
-secrecy = { version = "0.10", features = ["serde"] }
-serde = { version = "1", features = ["derive"] }
+secrecy = "0.10"
+serde = "1"
 serde_json = "1"
 serde_with = "3"
 sha2 = "0.11"
 stock-trek = "0.14"
 stock-trek-check = "0.3"
 stock-trek-types = "0.4"
-strum = { version = "0.28", features = ["derive"] }
+strum = "0.28"
 subtle = "2"
 tempfile = "3"
 thiserror = "2"
 time = "0.3"
-tokio = { version = "1", features = ["full"] }
+tokio = "1"
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-url = { version = "2", features = ["serde"] }
+tracing-subscriber = "0.3"
+url = "2"
 urlencoding = "2"
-uuid = { version = "1", features = ["v4", "fast-rng"] }
-zip = { version = "9", default-features = false, features = ["deflate"] }
+uuid = "1"
+zip = "9"
 
 [profile.release]
 lto = "thin"

@@ -4,4 +4,4 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-metrics.workspace = true
+metrics = { workspace = true }
