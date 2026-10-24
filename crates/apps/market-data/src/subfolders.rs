@@ -1,5 +1,6 @@
 use crate::{
-    constants::UPDATE_QUANTIZATION, granularity::Granularity, quantized_time::Quantization,
+    constants::UPDATE_QUANTIZATION, feed::Feed, granularity::Granularity,
+    quantized_time::Quantization,
 };
 use buildplane_errors::{BpError, BpResult, DataError};
 use chrono::{Datelike, NaiveDate};
@@ -21,15 +22,25 @@ impl SubFolders {
         quantization: Quantization,
     ) -> BpResult<Vec<String>> {
         let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-        let Some(_) = segments
+        if segments
             .get(4)
-            .and_then(|segment| Granularity::from_segment(segment))
-        else {
+            .and_then(|segment| Feed::from_segment(segment))
+            .is_none()
+        {
             return Err(BpError::Data(DataError::InvalidYearMonth {
                 path: path.to_string(),
             }));
-        };
-        let time_segments = segments.get(5..).unwrap_or_default();
+        }
+        if segments
+            .get(5)
+            .and_then(|segment| Granularity::from_segment(segment))
+            .is_none()
+        {
+            return Err(BpError::Data(DataError::InvalidYearMonth {
+                path: path.to_string(),
+            }));
+        }
+        let time_segments = segments.get(6..).unwrap_or_default();
         match time_segments.len() {
             0 => Ok(Vec::new()),
             1 => {
@@ -208,7 +219,7 @@ mod tests {
     use crate::quantized_time::{TopOfHour, TopOfMinute, TopOfMonth};
     use chrono::Weekday;
 
-    const PAIR: &str = "paper/binance/bitcoin/tetherusd";
+    const PAIR: &str = "paper/binance/bitcoin/tetherusd/trades";
 
     #[test]
     fn minutes_follow_quantization() {

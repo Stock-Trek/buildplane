@@ -1,5 +1,6 @@
 use crate::{
     constants::{PARQUET_SUFFIX, UPDATE_QUANTIZATION},
+    feed::Feed,
     granularity::Granularity,
     quantized_time::{Quantization, QuantizedTime, TopOfHour, TopOfMonth},
     s3::ObjectKey,
@@ -208,22 +209,31 @@ impl Planner {
             .filter(|segment| !segment.is_empty())
             .collect::<Vec<_>>();
         let tier = segments
-            .get(4)
+            .get(5)
             .and_then(|segment| Granularity::from_segment(segment))
             .ok_or_else(|| {
                 BpError::Data(DataError::InvalidJob {
                     message: format!("compaction path {path} must include a data tier"),
                 })
             })?;
+        if segments
+            .get(4)
+            .and_then(|segment| Feed::from_segment(segment))
+            .is_none()
+        {
+            return Err(BpError::Data(DataError::InvalidJob {
+                message: format!("compaction path {path} must include a data feed"),
+            }));
+        }
         let target = tier.target().ok_or_else(|| {
             BpError::Data(DataError::InvalidJob {
                 message: format!("the {tier} tier has no compaction target"),
             })
         })?;
-        let mut target_path = segments[..4].join("/");
+        let mut target_path = segments[..5].join("/");
         target_path.push('/');
         target_path.push_str(target.as_str());
-        for segment in &segments[5..] {
+        for segment in &segments[6..] {
             target_path.push('/');
             target_path.push_str(segment);
         }
@@ -674,7 +684,7 @@ mod tests {
 
     #[test]
     fn complete_hour_produces_a_compaction_target() {
-        let prefix = ObjectKey::new("paper/binance/bitcoin/tetherusd/raw/2024/01/01/00/");
+        let prefix = ObjectKey::new("paper/binance/bitcoin/tetherusd/trades/raw/2024/01/01/00/");
         let source_files = (0..60)
             .step_by(6)
             .map(|minute| ObjectKey::new(format!("{prefix}{minute:02}.parquet")))
@@ -688,7 +698,7 @@ mod tests {
                 prefix: prefix.clone(),
                 source_files,
                 compacted_file: ObjectKey::new(
-                    "paper/binance/bitcoin/tetherusd/hourly/2024/01/01/00.parquet"
+                    "paper/binance/bitcoin/tetherusd/trades/hourly/2024/01/01/00.parquet"
                 ),
             }
         );
@@ -696,7 +706,7 @@ mod tests {
 
     #[test]
     fn complete_day_produces_a_compaction_target() {
-        let prefix = ObjectKey::new("paper/binance/bitcoin/tetherusd/hourly/2024/01/01/");
+        let prefix = ObjectKey::new("paper/binance/bitcoin/tetherusd/trades/hourly/2024/01/01/");
         let source_files = (0..24)
             .map(|hour| ObjectKey::new(format!("{prefix}{hour:02}.parquet")))
             .collect::<Vec<_>>();
@@ -705,14 +715,14 @@ mod tests {
             .unwrap();
         assert_eq!(
             target.compacted_file,
-            ObjectKey::new("paper/binance/bitcoin/tetherusd/daily/2024/01/01.parquet")
+            ObjectKey::new("paper/binance/bitcoin/tetherusd/trades/daily/2024/01/01.parquet")
         );
         assert_eq!(target.source_files, source_files);
     }
 
     #[test]
     fn missing_source_file_does_not_produce_a_target() {
-        let prefix = ObjectKey::new("paper/binance/bitcoin/tetherusd/raw/2024/01/01/00/");
+        let prefix = ObjectKey::new("paper/binance/bitcoin/tetherusd/trades/raw/2024/01/01/00/");
         let mut source_files = (0..60)
             .step_by(6)
             .map(|minute| ObjectKey::new(format!("{prefix}{minute:02}.parquet")))
@@ -726,7 +736,7 @@ mod tests {
 
     #[test]
     fn leaf_path_does_not_produce_a_target() {
-        let prefix = ObjectKey::new("paper/binance/bitcoin/tetherusd/raw/2024/01/01/00/00/");
+        let prefix = ObjectKey::new("paper/binance/bitcoin/tetherusd/trades/raw/2024/01/01/00/00/");
         assert_eq!(
             Planner::plan_compaction_with_suffix(&prefix, [] as [ObjectKey; 0], PARQUET_SUFFIX)
                 .unwrap(),

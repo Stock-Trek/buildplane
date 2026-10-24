@@ -1,3 +1,4 @@
+use crate::feed::Feed;
 use std::fmt;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -70,15 +71,16 @@ impl Granularity {
     }
 
     pub fn from_path(path: &str) -> Option<Self> {
-        path_segments(path)
-            .get(4)
-            .and_then(|segment| Self::from_segment(segment))
+        let segments = path_segments(path);
+        Feed::from_segment(segments.get(4)?)?;
+        Self::from_segment(segments.get(5)?)
     }
 
     pub fn time_segment_count(path: &str) -> Option<usize> {
         let segments = path_segments(path);
-        Self::from_segment(segments.get(4)?)?;
-        Some(segments.len() - 5)
+        Feed::from_segment(segments.get(4)?)?;
+        Self::from_segment(segments.get(5)?)?;
+        Some(segments.len() - 6)
     }
 }
 
@@ -92,4 +94,24 @@ fn path_segments(path: &str) -> Vec<&str> {
     path.split('/')
         .filter(|segment| !segment.is_empty())
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn paths_require_a_feed_before_the_granularity() {
+        let path = "paper/binance/bitcoin/tetherusd/trades/raw/2024/01";
+        assert_eq!(Granularity::from_path(path), Some(Granularity::Raw));
+        assert_eq!(Granularity::time_segment_count(path), Some(2));
+        assert_eq!(
+            Granularity::from_path("paper/binance/bitcoin/tetherusd/not-a-feed/raw"),
+            None
+        );
+        assert_eq!(
+            Granularity::time_segment_count("paper/binance/bitcoin/tetherusd/not-a-feed/raw"),
+            None
+        );
+    }
 }

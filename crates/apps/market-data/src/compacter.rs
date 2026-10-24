@@ -1,5 +1,6 @@
 use crate::{
     constants::PARQUET_SUFFIX,
+    feed::Feed,
     granularity::Granularity,
     parquet_reader::ParquetReader,
     parquet_writer::writer_properties,
@@ -136,6 +137,11 @@ impl Compactor {
     ) -> BpResult<()> {
         deadline.fail_if_exceeded()?;
         info!("compact folder with prefix {}", prefix);
+        if Feed::from_path(prefix.as_str()).is_none() {
+            return Err(BpError::Data(DataError::InvalidJob {
+                message: format!("compaction prefix {prefix} must include a data feed"),
+            }));
+        }
         let tier = Granularity::from_path(prefix.as_str()).ok_or_else(|| {
             BpError::Data(DataError::InvalidJob {
                 message: format!("compaction prefix {prefix} must include a data tier"),
@@ -284,9 +290,9 @@ impl Compactor {
             .filter(|segment| !segment.is_empty())
             .map(str::to_string)
             .collect::<Vec<_>>();
-        let Some(segment) = segments.get_mut(4) else {
+        let Some(segment) = segments.get_mut(5) else {
             return Err(BpError::Data(DataError::InvalidJob {
-                message: format!("compaction prefix {prefix} must include a data tier"),
+                message: format!("compaction prefix {prefix} must include a data feed and tier"),
             }));
         };
         *segment = tier.as_str().to_string();

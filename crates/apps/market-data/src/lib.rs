@@ -1,6 +1,7 @@
 pub mod compacter;
 pub mod constants;
 pub mod env_config;
+pub mod feed;
 pub mod granularity;
 pub mod ingest;
 pub mod job;

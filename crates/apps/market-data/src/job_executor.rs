@@ -2,6 +2,7 @@ use crate::{
     compacter::Compactor,
     constants::{LOCK_KEY, common_trading_pairs},
     env_config::EnvConfig,
+    feed::Feed,
     granularity::Granularity,
     job::{Job, JobOutcome},
     lock::LockGuard,
@@ -189,20 +190,23 @@ impl JobExecutor {
         let mut errors = Vec::new();
         let mut compaction_targets = 0;
         'pairs: for pair in pairs {
-            for granularity in Granularity::ALL {
-                if !deadline.has_remaining() {
-                    let error = BpError::Timeout(TimeoutError::DeadlineExceeded);
-                    warn!("stopping compaction before deadline: {error}");
-                    errors.push(error);
-                    break 'pairs;
-                }
-                let prefix = ObjectKey::new(format!("{pair}{}/", granularity.as_str()));
-                match Compactor::prefix(s3_client, transfer_client, bucket, &prefix, deadline).await
-                {
-                    Ok(()) => compaction_targets += 1,
-                    Err(error) => {
-                        warn!("failed to compact folder {}: {error}", prefix);
+            for feed in Feed::ALL {
+                for granularity in Granularity::ALL {
+                    if !deadline.has_remaining() {
+                        let error = BpError::Timeout(TimeoutError::DeadlineExceeded);
+                        warn!("stopping compaction before deadline: {error}");
                         errors.push(error);
+                        break 'pairs;
+                    }
+                    let prefix = ObjectKey::new(format!("{pair}{feed}/{}/", granularity.as_str()));
+                    match Compactor::prefix(s3_client, transfer_client, bucket, &prefix, deadline)
+                        .await
+                    {
+                        Ok(()) => compaction_targets += 1,
+                        Err(error) => {
+                            warn!("failed to compact folder {}: {error}", prefix);
+                            errors.push(error);
+                        }
                     }
                 }
             }
