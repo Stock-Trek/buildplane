@@ -4,4 +4,4 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-buildplane-errors = { path = "../errors" }
+buildplane-errors = { workspace = true }

@@ -4,5 +4,5 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-buildplane-errors = { path = "../errors" }
-buildplane-time = { path = "../time" }
+buildplane-errors = { workspace = true }
+buildplane-time = { workspace = true }

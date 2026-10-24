@@ -4,32 +4,32 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-buildplane-config = { path = "../config" }
-buildplane-errors = { path = "../errors" }
-buildplane-github = { path = "../github" }
-buildplane-git = { path = "../git" }
-buildplane-messages = { path = "../messages" }
-buildplane-metrics = { path = "../metrics" }
-buildplane-sqs = { path = "../sqs" }
-buildplane-time = { path = "../time" }
-aws-config.workspace = true
-aws-credential-types.workspace = true
-aws_lambda_events.workspace = true
-aws-sdk-lambda.workspace = true
-aws-sdk-sqs.workspace = true
-base64.workspace = true
-futures.workspace = true
-hex.workspace = true
-hmac.workspace = true
-lambda_runtime.workspace = true
-metrics.workspace = true
-metrics_cloudwatch_embedded.workspace = true
-reqwest.workspace = true
-serde_json.workspace = true
-sha2.workspace = true
-thiserror.workspace = true
-time.workspace = true
-tokio.workspace = true
-tracing.workspace = true
-url.workspace = true
-zip.workspace = true
+buildplane-config = { workspace = true }
+buildplane-errors = { workspace = true }
+buildplane-github = { workspace = true }
+buildplane-git = { workspace = true }
+buildplane-messages = { workspace = true }
+buildplane-metrics = { workspace = true }
+buildplane-sqs = { workspace = true }
+buildplane-time = { workspace = true }
+aws-config = { workspace = true }
+aws-credential-types = { workspace = true }
+aws_lambda_events = { workspace = true, default-features = false, features = ["sqs"] }
+aws-sdk-lambda = { workspace = true, default-features = false, features = ["default-https-client", "rt-tokio"] }
+aws-sdk-sqs = { workspace = true, default-features = false, features = ["default-https-client", "rt-tokio"] }
+base64 = { workspace = true }
+futures = { workspace = true }
+hex = { workspace = true }
+hmac = { workspace = true }
+lambda_runtime = { workspace = true }
+metrics = { workspace = true }
+metrics_cloudwatch_embedded = { workspace = true, features = ["lambda"] }
+reqwest = { workspace = true, default-features = false, features = ["rustls-tls"] }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tracing = { workspace = true }
+url = { workspace = true }
+zip = { workspace = true, default-features = false, features = ["deflate"] }

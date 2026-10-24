@@ -4,4 +4,4 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
-strum.workspace = true
+strum = { workspace = true, features = ["derive"] }
