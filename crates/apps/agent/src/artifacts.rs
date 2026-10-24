@@ -14,12 +14,12 @@ use tokio::{fs, process::Command};
 use tracing::info;
 use zip::{CompressionMethod, ZipWriter, write::SimpleFileOptions};
 
-const WASM_MANIFEST: &str = "crates/runner/Cargo.toml";
+const WASM_MANIFEST: &str = "crates/compute/runner/Cargo.toml";
 const WASM_TARGET: &str = "wasm32-wasip1";
 const WASM_ARTIFACT_FILE: &str = "runner.wasm";
 const CWASM_ARTIFACT_FILE: &str = "runner.cwasm";
 const SOURCE_TARGET_DIR: &str = "target";
-const USER_GENERATED_DIR: &str = "crates/runner/src/user_generated";
+const USER_GENERATED_DIR: &str = "crates/compute/runner/src/user_generated";
 const USER_GENERATED_ARCHIVE: &str = "sources.zip";
 pub const COMPILE_OUTPUT_FILE: &str = "compile-output.txt";
 const WORKSPACE_ENTRIES: &[&str] = &[
