@@ -4,6 +4,7 @@ use crate::{
     granularity::Granularity,
     parquet_reader::ParquetReader,
     parquet_writer::writer_properties,
+    path::MarketDataPath,
     plan,
     s3::{Bucket, ObjectKey, S3},
 };
@@ -167,7 +168,7 @@ impl Compactor {
             && let Some(source_tier) = tier.source()
             && time_segments == source_tier.source_depth()
         {
-            let source_prefix = Self::replace_tier(prefix, source_tier)?;
+            let source_prefix = MarketDataPath::replace_tier(prefix, source_tier)?;
             info!(
                 "compacting {} sources for target tier {}",
                 source_tier, tier
@@ -193,7 +194,7 @@ impl Compactor {
         let subfolders_files =
             Self::subfolders_files(s3_client, bucket, prefix, suffix, deadline).await?;
         for subfolder in &subfolders_files.subfolders {
-            let subfolder_full_path = ObjectKey::new(format!("{}{}", prefix, subfolder));
+            let subfolder_full_path = MarketDataPath::join_key(prefix.as_str(), subfolder);
             deadline.fail_if_exceeded()?;
             Box::pin(Self::folder(
                 s3_client,
@@ -217,14 +218,13 @@ impl Compactor {
         deadline: Deadline,
     ) -> BpResult<()> {
         deadline.fail_if_exceeded()?;
-        let expected_files =
-            plan::Planner::expected_compaction_sources_with_suffix(prefix, suffix)?;
+        let expected_files = MarketDataPath::expected_compaction_sources(prefix, suffix)?;
         if expected_files.is_empty() {
             info!("no expected source files for {}", prefix);
             return Ok(());
         }
-        let compacted_file = plan::Planner::compacted_file_path(prefix, suffix)?;
-        let staged_file = Self::staged_file_path(&compacted_file);
+        let compacted_file = MarketDataPath::compacted_file_path(prefix, suffix)?;
+        let staged_file = MarketDataPath::staged_file_path(&compacted_file, STAGING_SUFFIX);
         if S3::has_file(s3_client, bucket, &compacted_file).await? {
             info!(
                 "{} is already compacted; deleting remaining source files",
@@ -281,26 +281,6 @@ impl Compactor {
         )
         .await?;
         Ok(())
-    }
-
-    fn replace_tier(prefix: &ObjectKey, tier: Granularity) -> BpResult<ObjectKey> {
-        let mut segments = prefix
-            .as_str()
-            .split('/')
-            .filter(|segment| !segment.is_empty())
-            .map(str::to_string)
-            .collect::<Vec<_>>();
-        let Some(segment) = segments.get_mut(5) else {
-            return Err(BpError::Data(DataError::InvalidJob {
-                message: format!("compaction prefix {prefix} must include a data feed and tier"),
-            }));
-        };
-        *segment = tier.as_str().to_string();
-        Ok(ObjectKey::new(format!("{}/", segments.join("/"))))
-    }
-
-    fn staged_file_path(compacted_file: &ObjectKey) -> ObjectKey {
-        ObjectKey::new(format!("{}{}", compacted_file, STAGING_SUFFIX))
     }
 
     async fn delete_sources(
@@ -380,7 +360,7 @@ impl Compactor {
             warn!("No data to compact");
             return Ok(());
         }
-        let staged_file = Self::staged_file_path(compacted_file);
+        let staged_file = MarketDataPath::staged_file_path(compacted_file, STAGING_SUFFIX);
         if !Self::compact(
             s3_client,
             transfer_client,

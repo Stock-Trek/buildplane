@@ -1,7 +1,8 @@
 use crate::{
     parquet_writer::writer_properties,
+    path::MarketDataPath,
     plan::Window,
-    s3::{Bucket, ObjectKey, S3},
+    s3::{Bucket, S3},
     updaters::exchange_updater::ExchangeUpdater,
 };
 use arrow_array::{ArrayRef, Decimal128Array, Int64Array, RecordBatch};
@@ -83,8 +84,7 @@ impl Ingest {
         }
         let candles_bytes = Self::candles_to_bytes(&candles, schema)
             .inspect_err(|error| MarketDataMetrics::record_ingest_error(error.error_type()))?;
-        let candles_file_path =
-            ObjectKey::new(format!("{}/{}", candles_base_path, window.file_path()));
+        let candles_file_path = MarketDataPath::window_file(candles_base_path, window.start);
         S3::upload_bytes(transfer_client, bucket, &candles_file_path, candles_bytes)
             .await
             .inspect_err(|error| MarketDataMetrics::record_ingest_error(error.error_type()))?;

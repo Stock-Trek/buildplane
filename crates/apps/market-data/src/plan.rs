@@ -1,13 +1,12 @@
 use crate::{
     constants::{PARQUET_SUFFIX, UPDATE_QUANTIZATION},
-    feed::Feed,
     granularity::Granularity,
+    path::MarketDataPath,
     quantized_time::{Quantization, QuantizedTime, TopOfHour, TopOfMonth},
     s3::ObjectKey,
-    subfolders::SubFolders,
 };
-use buildplane_errors::{BpError, BpResult, DataError};
-use chrono::{DateTime, Datelike, TimeZone, Timelike, Utc};
+use buildplane_errors::BpResult;
+use chrono::{DateTime, TimeZone, Utc};
 use std::collections::HashSet;
 
 /// A single update window that still needs to be ingested.
@@ -23,7 +22,7 @@ impl Window {
     }
 
     pub fn file_path(&self) -> String {
-        Planner::window_file_path(self.start)
+        MarketDataPath::window_file_path(self.start)
     }
 }
 
@@ -124,7 +123,7 @@ impl Planner {
             if window_end > end_time {
                 break;
             }
-            if overwrite_existing || !existing.contains(&Self::window_file_path(start)) {
+            if overwrite_existing || !existing.contains(&MarketDataPath::window_file_path(start)) {
                 plan.windows.push(Window::new(start, window_end));
             }
             start = window_end;
@@ -182,83 +181,18 @@ impl Planner {
         prefix: &ObjectKey,
         suffix: &str,
     ) -> BpResult<Vec<ObjectKey>> {
-        let expected_subfolders = SubFolders::subfolders_from_path(prefix.as_str())?;
-        let separator = if prefix.as_str().ends_with('/') {
-            ""
-        } else {
-            "/"
-        };
-        Ok(expected_subfolders
-            .iter()
-            .map(|subfolder| {
-                ObjectKey::new(format!(
-                    "{}{}{}{}",
-                    prefix,
-                    separator,
-                    subfolder.strip_suffix('/').unwrap_or(subfolder),
-                    suffix
-                ))
-            })
-            .collect())
+        MarketDataPath::expected_compaction_sources(prefix, suffix)
     }
 
     pub fn compacted_file_path(prefix: &ObjectKey, suffix: &str) -> BpResult<ObjectKey> {
-        let path = prefix.as_str().trim_end_matches('/');
-        let segments = path
-            .split('/')
-            .filter(|segment| !segment.is_empty())
-            .collect::<Vec<_>>();
-        let tier = segments
-            .get(5)
-            .and_then(|segment| Granularity::from_segment(segment))
-            .ok_or_else(|| {
-                BpError::Data(DataError::InvalidJob {
-                    message: format!("compaction path {path} must include a data tier"),
-                })
-            })?;
-        if segments
-            .get(4)
-            .and_then(|segment| Feed::from_segment(segment))
-            .is_none()
-        {
-            return Err(BpError::Data(DataError::InvalidJob {
-                message: format!("compaction path {path} must include a data feed"),
-            }));
-        }
-        let target = tier.target().ok_or_else(|| {
-            BpError::Data(DataError::InvalidJob {
-                message: format!("the {tier} tier has no compaction target"),
-            })
-        })?;
-        let mut target_path = segments[..5].join("/");
-        target_path.push('/');
-        target_path.push_str(target.as_str());
-        for segment in &segments[6..] {
-            target_path.push('/');
-            target_path.push_str(segment);
-        }
-        target_path.push_str(suffix);
-        Ok(ObjectKey::new(target_path))
-    }
-
-    fn window_file_path(start_time: DateTime<Utc>) -> String {
-        let year = start_time.year();
-        let month = start_time.month() as i32;
-        let day = start_time.day() as i32;
-        let hour = start_time.hour() as i32;
-        let minute = start_time.minute() as i32;
-        format!(
-            "{}/{}",
-            Granularity::Raw,
-            SubFolders::file_path(&[year, month, day, hour, minute], PARQUET_SUFFIX)
-        )
+        MarketDataPath::compacted_file_path(prefix, suffix)
     }
 
     fn compacted_boundary(
         existing: &HashSet<String>,
         start_time: DateTime<Utc>,
     ) -> BpResult<Option<(DateTime<Utc>, String)>> {
-        let [hour, day, month, year] = Self::compacted_file_paths(start_time);
+        let [hour, day, month, year] = MarketDataPath::compacted_file_paths(start_time);
         let (compacted_file, next_period_start) = if existing.contains(&year) {
             (year, Self::next_year(start_time)?)
         } else if existing.contains(&month) {
@@ -276,35 +210,6 @@ impl Planner {
             QuantizedTime::top_at_or_after(next_period_start, UPDATE_QUANTIZATION)?,
             compacted_file,
         )))
-    }
-
-    fn compacted_file_paths(start_time: DateTime<Utc>) -> [String; 4] {
-        let year = start_time.year();
-        let month = start_time.month() as i32;
-        let day = start_time.day() as i32;
-        let hour = start_time.hour() as i32;
-        [
-            format!(
-                "{}/{}",
-                Granularity::Hourly,
-                SubFolders::file_path(&[year, month, day, hour], PARQUET_SUFFIX)
-            ),
-            format!(
-                "{}/{}",
-                Granularity::Daily,
-                SubFolders::file_path(&[year, month, day], PARQUET_SUFFIX)
-            ),
-            format!(
-                "{}/{}",
-                Granularity::Monthly,
-                SubFolders::file_path(&[year, month], PARQUET_SUFFIX)
-            ),
-            format!(
-                "{}/{}",
-                Granularity::Yearly,
-                SubFolders::file_path(&[year], PARQUET_SUFFIX)
-            ),
-        ]
     }
 
     fn file_start_time(path: &str) -> Option<DateTime<Utc>> {
@@ -355,6 +260,7 @@ impl Planner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::constants::PARQUET_SUFFIX;
     use chrono::{DateTime, TimeZone, Utc};
 
     fn utc(year: i32, month: u32, day: u32, hour: u32, minute: u32) -> DateTime<Utc> {

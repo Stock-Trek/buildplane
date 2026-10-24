@@ -6,6 +6,7 @@ use crate::{
     granularity::Granularity,
     job::{Job, JobOutcome},
     lock::LockGuard,
+    path::MarketDataPath,
     s3::{Bucket, ObjectKey, S3},
     updater::KlinesUpdater,
 };
@@ -178,9 +179,11 @@ impl JobExecutor {
             .into_iter()
             .flat_map(|(cex_id, trading_mode, trading_pairs)| {
                 trading_pairs.into_iter().map(move |trading_pair| {
-                    format!(
-                        "{}/{}/{}/{}/",
-                        trading_mode, cex_id, trading_pair.base, trading_pair.quote
+                    MarketDataPath::trading_pair(
+                        trading_mode,
+                        cex_id,
+                        trading_pair.base,
+                        trading_pair.quote,
                     )
                 })
             })
@@ -198,7 +201,7 @@ impl JobExecutor {
                         errors.push(error);
                         break 'pairs;
                     }
-                    let prefix = ObjectKey::new(format!("{pair}{feed}/{}/", granularity.as_str()));
+                    let prefix = MarketDataPath::tier_prefix(&pair, feed, granularity);
                     match Compactor::prefix(s3_client, transfer_client, bucket, &prefix, deadline)
                         .await
                     {
