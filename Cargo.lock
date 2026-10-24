@@ -982,7 +982,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "buildplane-agent"
+name = "buildplane-build-agent"
 version = "0.2.0"
 dependencies = [
  "base64 0.23.1",
@@ -1000,6 +1000,41 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
+ "zip",
+]
+
+[[package]]
+name = "buildplane-build-orchestrator"
+version = "0.2.0"
+dependencies = [
+ "aws-config",
+ "aws-credential-types",
+ "aws-sdk-lambda",
+ "aws-sdk-sqs",
+ "aws_lambda_events",
+ "base64 0.23.1",
+ "buildplane-config",
+ "buildplane-errors",
+ "buildplane-git",
+ "buildplane-github",
+ "buildplane-messages",
+ "buildplane-metrics",
+ "buildplane-sqs",
+ "buildplane-time",
+ "futures",
+ "hex",
+ "hmac 0.13.0",
+ "lambda_runtime",
+ "metrics",
+ "metrics_cloudwatch_embedded",
+ "reqwest 0.12.28",
+ "serde_json",
+ "sha2 0.11.1",
+ "thiserror",
+ "time",
+ "tokio",
+ "tracing",
+ "url",
  "zip",
 ]
 
@@ -1103,6 +1138,43 @@ dependencies = [
 ]
 
 [[package]]
+name = "buildplane-git-webhook"
+version = "0.2.0"
+dependencies = [
+ "aws-config",
+ "aws-credential-types",
+ "aws-sdk-sqs",
+ "aws-sigv4",
+ "aws-smithy-runtime-api",
+ "base64 0.23.1",
+ "buildplane-config",
+ "buildplane-errors",
+ "buildplane-github",
+ "buildplane-messages",
+ "buildplane-metrics",
+ "buildplane-sqs",
+ "buildplane-time",
+ "hex",
+ "hmac 0.13.0",
+ "http 1.5.0",
+ "lambda_http",
+ "lru",
+ "metrics",
+ "metrics_cloudwatch_embedded",
+ "parking_lot",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.11.1",
+ "strum",
+ "subtle",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "urlencoding",
+]
+
+[[package]]
 name = "buildplane-github"
 version = "0.2.0"
 dependencies = [
@@ -1171,41 +1243,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "buildplane-orchestrator"
-version = "0.2.0"
-dependencies = [
- "aws-config",
- "aws-credential-types",
- "aws-sdk-lambda",
- "aws-sdk-sqs",
- "aws_lambda_events",
- "base64 0.23.1",
- "buildplane-config",
- "buildplane-errors",
- "buildplane-git",
- "buildplane-github",
- "buildplane-messages",
- "buildplane-metrics",
- "buildplane-sqs",
- "buildplane-time",
- "futures",
- "hex",
- "hmac 0.13.0",
- "lambda_runtime",
- "metrics",
- "metrics_cloudwatch_embedded",
- "reqwest 0.12.28",
- "serde_json",
- "sha2 0.11.1",
- "thiserror",
- "time",
- "tokio",
- "tracing",
- "url",
- "zip",
-]
-
-[[package]]
 name = "buildplane-proto-gen"
 version = "0.2.0"
 dependencies = [
@@ -1271,43 +1308,6 @@ dependencies = [
  "strum",
  "thiserror",
  "url",
-]
-
-[[package]]
-name = "buildplane-webhook"
-version = "0.2.0"
-dependencies = [
- "aws-config",
- "aws-credential-types",
- "aws-sdk-sqs",
- "aws-sigv4",
- "aws-smithy-runtime-api",
- "base64 0.23.1",
- "buildplane-config",
- "buildplane-errors",
- "buildplane-github",
- "buildplane-messages",
- "buildplane-metrics",
- "buildplane-sqs",
- "buildplane-time",
- "hex",
- "hmac 0.13.0",
- "http 1.5.0",
- "lambda_http",
- "lru",
- "metrics",
- "metrics_cloudwatch_embedded",
- "parking_lot",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "sha2 0.11.1",
- "strum",
- "subtle",
- "thiserror",
- "tokio",
- "tracing",
- "urlencoding",
 ]
 
 [[package]]

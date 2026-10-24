@@ -1,5 +1,5 @@
 [package]
-name = "buildplane-agent"
+name = "buildplane-build-agent"
 version.workspace = true
 edition.workspace = true
 

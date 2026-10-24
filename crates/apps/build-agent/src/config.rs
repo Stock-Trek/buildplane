@@ -82,7 +82,7 @@ mod tests {
 
     const REQUIRED: [(&str, &str); 9] = [
         (RUST_LOG, "info"),
-        (AWS_LAMBDA_FUNCTION_NAME, "buildplane-agent"),
+        (AWS_LAMBDA_FUNCTION_NAME, "buildplane-build-agent"),
         (BUILD_AGENT_TIMEOUT_SECS, "300"),
         (FAILURE_PUBLISH_BUDGET_SECS, "30"),
         (BUILD_AGENT_SOURCE_DIR, "/var/task"),
@@ -100,7 +100,7 @@ mod tests {
     fn parses_all_required_values() {
         let config = AgentConfig::from_vars(&vars(&REQUIRED)).unwrap();
 
-        assert_eq!(config.lambda_function_name, "buildplane-agent");
+        assert_eq!(config.lambda_function_name, "buildplane-build-agent");
         assert_eq!(config.build_timeout, Duration::from_secs(300));
         assert_eq!(config.failure_publish_budget, Duration::from_secs(30));
         assert_eq!(config.source_dir, PathBuf::from("/var/task"));
